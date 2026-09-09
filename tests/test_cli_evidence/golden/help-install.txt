@@ -1,0 +1,15 @@
+Usage: cli install [OPTIONS] TEMPLATE_REF
+
+  Install a template (shortcut for 'sbox template install').
+
+  Templates are fetched from GitHub repos — there is no central registry. Use
+  TEMPLATE_REF in the form owner/repo, owner/repo//subdir, or a local directory
+  path.
+
+Options:
+  --registry-url TEXT             Registry URL（默认 GitHub）
+  --registry-type [github|local]  Registry type (auto-detected if not specified)
+  --token TEXT                    访问令牌（私有仓库需要）
+  -a, --alias TEXT                模板别名
+  --help                          Show this message and exit.
+[exit_code:0]

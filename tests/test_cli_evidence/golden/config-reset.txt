@@ -1,0 +1,2 @@
+Configuration reset to defaults.
+[exit_code:0]

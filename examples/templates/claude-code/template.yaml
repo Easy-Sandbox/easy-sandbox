@@ -1,0 +1,62 @@
+name: claude-code
+version: "1.0.0"
+description: "Claude Code Agent 运行环境 - Anthropic Claude 驱动的 AI 编程助手"
+author: "Serverless-Sandbox"
+tags:
+  - claude
+  - anthropic
+  - ai-coding
+  - ai-agent
+
+base: ubuntu:22.04
+
+system_packages:
+  - python3.11
+  - python3.11-venv
+  - python3.11-dev
+  - git
+  - curl
+  - ripgrep
+  - build-essential
+
+python_packages:
+  - anthropic
+  - httpx
+  - rich
+
+node_packages:
+  - "@anthropic-ai/claude-code"
+
+commands:
+  - python3.11 -m venv /opt/venv
+  - /opt/venv/bin/pip install --upgrade pip
+
+capabilities:
+  - shell
+  - files
+  - code
+  - terminal
+  - ports
+
+ports:
+  - 9000
+
+custom_commands:
+  run:
+    cmd: "claude-code {task}"
+    description: "Run Claude Code agent with a task"
+    cwd: "/workspace"
+    timeout: 300
+    args:
+      - name: task
+        required: true
+        description: "Task description for Claude Code"
+
+env:
+  ANTHROPIC_API_KEY: ""
+  PATH: "/opt/venv/bin:$PATH"
+  WORKSPACE: "/workspace"
+
+resources:
+  cpu: 2
+  memory: 4096

@@ -1,0 +1,7 @@
+Usage: cli config set [OPTIONS] KEY VALUE
+
+  Set a configuration value.
+
+Options:
+  --help  Show this message and exit.
+[exit_code:0]

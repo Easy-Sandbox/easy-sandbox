@@ -1,0 +1,44 @@
+name: openclaw
+version: "1.0.0"
+description: "OpenClaw AI Agent 运行环境 - 开源 AI 编程 Agent 网关与运行时"
+author: "Serverless-Sandbox"
+tags:
+  - openclaw
+  - ai-agent
+  - ai-coding
+  - gateway
+
+base: ubuntu:22.04
+
+system_packages:
+  - git
+  - curl
+  - ca-certificates
+
+node_packages:
+  - openclaw
+
+ports:
+  - 18789
+  - 9000
+
+capabilities:
+  - shell
+  - files
+  - ports
+
+custom_commands:
+  start:
+    cmd: "openclaw start"
+    description: "Start the OpenClaw gateway server"
+    cwd: "/workspace"
+    timeout: 120
+
+env:
+  ANTHROPIC_API_KEY: ""
+  OPENAI_API_KEY: ""
+  WORKSPACE: "/workspace"
+
+resources:
+  cpu: 2
+  memory: 4096

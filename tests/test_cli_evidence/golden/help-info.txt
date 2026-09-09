@@ -1,0 +1,7 @@
+Usage: cli info [OPTIONS] SANDBOX_ID
+
+  Get sandbox information.
+
+Options:
+  --help  Show this message and exit.
+[exit_code:0]

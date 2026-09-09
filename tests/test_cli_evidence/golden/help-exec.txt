@@ -1,0 +1,9 @@
+Usage: cli exec [OPTIONS] SANDBOX_ID COMMAND
+
+  Execute a command in a sandbox.
+
+Options:
+  -t, --timeout INTEGER  Timeout in seconds
+  --cwd TEXT             Working directory (empty = container default)
+  --help                 Show this message and exit.
+[exit_code:0]

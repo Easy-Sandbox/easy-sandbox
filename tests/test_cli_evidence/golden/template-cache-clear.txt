@@ -1,0 +1,2 @@
+Cleared 0 cached item(s).
+[exit_code:0]

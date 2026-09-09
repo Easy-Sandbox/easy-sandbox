@@ -1,0 +1,120 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "serverless-sandbox"
+dynamic = ["version"]
+description = "Serverless Sandbox SDK — Create, manage, and interact with cloud sandboxes for AI agents"
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.10"
+authors = [
+    { name = "Anycodes" },
+]
+keywords = ["sandbox", "serverless", "ai", "agent", "cloud", "e2b"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+dependencies = [
+    "httpx[http2]>=0.27",
+    "websockets>=12.0",
+    "pydantic>=2.0",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+cli = [
+    "click>=8.0",
+    "rich>=13.0",
+    "pyyaml>=6.0",
+]
+mcp = [
+    "mcp>=1.0.0",
+]
+fast = [
+    "orjson>=3.9",
+]
+declarative = [
+    "cloudpickle>=3.0",
+    "msgpack>=1.0",
+    "pyyaml>=6.0",
+]
+session = [
+    "filelock>=3.12",
+]
+all = [
+    "serverless-sandbox[cli,fast,session,mcp,declarative]",
+]
+dev = [
+    "serverless-sandbox[all]",
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+    "pytest-httpx>=0.30",
+    "pytest-cov>=4.0",
+    "ruff>=0.4",
+    "mypy>=1.0",
+    "types-PyYAML>=6.0",
+]
+
+[project.scripts]
+sbox = "serverless_sandbox.cli.main:cli"
+
+[project.urls]
+Homepage = "https://github.com/Serverless-Sandbox/serverless-sandbox"
+Documentation = "https://github.com/Serverless-Sandbox/serverless-sandbox/tree/main/docs"
+Repository = "https://github.com/Serverless-Sandbox/serverless-sandbox"
+Issues = "https://github.com/Serverless-Sandbox/serverless-sandbox/issues"
+Changelog = "https://github.com/Serverless-Sandbox/serverless-sandbox/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+path = "src/serverless_sandbox/_version.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/serverless_sandbox"]
+artifacts = ["py.typed"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/serverless_sandbox/",
+    "tests/",
+    "README.md",
+    "LICENSE",
+    "NOTICE",
+    "CHANGELOG.md",
+    "pyproject.toml",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "integration: marks tests requiring real API keys (deselect with '-m \"not integration\"')",
+]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 100
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP", "B", "SIM", "TCH"]
+
+[tool.bandit]
+exclude_dirs = ["tests"]
+skips = ["B101"]  # assert 语句在测试中是正常的
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true

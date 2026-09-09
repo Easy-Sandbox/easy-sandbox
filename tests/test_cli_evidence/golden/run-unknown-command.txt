@@ -1,0 +1,4 @@
+Unknown command 'deploy'. Not found in sandbox custom commands or local @sandbox.register registry.
+[exit_code:2]
+[stderr]
+Unknown command 'deploy'. Not found in sandbox custom commands or local @sandbox.register registry.

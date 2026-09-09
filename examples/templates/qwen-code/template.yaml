@@ -1,0 +1,82 @@
+name: qwen-code
+version: "2.0.0"
+description: "通义千问编码 Agent 运行环境 - 支持 qwen-code 驱动的 AI 自主部署"
+author: "Serverless-Sandbox"
+tags:
+  - qwen
+  - qwen-code
+  - dashscope
+  - ai-coding
+  - ai-agent
+  - deploy
+
+base: ubuntu:22.04
+
+system_packages:
+  - python3.11
+  - python3.11-venv
+  - python3.11-dev
+  - nodejs
+  - git
+  - curl
+  - wget
+  - ripgrep
+  - jq
+  - build-essential
+
+node_packages:
+  - "@qwen-code/qwen-code@0.23.0"
+
+python_packages:
+  - dashscope
+  - openai>=1.0
+  - httpx
+  - rich
+
+commands:
+  - python3.11 -m venv /opt/venv
+  - /opt/venv/bin/pip install --upgrade pip
+
+capabilities:
+  - shell
+  - files
+  - code
+  - ports
+
+ports:
+  - 8080
+  - 9000
+
+custom_commands:
+  run:
+    cmd: "python3 {script}"
+    description: "Run a Python script in the Qwen Code environment"
+    cwd: "/workspace"
+    timeout: 120
+    args:
+      - name: script
+        default: "main.py"
+        description: "Python script to execute"
+  deploy:
+    cmd: "qwen -p {prompt} --yolo --output-format json --max-turns {max_turns}"
+    description: "Run qwen-code agent for NL-driven deployment"
+    cwd: "/workspace"
+    timeout: 600
+    args:
+      - name: prompt
+        required: true
+        description: "Natural-language deployment instruction"
+      - name: max_turns
+        default: "100"
+        description: "Maximum number of agent turns"
+
+env:
+  DASHSCOPE_API_KEY: ""
+  PATH: "/opt/venv/bin:$PATH"
+  WORKSPACE: "/workspace"
+  OPENAI_BASE_URL: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+  OPENAI_MODEL: "qwen3-coder-plus"
+
+resources:
+  cpu: 2
+  memory: 4096

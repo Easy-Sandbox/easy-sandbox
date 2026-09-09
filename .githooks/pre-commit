@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Git pre-commit hook (used when core.hooksPath=.githooks).
+# Runs the custom secret-scanning check.
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+cd "$PROJECT_ROOT" || exit 1
+
+# Run the secret-scanning check on staged files.
+bash .githooks/check-secrets.sh
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "⛔ Commit aborted due to sensitive information detected."
+    echo "   Please remove hardcoded secrets before committing."
+    exit 1
+fi

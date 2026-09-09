@@ -1,0 +1,14 @@
+Usage: cli create [OPTIONS] [DESCRIPTION]
+
+  Create a new sandbox.
+
+  Optionally provide a natural-language DESCRIPTION to auto-select template.
+
+Options:
+  -T, --template TEXT    Sandbox template
+  -u, --upload PATH      Local file or directory to upload after creation
+  -t, --timeout INTEGER  Timeout in seconds
+  -e, --env TEXT         传递给 Sandbox 的环境变量，格式 KEY=VALUE
+  -m, --metadata TEXT    元数据键值对，格式 KEY=VALUE
+  --help                 Show this message and exit.
+[exit_code:0]

@@ -1,0 +1,10 @@
+Usage: cli list [OPTIONS]
+
+  List sandboxes.
+
+Options:
+  -s, --status [running|stopped|creating|paused|error]
+                                  Filter by status
+  -l, --limit INTEGER             Max results
+  --help                          Show this message and exit.
+[exit_code:0]

@@ -1,0 +1,2 @@
+Killed 2/2 sandbox(es).
+[exit_code:0]

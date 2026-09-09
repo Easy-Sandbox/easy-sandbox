@@ -1,0 +1,2 @@
+<MagicMock id='4385091152'>
+[exit_code:0]

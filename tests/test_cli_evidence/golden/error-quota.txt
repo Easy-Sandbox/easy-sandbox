@@ -1,0 +1,6 @@
+[E2002] Sandbox quota exceeded
+  Suggestion: Destroy idle sandboxes or request a quota increase.
+[exit_code:6]
+[stderr]
+[E2002] Sandbox quota exceeded
+  Suggestion: Destroy idle sandboxes or request a quota increase.

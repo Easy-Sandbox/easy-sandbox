@@ -1,0 +1,6 @@
+Unknown config key: 'unknown_key'
+  Suggestion: Available keys: api_key, api_url, domain, http_timeout, llm_api_key, llm_base_url, llm_model, max_retries, region
+[exit_code:2]
+[stderr]
+Unknown config key: 'unknown_key'
+  Suggestion: Available keys: api_key, api_url, domain, http_timeout, llm_api_key, llm_base_url, llm_model, max_retries, region

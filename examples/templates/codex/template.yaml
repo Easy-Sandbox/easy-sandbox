@@ -1,0 +1,64 @@
+name: codex
+version: "1.0.0"
+description: "OpenAI Codex CLI Agent 运行环境 - 支持 AI 驱动的代码生成和执行"
+author: "Serverless-Sandbox"
+tags:
+  - codex
+  - openai
+  - ai-agent
+  - code-generation
+
+base: ubuntu:22.04
+
+system_packages:
+  - python3
+  - python3-pip
+  - python3-venv
+  - git
+  - curl
+  - wget
+  - build-essential
+  - ripgrep
+  - jq
+
+python_packages:
+  - openai>=1.0
+  - rich
+  - httpx
+
+node_packages:
+  - "@openai/codex"  # OpenAI Codex CLI (https://www.npmjs.com/package/@openai/codex)
+
+commands:
+  - python3 -m venv /opt/venv
+  - /opt/venv/bin/pip install --upgrade pip
+
+capabilities:
+  - shell
+  - files
+  - code
+  - ports
+
+ports:
+  - 9000
+
+custom_commands:
+  run:
+    cmd: "codex {prompt}"
+    description: "Run Codex CLI with a prompt"
+    cwd: "/workspace"
+    timeout: 120
+    args:
+      - name: prompt
+        required: true
+        description: "Natural language prompt for code generation"
+
+env:
+  OPENAI_API_KEY: ""
+  CODEX_SANDBOX_MODE: "true"
+  PATH: "/opt/venv/bin:$PATH"
+  WORKSPACE: "/workspace"
+
+resources:
+  cpu: 2
+  memory: 4096

@@ -1,0 +1,15 @@
+[
+  {
+    "ID": "sbx-XXXXX",
+    "Template": "python-base",
+    "Status": "running",
+    "Region": "cn-hangzhou"
+  },
+  {
+    "ID": "sbx-XXXXX",
+    "Template": "node-web",
+    "Status": "stopped",
+    "Region": "cn-shanghai"
+  }
+]
+[exit_code:0]

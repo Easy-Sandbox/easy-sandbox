@@ -1,0 +1,7 @@
+{
+  "stdout": "hello\n",
+  "stderr": "",
+  "exit_code": 0,
+  "execution_time": 0.0
+}
+[exit_code:0]

@@ -1,0 +1,12 @@
+Usage: cli mcp install [OPTIONS]
+
+  Install MCP Server configuration to a target IDE.
+
+  Generates the correct MCP config and writes it to the IDE's configuration
+  file.
+
+Options:
+  --target [cursor|claude|vscode]
+                                  Target IDE for MCP installation.  [required]
+  --help                          Show this message and exit.
+[exit_code:0]

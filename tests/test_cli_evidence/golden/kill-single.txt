@@ -1,0 +1,2 @@
+Sandbox sbx-XXXXX killed.
+[exit_code:0]

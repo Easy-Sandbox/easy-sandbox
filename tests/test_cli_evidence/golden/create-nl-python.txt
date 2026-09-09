@@ -1,0 +1,11 @@
+✓ 推断结果：
+    模板: code-interpreter
+    CPU: 2 核  |  内存: 4096 MB
+    置信度: 0.88
+→ 创建中...
+ID        sbx-XXXXX
+Status    running
+Template  code-interpreter
+URL       https://sbx-XXXXX.cn-hangzhou.e2b.fc.aliyuncs.com
+Sandbox sbx-XXXXX created successfully.
+[exit_code:0]

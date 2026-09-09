@@ -1,0 +1,19 @@
+{
+  "server": "serverless-sandbox",
+  "transport": "stdio",
+  "tools_count": 7,
+  "tools": [
+    "create_sandbox",
+    "run_code",
+    "run_command",
+    "read_file",
+    "write_file",
+    "list_files",
+    "kill_sandbox"
+  ],
+  "auth_configured": false,
+  "installed_cursor": true,
+  "installed_claude": true,
+  "installed_vscode": true
+}
+[exit_code:0]

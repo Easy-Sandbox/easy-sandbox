@@ -1,0 +1,60 @@
+name: hermes-agent
+version: "1.0.0"
+description: "Hermes Agent 运行环境 - NousResearch Hermes 系列模型驱动的 AI Agent"
+author: "Serverless-Sandbox"
+tags:
+  - hermes
+  - nousresearch
+  - ai-agent
+  - tool-calling
+
+base: ubuntu:22.04
+
+system_packages:
+  - python3.11
+  - python3.11-venv
+  - python3.11-dev
+  - git
+  - curl
+  - build-essential
+  - ripgrep
+
+python_packages:
+  - uv
+  - openai>=1.0
+  - httpx
+  - rich
+  - pyyaml
+
+commands:
+  - python3.11 -m venv /opt/venv
+  - /opt/venv/bin/pip install --upgrade pip
+
+capabilities:
+  - shell
+  - files
+  - code
+  - ports
+
+ports:
+  - 9000
+
+custom_commands:
+  run:
+    cmd: "python3 {script}"
+    description: "Run a Hermes agent script"
+    cwd: "/workspace"
+    timeout: 120
+    args:
+      - name: script
+        default: "main.py"
+        description: "Python script to execute"
+
+env:
+  OPENAI_API_KEY: ""
+  PATH: "/opt/venv/bin:$PATH"
+  WORKSPACE: "/workspace"
+
+resources:
+  cpu: 2
+  memory: 4096

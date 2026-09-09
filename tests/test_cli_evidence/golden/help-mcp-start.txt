@@ -1,0 +1,14 @@
+Usage: cli mcp start [OPTIONS]
+
+  Start MCP Server in STDIO mode.
+
+  This is typically called by the IDE, not manually. The server reads JSON-RPC
+  messages from stdin and writes responses to stdout.
+
+Options:
+  --template TEXT  Default sandbox template.
+  --api-key TEXT   API key override.
+  --api-url TEXT   API URL override.
+  --domain TEXT    Domain override.
+  --help           Show this message and exit.
+[exit_code:0]

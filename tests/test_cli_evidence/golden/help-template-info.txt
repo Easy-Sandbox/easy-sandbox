@@ -1,0 +1,7 @@
+Usage: cli template info [OPTIONS] TEMPLATE_ID
+
+  查看模板详情。
+
+Options:
+  --help  Show this message and exit.
+[exit_code:0]

@@ -1,0 +1,4 @@
+[E1000] Invalid API key
+[exit_code:3]
+[stderr]
+[E1000] Invalid API key

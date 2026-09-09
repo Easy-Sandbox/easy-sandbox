@@ -1,0 +1,57 @@
+name: node-web
+version: "1.0.0"
+description: "Node.js Web 服务运行环境 - 支持 Express、Fastify 等框架的快速开发与部署"
+author: "Serverless-Sandbox"
+tags:
+  - nodejs
+  - web
+  - express
+  - api
+  - javascript
+
+base: node:20-slim
+
+system_packages:
+  - curl
+  - wget
+  - git
+  - jq
+
+node_packages:
+  - yarn
+  - nodemon
+  - pm2
+
+ports:
+  - 3000
+  - 9000
+
+capabilities:
+  - shell
+  - files
+  - ports
+
+custom_commands:
+  dev:
+    cmd: "npm run dev"
+    description: "Start development server with hot reload"
+    cwd: "/app"
+    timeout: 120
+  build:
+    cmd: "npm run build"
+    description: "Build production bundle"
+    cwd: "/app"
+    timeout: 120
+  start:
+    cmd: "npm start"
+    description: "Start production server"
+    cwd: "/app"
+    timeout: 120
+
+env:
+  NODE_ENV: "production"
+  PORT: "3000"
+
+resources:
+  cpu: 1
+  memory: 2048

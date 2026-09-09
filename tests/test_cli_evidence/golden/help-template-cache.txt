@@ -1,0 +1,12 @@
+Usage: cli template cache [OPTIONS]
+
+  Manage the local template cache (~/.sbox/templates/).
+
+  Without flags, lists cached templates.  With --clear, removes all locally
+  cached copies.  This only affects local files — to delete a template from the
+  platform, use 'sbox template delete'.
+
+Options:
+  --clear  Clear local template cache (~/.sbox/templates/)
+  --help   Show this message and exit.
+[exit_code:0]

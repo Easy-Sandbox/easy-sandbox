@@ -1,0 +1,38 @@
+Usage: cli [OPTIONS] [COMMAND] [ARGS]...
+
+  sbox — Serverless Sandbox CLI
+
+  Create, manage, and interact with cloud sandboxes.
+
+Options:
+  -j, --json             Output as JSON
+  -q, --quiet            Minimal output
+  -v, --verbose          Verbose output
+  --no-color             Disable colored output
+  -t, --timeout INTEGER  Default timeout in seconds
+  -r, --region TEXT      Region (default: cn-hangzhou)
+  -p, --profile TEXT     [预留] Configuration profile
+  --version              Show the version and exit.
+  --help                 Show this message and exit.
+
+Commands:
+  auth      Authentication management.
+  config    Configuration management.
+  connect   Connect to a sandbox interactively (like SSH).
+  create    Create a new sandbox.
+  deploy    部署项目到 sandbox。
+  download  Download a file from the sandbox to local.
+  exec      Execute a command in a sandbox.
+  info      Get sandbox information.
+  install   Install a template (shortcut for 'sbox template install').
+  kill      Kill (destroy) a sandbox or all sandboxes.
+  list      List sandboxes.
+  mcp       MCP Server management — IDE integration.
+  run       Run a named custom command or registered command.
+  sandbox   Manage sandboxes (create, list, info, kill, exec, connect,...
+  secret    密钥管理。安全存储和注入 API Key、Token 等敏感信息。
+  session   Manage named sessions (create, resume, list, stop).
+  skill     Skills 管理。
+  template  模板管理。
+  upload    Upload a local file or directory to the sandbox.
+[exit_code:0]

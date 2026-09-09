@@ -1,0 +1,7 @@
+{
+  "stdout": "$ npm run dev -- --port 9000\n[cwd=/app timeout=30s]\n",
+  "stderr": "",
+  "exit_code": 0,
+  "execution_time": 0.0
+}
+[exit_code:0]

@@ -1,0 +1,57 @@
+name: deepseek-harness
+version: "1.0.0"
+description: "DeepSeek Agent Runtime 运行环境 - DeepSeek 模型驱动的 AI 编程 Agent"
+author: "Serverless-Sandbox"
+tags:
+  - deepseek
+  - ai-agent
+  - ai-coding
+  - code-generation
+
+base: ubuntu:22.04
+
+system_packages:
+  - python3.11
+  - python3.11-venv
+  - python3.11-dev
+  - git
+  - curl
+  - build-essential
+
+python_packages:
+  - openai>=1.0
+  - httpx
+  - rich
+
+commands:
+  - python3.11 -m venv /opt/venv
+  - /opt/venv/bin/pip install --upgrade pip
+
+capabilities:
+  - shell
+  - files
+  - code
+  - ports
+
+ports:
+  - 9000
+
+custom_commands:
+  run:
+    cmd: "python3 {script}"
+    description: "Run a Python script in the DeepSeek agent environment"
+    cwd: "/workspace"
+    timeout: 120
+    args:
+      - name: script
+        default: "main.py"
+        description: "Python script to execute"
+
+env:
+  DEEPSEEK_API_KEY: ""
+  PATH: "/opt/venv/bin:$PATH"
+  WORKSPACE: "/workspace"
+
+resources:
+  cpu: 2
+  memory: 4096

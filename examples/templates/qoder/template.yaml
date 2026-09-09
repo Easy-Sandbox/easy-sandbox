@@ -1,0 +1,63 @@
+name: qoder
+version: "1.0.0"
+description: "Qoder AI 编程助手运行环境 - 集成 Python 与 Node.js 的智能开发沙箱"
+author: "Serverless-Sandbox"
+tags:
+  - qoder
+  - ai-coding
+  - ai-agent
+  - development
+
+base: ubuntu:22.04
+
+system_packages:
+  - python3.11
+  - python3.11-venv
+  - python3.11-dev
+  - git
+  - curl
+  - wget
+  - ripgrep
+  - jq
+  - build-essential
+  - openssh-client
+  - ca-certificates
+
+python_packages:
+  - httpx
+  - rich
+  - pyyaml
+
+commands:
+  - python3.11 -m venv /opt/venv
+  - /opt/venv/bin/pip install --upgrade pip
+
+capabilities:
+  - shell
+  - files
+  - code
+  - terminal
+  - ports
+
+ports:
+  - 9000
+
+custom_commands:
+  run:
+    cmd: "python3 {script}"
+    description: "Run a Python script in the Qoder environment"
+    cwd: "/workspace"
+    timeout: 120
+    args:
+      - name: script
+        default: "main.py"
+        description: "Python script to execute"
+
+env:
+  E2B_API_KEY: ""
+  PATH: "/opt/venv/bin:$PATH"
+  WORKSPACE: "/workspace"
+
+resources:
+  cpu: 2
+  memory: 4096

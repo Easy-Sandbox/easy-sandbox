@@ -1,0 +1,2 @@
+Set region = cn-shanghai
+[exit_code:0]

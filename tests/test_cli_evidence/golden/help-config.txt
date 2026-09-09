@@ -1,0 +1,13 @@
+Usage: cli config [OPTIONS] COMMAND [ARGS]...
+
+  Configuration management.
+
+Options:
+  --help  Show this message and exit.
+
+Commands:
+  get    Get a configuration value.
+  list   List all configuration values.
+  reset  Reset configuration to defaults.
+  set    Set a configuration value.
+[exit_code:0]

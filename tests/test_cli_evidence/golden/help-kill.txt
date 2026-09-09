@@ -1,0 +1,9 @@
+Usage: cli kill [OPTIONS] [SANDBOX_ID]
+
+  Kill (destroy) a sandbox or all sandboxes.
+
+Options:
+  --all      Kill all running sandboxes
+  -y, --yes  Skip confirmation
+  --help     Show this message and exit.
+[exit_code:0]

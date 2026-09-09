@@ -1,0 +1,12 @@
+Usage: cli mcp [OPTIONS] COMMAND [ARGS]...
+
+  MCP Server management — IDE integration.
+
+Options:
+  --help  Show this message and exit.
+
+Commands:
+  install  Install MCP Server configuration to a target IDE.
+  start    Start MCP Server in STDIO mode.
+  status   Show MCP Server status and configuration.
+[exit_code:0]

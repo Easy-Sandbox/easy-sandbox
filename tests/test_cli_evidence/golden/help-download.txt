@@ -1,0 +1,13 @@
+Usage: cli download [OPTIONS] SANDBOX_ID REMOTE_PATH LOCAL_PATH
+
+  Download a file from the sandbox to local.
+
+  Examples:
+
+      sbox download abc123 /app/result.csv ./result.csv
+
+      sbox download abc123 /app/output.log .
+
+Options:
+  --help  Show this message and exit.
+[exit_code:0]

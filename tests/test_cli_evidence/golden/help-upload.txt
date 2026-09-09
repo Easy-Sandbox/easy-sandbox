@@ -1,0 +1,13 @@
+Usage: cli upload [OPTIONS] SANDBOX_ID LOCAL_PATH REMOTE_PATH
+
+  Upload a local file or directory to the sandbox.
+
+  Examples:
+
+      sbox upload abc123 ./script.py /app/script.py
+
+      sbox upload abc123 ./data/ /app/data/
+
+Options:
+  --help  Show this message and exit.
+[exit_code:0]

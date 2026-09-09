@@ -1,0 +1,12 @@
+Usage: cli template list [OPTIONS]
+
+  List your custom templates on the platform.
+
+  Shows templates you have built or installed on the platform via 'sbox template
+  build' or 'sbox template install'.  This does NOT query a central registry.
+  To discover community templates, visit GitHub and install with 'sbox template
+  install <owner/repo>'.
+
+Options:
+  --help  Show this message and exit.
+[exit_code:0]

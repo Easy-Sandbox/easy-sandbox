@@ -1,0 +1,70 @@
+# Serverless Sandbox
+
+> Python SDK and CLI (`sbox`) for the Alibaba Cloud FC Agent Sandbox service.
+> E2B-protocol compatible with Alibaba Cloud extensions (OSS, VPC, custom domains).
+
+## Purpose
+
+Serverless Sandbox lets AI agents and developers create, manage, and interact
+with secure cloud sandboxes. It provides isolated execution environments for
+running untrusted code, file operations, and shell commands — designed for
+LLM tool-use and agentic workflows.
+
+## Architecture
+
+Six-layer architecture (lower layers never import upper layers):
+
+- L1 Transport & Auth: HTTP/2 connection pooling, WebSocket, API Key / AK-SK auth
+- L2 Core Protocol: E2B-compatible protocol (REST + WebSocket), sandbox lifecycle, filesystem, process, terminal, port
+- L3 Extensions: Alibaba Cloud ecosystem — OSS mounts, VPC networking, custom domains
+- L4 High-Level API: Sandbox class, SandboxPool, file ops, code execution, network helpers
+- L5 Declarative API: @sandbox decorator for automatic remote execution with serialisation
+- L6 Agent Integration: MCP tool server, built-in agent harnesses, framework adapters
+
+## Key APIs
+
+### SDK (Python, async-first)
+
+```python
+from serverless_sandbox import Sandbox
+
+async with await Sandbox.create(template="python-base") as sb:
+    result = await sb.run_code("print('hello')")     # code execution
+    await sb.filesystem.write("/tmp/f.txt", b"data")  # file I/O
+    proc = await sb.commands.run("ls /tmp")            # shell command
+```
+
+### CLI
+
+```
+sbox create --template python-base   # create sandbox
+sbox exec <id> "echo hello"          # run command
+sbox upload <id> ./local /remote     # file transfer
+sbox mcp serve                       # start MCP server
+sbox kill <id>                       # destroy sandbox
+```
+
+## Source Layout
+
+- src/serverless_sandbox/transport/ — HTTP, WebSocket, auth, codec
+- src/serverless_sandbox/protocol/ — sandbox lifecycle, filesystem, process, terminal
+- src/serverless_sandbox/models/ — Pydantic data models, error hierarchy
+- src/serverless_sandbox/api/ — Sandbox class, file/code/command/network/pool APIs
+- src/serverless_sandbox/cli/ — Click-based CLI commands and formatters
+- src/serverless_sandbox/agent/ — MCP server, built-in agents, tool definitions
+- src/serverless_sandbox/compat/ — E2B drop-in compatibility layer
+- src/serverless_sandbox/declarative/ — @sandbox decorator
+- src/serverless_sandbox/extensions/ — OSS, VPC, domain extensions
+- src/serverless_sandbox/integrations/ — LangChain, CrewAI, AutoGen adapters
+
+## Links
+
+- README: README.md
+- Design docs: docs/design/
+- Architecture: docs/design/architecture.md
+- SDK API design: docs/design/sdk-api-design.md
+- CLI design: docs/design/cli-design.md
+- Template system: docs/design/template-system.md
+- MCP server: docs/design/mcp-server.md
+- Contributing: .github/CONTRIBUTING.md
+- Changelog: CHANGELOG.md

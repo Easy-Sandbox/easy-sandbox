@@ -1,0 +1,28 @@
+name: 📦 Template Request
+description: Request a new sandbox template
+title: "[Template]: "
+labels: ["template"]
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: Template Description
+      description: What should this template include?
+    validations:
+      required: true
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Use Case
+      description: What would you use this template for?
+    validations:
+      required: true
+  - type: textarea
+    id: packages
+    attributes:
+      label: Required Packages
+      description: List the key packages/tools this template needs
+      placeholder: |
+        - Python 3.11
+        - numpy, pandas
+        - ...

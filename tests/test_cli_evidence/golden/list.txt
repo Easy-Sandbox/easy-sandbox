@@ -1,0 +1,7 @@
+┏━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━┓
+┃ ID           ┃ Template    ┃ Status  ┃ Region      ┃
+┡━━━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━━━━━┩
+│ sbx-XXXXX │ python-base │ running │ cn-hangzhou │
+│ sbx-XXXXX │ node-web    │ stopped │ cn-shanghai │
+└──────────────┴─────────────┴─────────┴─────────────┘
+[exit_code:0]

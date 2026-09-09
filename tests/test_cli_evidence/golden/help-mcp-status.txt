@@ -1,0 +1,7 @@
+Usage: cli mcp status [OPTIONS]
+
+  Show MCP Server status and configuration.
+
+Options:
+  --help  Show this message and exit.
+[exit_code:0]

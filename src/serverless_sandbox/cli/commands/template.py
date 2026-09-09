@@ -1,0 +1,542 @@
+"""模板管理 CLI 命令。"""
+from __future__ import annotations
+
+import sys
+from typing import Any
+
+import click
+
+from serverless_sandbox.cli.formatters import get_formatter
+from serverless_sandbox.cli.main import handle_errors
+
+
+@click.group()
+def template() -> None:
+    """模板管理。"""
+
+
+@template.command("install")
+@click.argument("template_ref")
+@click.option(
+    "--registry-url",
+    default="https://github.com",
+    help="Registry URL（默认 GitHub）",
+)
+@click.option(
+    "--registry-type",
+    type=click.Choice(["github", "local"]),
+    default=None,
+    help="Registry type (auto-detected if not specified)",
+)
+@click.option("--token", default=None, help="访问令牌（私有仓库需要）")
+@click.option("--alias", "-a", default=None, help="模板别名")
+@click.pass_context
+@handle_errors
+def install(
+    ctx: click.Context,
+    template_ref: str,
+    registry_url: str,
+    registry_type: str | None,
+    token: str | None,
+    alias: str | None,
+) -> None:
+    """Install a template from GitHub or a local directory.
+
+    There is no central template registry.  Templates are sourced from
+    GitHub repos (downloaded from the latest Release) or local directories.
+
+    示例：\n
+      sbox template install owner/repo              # GitHub repo (latest release)\n
+      sbox template install owner/repo//subdir      # Subdirectory of a repo\n
+      sbox template install owner/repo//subdir@v1.0 # Subdirectory + tag\n
+      sbox template install owner/repo@v1.0         # Specific release tag\n
+      sbox template install owner/repo --token xxx  # Private repo\n
+      sbox template install ./my-template           # Local directory\n
+      sbox template install /path/to/tmpl --registry-type local
+    """
+    from serverless_sandbox.utils.async_bridge import run_sync
+    from serverless_sandbox.utils.registry import RegistryClient, load_template_from_yaml
+
+    fmt = get_formatter(ctx)
+
+    client = RegistryClient(registry_url=registry_url, token=token)
+    ref = run_sync(client.resolve(template_ref, registry_type=registry_type))
+
+    if ref.is_builtin:
+        fmt.print_success(
+            f"'{template_ref}' is a built-in template. No installation needed."
+        )
+        fmt.print_success(
+            f"Use it directly: sbox create --template {template_ref}"
+        )
+        return
+
+    # 拉取模板（本地或 GitHub）
+    if ref.registry_type == "local":
+        fmt.print_success(f"Using local template from {ref.local_path}...")
+    else:
+        fmt.print_success(f"Fetching template from {ref.owner}/{ref.repo}...")
+    template_path = run_sync(client.fetch(ref))
+
+    # 加载 template.yaml（或 sandbox-template.yaml / sandbox.yaml 向后兼容）
+    yaml_path = template_path / "template.yaml"
+    if not yaml_path.exists():
+        alt = template_path / "sandbox-template.yaml"
+        if alt.exists():
+            yaml_path = alt
+        else:
+            alt2 = template_path / "sandbox.yaml"
+            if alt2.exists():
+                yaml_path = alt2
+            else:
+                fmt.print_error(
+                    f"No template.yaml (or sandbox-template.yaml / sandbox.yaml) found in {template_path}",
+                    suggestion=(
+                        "Ensure the repository contains a template.yaml"
+                        " at the root."
+                    ),
+                )
+                sys.exit(1)
+
+    tmpl = load_template_from_yaml(yaml_path)
+    dockerfile = tmpl.to_dockerfile()
+
+    # 调用 Platform API 构建模板
+    from serverless_sandbox.transport.config import load_config
+    from serverless_sandbox.transport.auth import create_auth_provider
+    from serverless_sandbox.transport.http import HttpClient
+
+    config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
+    auth = create_auth_provider(
+        api_key=config.api_key,
+        access_key_id=config.access_key_id,
+        access_key_secret=config.access_key_secret,
+    )
+    http_client = HttpClient(config, auth)
+
+    build_alias = alias or tmpl.name
+    body = {"dockerfile": dockerfile}
+    if build_alias:
+        body["alias"] = build_alias
+
+    async def _submit_and_close():
+        resp = await http_client.platform_request("POST", "/templates", json=body)
+        await http_client.close()
+        return resp.json()
+
+    result = run_sync(_submit_and_close())
+
+    data = {
+        "TemplateID": result.get("templateID", "N/A"),
+        "BuildID": result.get("buildID", "N/A"),
+        "Alias": build_alias or "N/A",
+        "Status": "building",
+    }
+    if fmt.use_json:
+        fmt.print_data(data)
+    else:
+        fmt.print_dict(data)
+        fmt.print_success("Template build submitted. Use 'sbox template list' to check status.")
+
+
+@template.command("list")
+@click.pass_context
+@handle_errors
+def list_templates(ctx: click.Context) -> None:
+    """List your custom templates on the platform.
+
+    Shows templates you have built or installed on the platform via
+    'sbox template build' or 'sbox template install'.  This does NOT
+    query a central registry.  To discover community templates, visit
+    GitHub and install with 'sbox template install <owner/repo>'.
+    """
+    from serverless_sandbox.transport.config import load_config
+    from serverless_sandbox.transport.auth import create_auth_provider
+    from serverless_sandbox.transport.http import HttpClient
+    from serverless_sandbox.utils.async_bridge import run_sync
+
+    fmt = get_formatter(ctx)
+
+    config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
+    auth = create_auth_provider(
+        api_key=config.api_key,
+        access_key_id=config.access_key_id,
+        access_key_secret=config.access_key_secret,
+    )
+    http_client = HttpClient(config, auth)
+
+    async def _list_and_close():
+        resp = await http_client.platform_request("GET", "/templates")
+        await http_client.close()
+        return resp.json()
+
+    templates = run_sync(_list_and_close())
+
+    if not templates:
+        fmt.print_success(
+            "No custom templates found. "
+            "Use 'sbox template install <repo>' to install from GitHub."
+        )
+        return
+
+    if isinstance(templates, list):
+        headers = ["TemplateID", "Alias", "Status"]
+        rows = [
+            [
+                t.get("templateID", "N/A"),
+                t.get("alias", "N/A"),
+                t.get("status", "N/A"),
+            ]
+            for t in templates
+        ]
+        fmt.print_table(headers, rows)
+    else:
+        fmt.print_data(templates)
+
+
+@template.command("info")
+@click.argument("template_id")
+@click.pass_context
+@handle_errors
+def info(ctx: click.Context, template_id: str) -> None:
+    """查看模板详情。"""
+    from serverless_sandbox.transport.config import load_config
+    from serverless_sandbox.transport.auth import create_auth_provider
+    from serverless_sandbox.transport.http import HttpClient
+    from serverless_sandbox.utils.async_bridge import run_sync
+
+    fmt = get_formatter(ctx)
+
+    config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
+    auth = create_auth_provider(
+        api_key=config.api_key,
+        access_key_id=config.access_key_id,
+        access_key_secret=config.access_key_secret,
+    )
+    http_client = HttpClient(config, auth)
+
+    async def _info_and_close():
+        resp = await http_client.platform_request("GET", f"/templates/{template_id}")
+        await http_client.close()
+        return resp.json()
+
+    data = run_sync(_info_and_close())
+
+    fmt.print_data(data)
+
+
+@template.command("build")
+@click.option("--dockerfile", "-f", required=True, type=click.Path(exists=True))
+@click.option("--alias", "-a", default=None, help="模板别名")
+@click.pass_context
+@handle_errors
+def build(ctx: click.Context, dockerfile: str, alias: str | None) -> None:
+    """从 Dockerfile 构建模板（旧 API，已知后端不再支持实际构建）。"""
+    from serverless_sandbox.transport.config import load_config
+    from serverless_sandbox.transport.auth import create_auth_provider
+    from serverless_sandbox.transport.http import HttpClient
+    from serverless_sandbox.utils.async_bridge import run_sync
+
+    fmt = get_formatter(ctx)
+
+    with open(dockerfile) as f:
+        dockerfile_content = f.read()
+
+    config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
+    auth = create_auth_provider(
+        api_key=config.api_key,
+        access_key_id=config.access_key_id,
+        access_key_secret=config.access_key_secret,
+    )
+    http_client = HttpClient(config, auth)
+
+    body: dict[str, str] = {"dockerfile": dockerfile_content}
+    if alias:
+        body["alias"] = alias
+
+    async def _build_and_close():
+        resp = await http_client.platform_request("POST", "/templates", json=body)
+        await http_client.close()
+        return resp.json()
+
+    result = run_sync(_build_and_close())
+
+    data = {
+        "TemplateID": result.get("templateID", "N/A"),
+        "BuildID": result.get("buildID", "N/A"),
+        "Alias": alias or "N/A",
+        "Status": "building",
+    }
+    if fmt.use_json:
+        fmt.print_data(data)
+    else:
+        fmt.print_dict(data)
+        fmt.print_success("Template build submitted.")
+
+
+@template.command("build-local")
+@click.argument("template_dir", type=click.Path(exists=True))
+@click.option("--acr-registry", envvar="ACR_REGISTRY",
+              default="registry.cn-hangzhou.aliyuncs.com",
+              help="ACR registry host")
+@click.option("--acr-namespace", envvar="ACR_NAMESPACE", required=True,
+              help="ACR namespace")
+@click.option("--acr-repo", envvar="ACR_REPO", default=None,
+              help="ACR repository name (defaults to template dir name)")
+@click.option("--acr-username", envvar="ACR_USERNAME", default=None,
+              help="ACR login username (defaults to AccessKey from .env)")
+@click.option("--acr-password", envvar="ACR_PASSWORD", default=None,
+              help="ACR login password (defaults to AccessSecret from .env)")
+@click.option("--acree-instance-id", envvar="ACREE_INSTANCE_ID", default="",
+              help="ACR EE instance ID (cri-...)")
+@click.option("--vpc-id", envvar="ACR_VPC_ID", default="",
+              help="VPC ID for ACR EE")
+@click.option("--vswitch-ids", envvar="ACR_VSWITCH_IDS", default="",
+              help="Comma-separated VSwitch IDs")
+@click.option("--security-group-id", envvar="ACR_SECURITY_GROUP_ID", default="",
+              help="Security group ID")
+@click.option("--alias", "-a", default=None, help="模板别名")
+@click.option("--tag", "-t", default="latest", help="Docker image tag")
+@click.option("--platform", default="linux/amd64", help="Target platform")
+@click.option("--cpu", type=int, default=2, help="CPU cores for template")
+@click.option("--memory", type=int, default=2048, help="Memory in MB")
+@click.option("--start-cmd", default=None, help="Container start command")
+@click.option("--timeout", type=int, default=600, help="Build timeout in seconds")
+@click.option("--dockerfile", "-f", default=None, type=click.Path(exists=True),
+              help="Custom Dockerfile path")
+@click.pass_context
+@handle_errors
+def build_local(
+    ctx: click.Context,
+    template_dir: str,
+    acr_registry: str,
+    acr_namespace: str,
+    acr_repo: str | None,
+    acr_username: str | None,
+    acr_password: str | None,
+    acree_instance_id: str,
+    vpc_id: str,
+    vswitch_ids: str,
+    security_group_id: str,
+    alias: str | None,
+    tag: str,
+    platform: str,
+    cpu: int,
+    memory: int,
+    start_cmd: str | None,
+    timeout: int,
+    dockerfile: str | None,
+) -> None:
+    """Build Docker image locally, push to ACR, and create a sandbox template.
+
+    Full chain: local docker build → ACR push → v3/v2 API template creation.
+
+    Requires Docker daemon running and ACR credentials.
+    For custom template builds, ACR Enterprise Edition (EE) is required by
+    the FC sandbox platform.
+
+    示例：\n
+      sbox template build-local ./examples/templates/python-hello \\
+        --acr-namespace my-ns --acr-repo python-hello\n
+      sbox template build-local ./my-template \\
+        --acr-namespace prod --acree-instance-id cri-xxx
+    """
+    from pathlib import Path
+    from serverless_sandbox.api.docker_builder import ACRConfig, DockerBuilder
+    from serverless_sandbox.transport.config import load_config
+    from serverless_sandbox.utils.async_bridge import run_sync
+
+    fmt = get_formatter(ctx)
+    config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
+
+    # Resolve defaults from config/.env
+    resolved_username = acr_username or config.access_key_id or ""
+    resolved_password = acr_password or config.access_key_secret or ""
+    resolved_repo = acr_repo or Path(template_dir).resolve().name
+
+    if not resolved_username or not resolved_password:
+        fmt.print_error(
+            "ACR credentials missing.",
+            suggestion="Set --acr-username/--acr-password or "
+            "ALICLOUD_ACCESS_KEY_ID/ALICLOUD_ACCESS_KEY_SECRET in .env",
+        )
+        sys.exit(1)
+
+    acr = ACRConfig(
+        registry=acr_registry,
+        namespace=acr_namespace,
+        repo=resolved_repo,
+        username=resolved_username,
+        password=resolved_password,
+        acree_instance_id=acree_instance_id,
+        vpc_id=vpc_id,
+        vswitch_ids=vswitch_ids,
+        security_group_id=security_group_id,
+    )
+
+    builder = DockerBuilder()
+    template_name = alias or resolved_repo
+
+    def on_progress(msg: str) -> None:
+        fmt.print_success(msg)
+
+    result = run_sync(
+        builder.build_and_register(
+            template_dir=template_dir,
+            acr=acr,
+            name=template_name,
+            tag=tag,
+            platform=platform,
+            dockerfile=dockerfile,
+            cpu_count=cpu,
+            memory_mb=memory,
+            start_cmd=start_cmd,
+            on_progress=on_progress,
+            api_key=config.api_key,
+            api_url=config.api_url,
+            access_key_id=config.access_key_id,
+            access_key_secret=config.access_key_secret,
+            timeout=timeout,
+        )
+    )
+
+    data = {
+        "TemplateID": result.template_id or "N/A",
+        "BuildID": result.build_id or "N/A",
+        "ACR Image": result.acr_ref or "N/A",
+        "Status": result.build_status,
+    }
+    if fmt.use_json:
+        fmt.print_data(data)
+    else:
+        fmt.print_dict(data)
+        if result.build_status == "ready":
+            fmt.print_success("Template built and ready!")
+            fmt.print_success(
+                f"Use: sbox create --template {result.template_id}"
+            )
+        elif result.build_status == "pushed":
+            fmt.print_success("Image pushed to ACR, but template build pending.")
+        else:
+            fmt.print_error(f"Build status: {result.build_status}")
+            if result.logs:
+                for log in result.logs:
+                    click.echo(f"  {log}")
+
+
+@template.command("delete")
+@click.argument("template_id")
+@click.confirmation_option(prompt="确认删除模板？")
+@click.pass_context
+@handle_errors
+def delete(ctx: click.Context, template_id: str) -> None:
+    """Delete a custom template from the platform.
+
+    Removes the template identified by TEMPLATE_ID from the remote
+    platform.  This does NOT affect the local cache — use
+    'sbox template cache --clear' to clean local copies.
+    """
+    from serverless_sandbox.transport.config import load_config
+    from serverless_sandbox.transport.auth import create_auth_provider
+    from serverless_sandbox.transport.http import HttpClient
+    from serverless_sandbox.utils.async_bridge import run_sync
+
+    fmt = get_formatter(ctx)
+
+    config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
+    auth = create_auth_provider(
+        api_key=config.api_key,
+        access_key_id=config.access_key_id,
+        access_key_secret=config.access_key_secret,
+    )
+    http_client = HttpClient(config, auth)
+
+    async def _delete_and_close():
+        await http_client.platform_request("DELETE", f"/templates/{template_id}")
+        await http_client.close()
+
+    run_sync(_delete_and_close())
+
+    fmt.print_success(f"Template {template_id} deleted.")
+
+
+@template.command("cache")
+@click.option("--clear", is_flag=True, help="Clear local template cache (~/.sbox/templates/)")
+def cache(clear: bool) -> None:
+    """Manage the local template cache (~/.sbox/templates/).
+
+    Without flags, lists cached templates.  With --clear, removes all
+    locally cached copies.  This only affects local files — to delete
+    a template from the platform, use 'sbox template delete'.
+    """
+    from serverless_sandbox.utils.registry import RegistryClient, TEMPLATE_CACHE_DIR
+
+    client = RegistryClient()
+    if clear:
+        count = client.clear_cache()
+        click.echo(f"Cleared {count} cached item(s).")
+    else:
+        if TEMPLATE_CACHE_DIR.exists():
+            items = list(TEMPLATE_CACHE_DIR.rglob("template.yaml"))
+            items.extend(
+                p for p in TEMPLATE_CACHE_DIR.rglob("sandbox-template.yaml")
+                if not (p.parent / "template.yaml").exists()
+            )
+            items.extend(
+                p for p in TEMPLATE_CACHE_DIR.rglob("sandbox.yaml")
+                if not (p.parent / "template.yaml").exists()
+                and not (p.parent / "sandbox-template.yaml").exists()
+            )
+            if items:
+                click.echo(f"Cached templates ({len(items)}):")
+                for item in items:
+                    click.echo(f"  {item.parent.relative_to(TEMPLATE_CACHE_DIR)}")
+            else:
+                click.echo("No templates cached.")
+        else:
+            click.echo("No templates cached.")
+
+
+# ---------------------------------------------------------------------------
+# Top-level shortcut: sbox install <ref>
+# ---------------------------------------------------------------------------
+
+@click.command("install")
+@click.argument("template_ref")
+@click.option(
+    "--registry-url",
+    default="https://github.com",
+    help="Registry URL（默认 GitHub）",
+)
+@click.option(
+    "--registry-type",
+    type=click.Choice(["github", "local"]),
+    default=None,
+    help="Registry type (auto-detected if not specified)",
+)
+@click.option("--token", default=None, help="访问令牌（私有仓库需要）")
+@click.option("--alias", "-a", default=None, help="模板别名")
+@click.pass_context
+@handle_errors
+def install_shortcut(
+    ctx: click.Context,
+    template_ref: str,
+    registry_url: str,
+    registry_type: str | None,
+    token: str | None,
+    alias: str | None,
+) -> None:
+    """Install a template (shortcut for 'sbox template install').
+
+    Templates are fetched from GitHub repos — there is no central registry.
+    Use TEMPLATE_REF in the form owner/repo, owner/repo//subdir, or a
+    local directory path.
+    """
+    ctx.invoke(
+        install,
+        template_ref=template_ref,
+        registry_url=registry_url,
+        registry_type=registry_type,
+        token=token,
+        alias=alias,
+    )

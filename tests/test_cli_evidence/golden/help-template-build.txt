@@ -1,0 +1,9 @@
+Usage: cli template build [OPTIONS]
+
+  从 Dockerfile 构建模板（旧 API，已知后端不再支持实际构建）。
+
+Options:
+  -f, --dockerfile PATH  [required]
+  -a, --alias TEXT       模板别名
+  --help                 Show this message and exit.
+[exit_code:0]

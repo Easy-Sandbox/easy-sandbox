@@ -1,0 +1,30 @@
+Usage: cli template install [OPTIONS] TEMPLATE_REF
+
+  Install a template from GitHub or a local directory.
+
+  There is no central template registry.  Templates are sourced from GitHub
+  repos (downloaded from the latest Release) or local directories.
+
+  示例：
+
+    sbox template install owner/repo              # GitHub repo (latest release)
+
+    sbox template install owner/repo//subdir      # Subdirectory of a repo
+
+    sbox template install owner/repo//subdir@v1.0 # Subdirectory + tag
+
+    sbox template install owner/repo@v1.0         # Specific release tag
+
+    sbox template install owner/repo --token xxx  # Private repo
+
+    sbox template install ./my-template           # Local directory
+
+    sbox template install /path/to/tmpl --registry-type local
+
+Options:
+  --registry-url TEXT             Registry URL（默认 GitHub）
+  --registry-type [github|local]  Registry type (auto-detected if not specified)
+  --token TEXT                    访问令牌（私有仓库需要）
+  -a, --alias TEXT                模板别名
+  --help                          Show this message and exit.
+[exit_code:0]

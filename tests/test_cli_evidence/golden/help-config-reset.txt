@@ -1,0 +1,8 @@
+Usage: cli config reset [OPTIONS]
+
+  Reset configuration to defaults.
+
+Options:
+  -y, --yes  Skip confirmation
+  --help     Show this message and exit.
+[exit_code:0]

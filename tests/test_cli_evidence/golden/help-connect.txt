@@ -1,0 +1,7 @@
+Usage: cli connect [OPTIONS] SANDBOX_ID
+
+  Connect to a sandbox interactively (like SSH).
+
+Options:
+  --help  Show this message and exit.
+[exit_code:0]

@@ -1,0 +1,2 @@
+Uploaded 2 files from /TMPPATH -> /app/data/
+[exit_code:0]

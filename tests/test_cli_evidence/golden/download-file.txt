@@ -1,0 +1,2 @@
+Downloaded /app/result.csv -> /TMPPATH
+[exit_code:0]

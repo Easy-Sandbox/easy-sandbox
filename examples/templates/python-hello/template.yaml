@@ -1,0 +1,46 @@
+name: python-hello
+version: "1.0.0"
+description: "A minimal Python hello world template for testing"
+author: "Serverless-Sandbox"
+tags:
+  - python
+  - hello-world
+  - example
+
+base: ubuntu:22.04
+
+system_packages:
+  - python3
+  - python3-pip
+
+capabilities:
+  - shell
+  - files
+  - code
+  - ports
+
+ports:
+  - 9000
+
+custom_commands:
+  run:
+    cmd: "python3 {file}"
+    description: "Run a Python script"
+    cwd: "/app"
+    timeout: 60
+    args:
+      - name: file
+        default: "main.py"
+        description: "Python file to execute"
+  test:
+    cmd: "python3 -m pytest {path}"
+    description: "Run tests with pytest"
+    cwd: "/app"
+    timeout: 120
+    args:
+      - name: path
+        default: "."
+        description: "Test path or file"
+
+env:
+  LANG: C.UTF-8
