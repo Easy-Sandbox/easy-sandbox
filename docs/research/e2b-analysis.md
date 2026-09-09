@@ -95,7 +95,7 @@ export E2B_API_KEY="e2b_xxxxxxxxxxxxxxxxxxxxx"
 export E2B_API_URL="https://agent-sandbox.{region}.fc.aliyuncs.com"
 
 # 数据面域名后缀（阿里云必需，原版 E2B 不需要）
-export E2B_DOMAIN="{region}.agent-sandbox.fc.alibaba-inc.com"
+export E2B_DOMAIN="{region}.e2b.fc.aliyuncs.com"
 ```
 
 **认证流程：**

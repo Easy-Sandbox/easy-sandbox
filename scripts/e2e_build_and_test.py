@@ -303,10 +303,62 @@ async def phase2_server_test(template_id: str) -> None:
         return
 
     try:
-        # 2.2: Wait for server to start (CMD in Dockerfile starts commands.py)
-        print("\n[2.2] Waiting for server to start...", flush=True)
-        await asyncio.sleep(8)
-        report("server_startup", "PASS")
+        # 2.2: Start server inside the sandbox.
+        # FC custom-image runtime does NOT execute the container CMD.
+        # envd takes over as PID 1, so we must start our server manually.
+        print("\n[2.2] Starting server inside sandbox via envd shell...", flush=True)
+
+        # Quick check: is anything listening on port 9000?
+        try:
+            diag = await sandbox.commands.run("python3 -c \"import socket; s=socket.socket(); s.settimeout(1); err=s.connect_ex(('127.0.0.1',9000)); print('port9000=open' if err==0 else f'port9000=closed({err})'); s.close()\"")
+            print(f"    Port check: {diag.stdout.strip()}", flush=True)
+        except Exception as exc:
+            print(f"    Port check failed: {exc}", flush=True)
+
+        # Start the server in the background
+        try:
+            start_result = await sandbox.commands.run(
+                'nohup python3 /app/commands.py > /tmp/server.log 2>&1 & echo "PID=$!"'
+            )
+            print(f"    Start server: exit={start_result.exit_code} out={start_result.stdout.strip()!r}", flush=True)
+        except Exception as exc:
+            print(f"    Start server failed: {exc}", flush=True)
+            report("server_startup", "FAIL", error=str(exc))
+
+        # Wait for server to become ready
+        server_ready = False
+        for attempt in range(10):
+            await asyncio.sleep(2)
+            try:
+                check = await sandbox.commands.run("python3 -c \"import socket; s=socket.socket(); s.settimeout(1); err=s.connect_ex(('127.0.0.1',9000)); print('open' if err==0 else 'closed'); s.close()\"")
+                if 'open' in check.stdout:
+                    server_ready = True
+                    print(f"    Server ready after {(attempt+1)*2}s", flush=True)
+                    break
+                print(f"    Port 9000 not ready yet ({(attempt+1)*2}s)...", flush=True)
+            except Exception:
+                print(f"    Port check error ({(attempt+1)*2}s)...", flush=True)
+
+        if server_ready:
+            report("server_startup", "PASS")
+        else:
+            # Print server log for debugging
+            try:
+                log_result = await sandbox.commands.run("cat /tmp/server.log 2>&1 || true")
+                print(f"    Server log: {log_result.stdout[:500]}", flush=True)
+            except Exception:
+                pass
+            report("server_startup", "FAIL", error="Server did not start within 20s")
+
+        # Internal verification: test from within the sandbox
+        print("\n[2.2b] Internal verification...", flush=True)
+        try:
+            diag = await sandbox.commands.run(
+                'python3 -c "import urllib.request; r=urllib.request.urlopen(\'http://127.0.0.1:9000/commands\'); print(r.read().decode())"'
+            )
+            print(f"    Internal /commands: exit={diag.exit_code} stdout={diag.stdout.strip()!r}", flush=True)
+        except Exception as exc:
+            print(f"    Internal /commands failed: {exc}", flush=True)
 
         # 2.3: Get server URL
         # Bypass sandbox.network.get_url() which checks for 'ports' capability
