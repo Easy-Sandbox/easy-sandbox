@@ -27,6 +27,12 @@ from .routes import (
     get_enabled_builtins,
     is_builtin_enabled,
 )
+from .routes_pty import (
+    PtySession,
+    PtySessionManager,
+    pty_session_manager,
+    start_pty_server,
+)
 from .types import ServerRequest, ServerResponse, SSEResponse
 
 __all__ = [
@@ -47,4 +53,8 @@ __all__ = [
     "RouteInfo",
     "CapabilityGroup",
     "default_table",
+    "PtySession",
+    "PtySessionManager",
+    "pty_session_manager",
+    "start_pty_server",
 ]

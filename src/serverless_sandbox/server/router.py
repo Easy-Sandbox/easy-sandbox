@@ -61,10 +61,11 @@ class CapabilityGroup(Enum):
     TERMINAL = "terminal"
     SYSTEM = "system"
     DEV_TOOLS = "dev_tools"
+    BROWSER = "browser"
 
 
 # Groups disabled by default (opt-in surface such as developer tooling).
-_DEFAULT_DISABLED = frozenset({CapabilityGroup.DEV_TOOLS})
+_DEFAULT_DISABLED = frozenset({CapabilityGroup.DEV_TOOLS, CapabilityGroup.BROWSER})
 
 # Environment variable used to disable additional groups at process start.
 _DISABLED_GROUPS_ENV_VAR = "SBOX_SERVER_DISABLED_GROUPS"

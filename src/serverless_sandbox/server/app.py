@@ -13,16 +13,24 @@ Typical usage (from a template's ``commands.py``)::
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import json
 import os
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from . import routes as _routes  # noqa: F401  (import side-effect: registers routes)
+from . import routes_browser as _routes_browser  # noqa: F401
+from . import routes_devtools as _routes_devtools  # noqa: F401
+from . import routes_files as _routes_files  # noqa: F401
+from . import routes_process as _routes_process  # noqa: F401
+from . import routes_pty as _routes_pty  # noqa: F401
+from . import routes_system as _routes_system  # noqa: F401
 from .registry import CommandRegistry, default_registry
-from .router import RouteTable, default_table
+from .router import CapabilityGroup, RouteTable, default_table
 from .types import ServerRequest, ServerResponse, SSEResponse
 
 __all__ = [
@@ -225,12 +233,23 @@ class SandboxServer:
         host: str = "0.0.0.0",  # noqa: S104
         registry: CommandRegistry | None = None,
         route_table: RouteTable | None = None,
+        pty_port: int | None = None,
     ) -> None:
         self._host = host
         self.auth_token: str | None = os.environ.get(_TOKEN_ENV_VAR) or None
         self._httpd: ThreadingHTTPServer | None = None
         self._registry: CommandRegistry = registry if registry is not None else default_registry()
         self.route_table: RouteTable = route_table if route_table is not None else default_table()
+        if pty_port is not None:
+            self._pty_port: int = pty_port
+        else:
+            try:
+                self._pty_port = int(os.environ.get("SBOX_PTY_PORT", "9001"))
+            except (ValueError, TypeError):
+                self._pty_port = 9001
+        self._pty_thread: threading.Thread | None = None
+        self._pty_stop_event: asyncio.Event | None = None
+        self._pty_loop: asyncio.AbstractEventLoop | None = None
 
     def serve(self, port: int = 9000) -> None:
         """Start the server and block until interrupted.
@@ -247,15 +266,53 @@ class SandboxServer:
         self._httpd.registry = self._registry  # type: ignore[attr-defined]
         self._httpd.route_table = self.route_table  # type: ignore[attr-defined]
         self._registry.freeze()
+
+        # Start PTY WebSocket server in a background thread if TERMINAL enabled.
+        if self.route_table.is_group_enabled(CapabilityGroup.TERMINAL):
+            self._start_pty_server()
+
         try:
             self._httpd.serve_forever()
         except KeyboardInterrupt:
             pass
         finally:
+            self._stop_pty_server()
             self._httpd.server_close()
+
+    def _start_pty_server(self) -> None:
+        """Start the PTY WebSocket server in a background daemon thread."""
+        import threading as _threading
+
+        def _run_pty() -> None:
+            import asyncio as _asyncio
+
+            from .routes_pty import start_pty_server
+
+            loop = _asyncio.new_event_loop()
+            _asyncio.set_event_loop(loop)
+            self._pty_loop = loop
+            stop = _asyncio.Event()
+            self._pty_stop_event = stop
+            loop.run_until_complete(
+                start_pty_server(self._host, self._pty_port, stop_event=stop)
+            )
+
+        self._pty_thread = _threading.Thread(target=_run_pty, daemon=True)
+        self._pty_thread.start()
+
+    def _stop_pty_server(self) -> None:
+        """Signal the PTY WebSocket server to stop and clean up sessions."""
+        from .routes_pty import pty_session_manager
+
+        if self._pty_stop_event is not None and self._pty_loop is not None:
+            self._pty_loop.call_soon_threadsafe(self._pty_stop_event.set)
+        if self._pty_thread is not None:
+            self._pty_thread.join(timeout=3)
+        pty_session_manager.close_all()
 
     def shutdown(self) -> None:
         """Gracefully shut down a running server (thread-safe)."""
+        self._stop_pty_server()
         if self._httpd is not None:
             self._httpd.shutdown()
 
