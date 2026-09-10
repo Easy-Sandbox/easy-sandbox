@@ -1,5 +1,24 @@
-"""codex 命名命令 — OpenAI Codex CLI Agent。"""
-from serverless_sandbox.server import CommandRegistry, SandboxServer, enable_builtin
+"""codex — OpenAI Codex CLI Agent 沙箱命令。"""
+from __future__ import annotations
+
+from serverless_sandbox.server import (
+    CapabilityGroup,
+    CommandRegistry,
+    SandboxServer,
+    default_table,
+)
+
+# ---------------------------------------------------------------------------
+# Route table — enable capability groups
+# ---------------------------------------------------------------------------
+
+table = default_table()
+table.enable_group(CapabilityGroup.FILE_OPS)   # upload/download + file operations
+table.enable_group(CapabilityGroup.PROCESS)    # shell + process management
+
+# ---------------------------------------------------------------------------
+# Command registry
+# ---------------------------------------------------------------------------
 
 registry = CommandRegistry()
 
@@ -23,8 +42,7 @@ def codex(prompt: str, model: str = "codex-mini") -> str:
     return result.stdout
 
 
-enable_builtin("upload")
-enable_builtin("download")
+registry.freeze()
 
 server = SandboxServer(registry=registry)
 server.serve(port=9000)

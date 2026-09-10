@@ -1,5 +1,24 @@
-"""hermes-agent 命名命令 — NousResearch Hermes Agent。"""
-from serverless_sandbox.server import CommandRegistry, SandboxServer, enable_builtin
+"""hermes-agent — NousResearch Hermes Agent 沙箱命令。"""
+from __future__ import annotations
+
+from serverless_sandbox.server import (
+    CapabilityGroup,
+    CommandRegistry,
+    SandboxServer,
+    default_table,
+)
+
+# ---------------------------------------------------------------------------
+# Route table — enable capability groups
+# ---------------------------------------------------------------------------
+
+table = default_table()
+table.enable_group(CapabilityGroup.FILE_OPS)   # upload/download + file operations
+table.enable_group(CapabilityGroup.PROCESS)    # shell + process management
+
+# ---------------------------------------------------------------------------
+# Command registry
+# ---------------------------------------------------------------------------
 
 registry = CommandRegistry()
 
@@ -25,8 +44,7 @@ def hermes(prompt: str, model: str = "hermes-3-llama-3.1-8b") -> str:
     return result.stdout
 
 
-enable_builtin("upload")
-enable_builtin("download")
+registry.freeze()
 
 server = SandboxServer(registry=registry)
 server.serve(port=9000)

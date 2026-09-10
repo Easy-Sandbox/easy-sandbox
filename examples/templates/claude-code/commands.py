@@ -1,5 +1,25 @@
-"""claude-code 命名命令 — Anthropic Claude Code Agent。"""
-from serverless_sandbox.server import CommandRegistry, SandboxServer, enable_builtin
+"""claude-code — Anthropic Claude Code Agent 沙箱命令。"""
+from __future__ import annotations
+
+from serverless_sandbox.server import (
+    CapabilityGroup,
+    CommandRegistry,
+    SandboxServer,
+    default_table,
+)
+
+# ---------------------------------------------------------------------------
+# Route table — enable capability groups
+# ---------------------------------------------------------------------------
+
+table = default_table()
+table.enable_group(CapabilityGroup.FILE_OPS)   # upload/download + file operations
+table.enable_group(CapabilityGroup.PROCESS)    # shell + process management
+table.enable_group(CapabilityGroup.TERMINAL)   # PTY — declared in template.yaml
+
+# ---------------------------------------------------------------------------
+# Command registry
+# ---------------------------------------------------------------------------
 
 registry = CommandRegistry()
 
@@ -22,8 +42,7 @@ def claude(prompt: str, model: str = "sonnet") -> str:
     return result.stdout
 
 
-enable_builtin("upload")
-enable_builtin("download")
+registry.freeze()
 
 server = SandboxServer(registry=registry)
 server.serve(port=9000)

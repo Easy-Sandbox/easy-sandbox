@@ -1,5 +1,24 @@
-"""deepseek-harness 命名命令 — DeepSeek Agent Runtime。"""
-from serverless_sandbox.server import CommandRegistry, SandboxServer, enable_builtin
+"""deepseek-harness — DeepSeek Agent Runtime 沙箱命令。"""
+from __future__ import annotations
+
+from serverless_sandbox.server import (
+    CapabilityGroup,
+    CommandRegistry,
+    SandboxServer,
+    default_table,
+)
+
+# ---------------------------------------------------------------------------
+# Route table — enable capability groups
+# ---------------------------------------------------------------------------
+
+table = default_table()
+table.enable_group(CapabilityGroup.FILE_OPS)   # upload/download + file operations
+table.enable_group(CapabilityGroup.PROCESS)    # shell + process management
+
+# ---------------------------------------------------------------------------
+# Command registry
+# ---------------------------------------------------------------------------
 
 registry = CommandRegistry()
 
@@ -25,8 +44,7 @@ def deepseek(prompt: str, model: str = "deepseek-coder") -> str:
     return result.stdout
 
 
-enable_builtin("upload")
-enable_builtin("download")
+registry.freeze()
 
 server = SandboxServer(registry=registry)
 server.serve(port=9000)
