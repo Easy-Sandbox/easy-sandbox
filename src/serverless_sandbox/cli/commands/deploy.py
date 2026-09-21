@@ -15,6 +15,7 @@ import click
 
 from serverless_sandbox.cli.formatters import get_formatter
 from serverless_sandbox.cli.main import handle_errors
+from serverless_sandbox.cli.output import get_output
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +247,7 @@ def run_cmd(ctx: click.Context, path: str, template: str | None, watch: bool) ->
     if start_cmd:
         fmt.print_success(f"Starting: {start_cmd}")
         result = run_sync(sandbox.commands.run(start_cmd, timeout=ctx.obj.get("timeout", 300)))
+        # Raw output passthrough — keep as click.echo
         if result.stdout:
             click.echo(result.stdout, nl=False)
         if result.stderr:

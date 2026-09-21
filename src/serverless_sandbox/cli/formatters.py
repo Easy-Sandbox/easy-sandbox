@@ -137,8 +137,21 @@ def _click_echo_red(msg: str, no_color: bool = False) -> None:
 
 
 def get_formatter(ctx: click.Context) -> OutputFormatter:
-    """Get an OutputFormatter from the Click context."""
-    obj = ctx.obj or {}
+    """Get an OutputFormatter from the Click context.
+
+    When the new :class:`~serverless_sandbox.cli.output.OutputManager` is
+    available in *ctx.meta*, we return the legacy formatter configured from
+    it.  Otherwise we fall back to the manual ctx.obj dict approach.
+    """
+    # Prefer the OutputManager stored by the CLI root
+    mgr = ctx.meta.get("sbox.output") if ctx else None
+    if mgr is not None:
+        return OutputFormatter(
+            use_json=mgr.json_mode,
+            quiet=mgr.quiet,
+            no_color=mgr.no_color,
+        )
+    obj = ctx.obj or {} if ctx else {}
     return OutputFormatter(
         use_json=obj.get("json", False),
         quiet=obj.get("quiet", False),

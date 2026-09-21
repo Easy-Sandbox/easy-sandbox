@@ -8,6 +8,7 @@ import click
 
 from serverless_sandbox.cli.formatters import get_formatter
 from serverless_sandbox.cli.main import handle_errors
+from serverless_sandbox.cli.output import get_output
 
 # ---------------------------------------------------------------------------
 # create
@@ -80,13 +81,14 @@ def create(
         effective_template = infer_result.template
 
         if not fmt.use_json:
-            click.echo("\u2713 推断结果：")
-            click.echo(f"    模板: {infer_result.template}")
-            click.echo(
+            out = get_output(ctx)
+            out.info("\u2713 推断结果：")
+            out.info(f"    模板: {infer_result.template}")
+            out.info(
                 f"    CPU: {infer_result.cpu} 核  |  内存: {infer_result.memory} MB"
             )
-            click.echo(f"    置信度: {infer_result.confidence}")
-            click.echo("→ 创建中...")
+            out.info(f"    置信度: {infer_result.confidence}")
+            out.progress("创建中...")
 
     # Parse env vars from "KEY=VALUE" format
     envs: dict[str, str] = {}
@@ -131,7 +133,7 @@ def create(
                 dest = f"{remote_base}/{local.name}"
                 await sbx.files.write(dest, content)
                 if not fmt.use_json:
-                    click.echo(f"↑ 已上传 {upload} → {dest}")
+                    get_output(ctx).info(f"↑ 已上传 {upload} → {dest}")
             elif local.is_dir():
                 count = 0
                 for file in local.rglob("*"):
@@ -141,7 +143,7 @@ def create(
                         await sbx.files.write(dest, file.read_bytes())
                         count += 1
                 if not fmt.use_json:
-                    click.echo(f"↑ 已上传 {count} 个文件 → {remote_base}/")
+                    get_output(ctx).info(f"↑ 已上传 {count} 个文件 → {remote_base}/")
         return sbx
 
     sandbox = run_sync(_create_and_upload())
@@ -382,22 +384,23 @@ def connect(ctx: click.Context, sandbox_id: str) -> None:
 
     async def _connect() -> None:
         sandbox = await Sandbox.connect(sandbox_id)
-        fmt.print_success(f"Connected to sandbox {sandbox_id}")
-        click.echo("Type 'exit' or Ctrl+D to disconnect")
-        click.echo("Note: each command runs in an independent process")
+        out = get_output(ctx)
+        out.success(f"Connected to sandbox {sandbox_id}")
+        out.info("Type 'exit' or Ctrl+D to disconnect")
+        out.info("Note: each command runs in an independent process")
 
         while True:
             try:
                 cmd = input(f"sbox:{sandbox_id[:8]}> ")
             except (EOFError, KeyboardInterrupt):
-                click.echo("\nDisconnected.")
+                out.info("\nDisconnected.")
                 break
 
             cmd = cmd.strip()
             if not cmd:
                 continue
             if cmd in ("exit", "quit"):
-                click.echo("Disconnected.")
+                out.info("Disconnected.")
                 break
 
             try:
@@ -697,7 +700,7 @@ def _discover_registered_commands() -> None:
 @click.group()
 @click.pass_context
 def sandbox(ctx: click.Context) -> None:
-    """Manage sandboxes (create, list, info, kill, exec, connect, upload, download, run)."""
+    """Manage sandboxes (create, list, info, kill, exec, connect, upload, download, run, files, process, system)."""
     ctx.ensure_object(dict)
 
 
@@ -710,3 +713,18 @@ sandbox.add_command(connect)
 sandbox.add_command(upload)
 sandbox.add_command(download)
 sandbox.add_command(run_cmd, "run")
+
+# Sub-groups for extended server capabilities
+from serverless_sandbox.cli.commands.sandbox_files import files  # noqa: E402
+from serverless_sandbox.cli.commands.sandbox_process import process  # noqa: E402
+from serverless_sandbox.cli.commands.sandbox_system import (
+    capabilities,
+    shell_stream,
+    system,
+)  # noqa: E402
+
+sandbox.add_command(files, "files")
+sandbox.add_command(process, "process")
+sandbox.add_command(system, "system")
+sandbox.add_command(capabilities, "capabilities")
+sandbox.add_command(shell_stream, "shell-stream")

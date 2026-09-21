@@ -165,8 +165,15 @@ def handle_errors(func):  # noqa: ANN001,ANN201
 )
 @click.option("--json", "-j", "output_json", is_flag=True, help="Output as JSON")
 @click.option("--quiet", "-q", is_flag=True, help="Minimal output")
-@click.option("--verbose", "-v", is_flag=True, help="Verbose output")
+@click.option("--verbose", "-v", is_flag=True, help="Verbose output (DEBUG level)")
 @click.option("--no-color", is_flag=True, help="Disable colored output")
+@click.option(
+    "--log-level",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR"], case_sensitive=False),
+    default=None,
+    help="Set log level explicitly",
+)
+@click.option("--ci", is_flag=True, help="CI/CD mode (quiet + no-color + json)")
 @click.option("--timeout", "-t", type=int, default=300, help="Default timeout in seconds")
 @click.option("--region", "-r", default=None, help="Region (default: cn-hangzhou)")
 @click.option("--profile", "-p", default=None, help="[预留] Configuration profile")
@@ -178,6 +185,8 @@ def cli(
     quiet: bool,
     verbose: bool,
     no_color: bool,
+    log_level: str | None,
+    ci: bool,
     timeout: int,
     region: str | None,
     profile: str | None,
@@ -186,11 +195,30 @@ def cli(
 
     Create, manage, and interact with cloud sandboxes.
     """
+    # Lazy import to keep --help fast
+    from serverless_sandbox.cli.output import OutputManager, is_ci_env
+
+    # Auto-detect CI environment
+    effective_ci = ci or is_ci_env()
+
+    output = OutputManager(
+        verbose=verbose,
+        quiet=quiet,
+        json_mode=output_json or effective_ci,
+        no_color=no_color or effective_ci,
+        ci=effective_ci,
+        log_level=log_level,
+    )
+
     ctx.ensure_object(dict)
-    ctx.obj["json"] = output_json
-    ctx.obj["quiet"] = quiet
-    ctx.obj["verbose"] = verbose
-    ctx.obj["no_color"] = no_color
+    # Store OutputManager in ctx.meta (not ctx.obj) so that
+    # ctx.obj stays JSON-serializable for existing tests / debug.
+    ctx.meta["sbox.output"] = output
+    # Backward-compatible context keys (used by get_formatter / handle_errors)
+    ctx.obj["json"] = output.json_mode
+    ctx.obj["quiet"] = output.quiet
+    ctx.obj["verbose"] = output.verbose
+    ctx.obj["no_color"] = output.no_color
     ctx.obj["timeout"] = timeout
     ctx.obj["region"] = region
     ctx.obj["profile"] = profile

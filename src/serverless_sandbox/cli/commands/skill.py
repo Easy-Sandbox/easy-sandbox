@@ -13,6 +13,7 @@ import click
 
 from serverless_sandbox.cli.formatters import get_formatter
 from serverless_sandbox.cli.main import handle_errors
+from serverless_sandbox.cli.output import get_output
 
 
 # ---------------------------------------------------------------------------
@@ -265,7 +266,7 @@ description: "{name} Skill"
     else:
         fmt.print_dict(data)
         fmt.print_success(f"Skill '{name}' scaffold created.")
-        click.echo(f"\n下一步：\n  cd {name}\n  编辑 SKILL.md 和 sandbox.yaml\n  sbox skill publish")
+        get_output(ctx).info(f"\n下一步：\n  cd {name}\n  编辑 SKILL.md 和 sandbox.yaml\n  sbox skill publish")
 
 
 # ---------------------------------------------------------------------------
