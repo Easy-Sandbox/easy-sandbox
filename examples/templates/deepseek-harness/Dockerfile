@@ -35,7 +35,7 @@ RUN pip install --no-cache-dir --upgrade pip \
     "openai>=1.0" \
     httpx \
     rich
-RUN pip install --no-cache-dir serverless-sandbox
+RUN pip install --no-cache-dir easy-sandbox
 
 # Set environment variables
 ENV DEEPSEEK_API_KEY=""

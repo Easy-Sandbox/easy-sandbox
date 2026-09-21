@@ -1,4 +1,4 @@
-"""Global pytest fixtures for Serverless Sandbox tests."""
+"""Global pytest fixtures for Easy Sandbox tests."""
 
 import pytest
 

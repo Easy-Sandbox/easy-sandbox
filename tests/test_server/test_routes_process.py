@@ -1,4 +1,4 @@
-"""Tests for serverless_sandbox.server.routes_process — process management endpoints.
+"""Tests for easy_sandbox.server.routes_process — process management endpoints.
 
 Spins up a real server per fixture on a random free port, same pattern as test_app.py.
 """
@@ -17,11 +17,11 @@ from typing import Any
 
 import pytest
 
-import serverless_sandbox.server.routes_process as _rp  # noqa: F401
-from serverless_sandbox.server.app import SandboxRequestHandler
-from serverless_sandbox.server.registry import CommandRegistry
-from serverless_sandbox.server.router import CapabilityGroup, default_table
-from serverless_sandbox.server.routes_process import (
+import easy_sandbox.server.routes_process as _rp  # noqa: F401
+from easy_sandbox.server.app import SandboxRequestHandler
+from easy_sandbox.server.registry import CommandRegistry
+from easy_sandbox.server.router import CapabilityGroup, default_table
+from easy_sandbox.server.routes_process import (
     _MAX_PROCESSES,
     _process_table,
     _ProcessInfo,

@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from serverless_sandbox.api.code import CodeContextModule
-from serverless_sandbox.models.process import CodeResult
+from easy_sandbox.api.code import CodeContextModule
+from easy_sandbox.models.process import CodeResult
 
 
 class TestCodeRun:
@@ -228,7 +228,7 @@ class TestCodeRunEnvs:
         self,
     ) -> None:
         """Verify envs end up as envVars in the protocol payload."""
-        from serverless_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
+        from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {
@@ -250,7 +250,7 @@ class TestCodeRunEnvs:
         self,
     ) -> None:
         """Verify envVars is NOT in payload when envs is None."""
-        from serverless_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
+        from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {
@@ -276,7 +276,7 @@ class TestCodeRunStreamingCallbacks:
         self,
     ) -> None:
         """on_stdout callback is invoked with stdout content at protocol layer."""
-        from serverless_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
+        from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {
@@ -298,7 +298,7 @@ class TestCodeRunStreamingCallbacks:
         self,
     ) -> None:
         """on_stderr callback is invoked with stderr content at protocol layer."""
-        from serverless_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
+        from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {
@@ -320,7 +320,7 @@ class TestCodeRunStreamingCallbacks:
         self,
     ) -> None:
         """on_result callback receives the full result dict."""
-        from serverless_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
+        from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {
@@ -343,7 +343,7 @@ class TestCodeRunStreamingCallbacks:
         self,
     ) -> None:
         """All three callbacks fire when all are provided."""
-        from serverless_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
+        from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {
@@ -385,7 +385,7 @@ class TestCodeRunStreamingCallbacks:
         self,
     ) -> None:
         """on_stdout is NOT called when stdout is empty."""
-        from serverless_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
+        from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {
@@ -407,7 +407,7 @@ class TestCodeRunStreamingCallbacks:
         self,
     ) -> None:
         """Verify callbacks pass from CodeContextModule.run() to protocol."""
-        from serverless_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
+        from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {
@@ -446,7 +446,7 @@ class TestCodeRunStreamingCallbacks:
         self,
     ) -> None:
         """Callbacks work with response that wraps data in 'result' key."""
-        from serverless_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
+        from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {

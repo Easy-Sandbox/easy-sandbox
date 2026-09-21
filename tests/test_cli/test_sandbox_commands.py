@@ -7,9 +7,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from serverless_sandbox.cli.main import cli
-from serverless_sandbox.models.sandbox import SandboxInfo, SandboxStatus
-from serverless_sandbox.models.process import ProcessResult
+from easy_sandbox.cli.main import cli
+from easy_sandbox.models.sandbox import SandboxInfo, SandboxStatus
+from easy_sandbox.models.process import ProcessResult
 
 
 def _make_sandbox(
@@ -50,9 +50,9 @@ class TestCreate:
         mock_sb = _make_sandbox()
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.create", new_callable=AsyncMock
+            "easy_sandbox.api.sandbox.Sandbox.create", new_callable=AsyncMock
         ) as mock_create, patch(
-            "serverless_sandbox.utils.async_bridge.run_sync", return_value=mock_sb
+            "easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb
         ):
             result = runner.invoke(cli, ["create", "--template", "python-base"])
 
@@ -63,7 +63,7 @@ class TestCreate:
         mock_sb = _make_sandbox()
 
         with patch(
-            "serverless_sandbox.utils.async_bridge.run_sync", return_value=mock_sb
+            "easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb
         ):
             result = runner.invoke(cli, ["--json", "create", "--template", "python-base"])
 
@@ -75,7 +75,7 @@ class TestCreate:
         mock_sb = _make_sandbox()
 
         with patch(
-            "serverless_sandbox.utils.async_bridge.run_sync", return_value=mock_sb
+            "easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb
         ):
             result = runner.invoke(
                 cli, ["create", "-e", "FOO=bar", "-e", "BAZ=qux"]
@@ -86,7 +86,7 @@ class TestCreate:
 
     def test_create_invalid_env_format(self, runner: CliRunner) -> None:
         with patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=Exception("should not be called"),
         ):
             result = runner.invoke(cli, ["create", "-e", "INVALID"])
@@ -97,7 +97,7 @@ class TestCreate:
         mock_sb = _make_sandbox()
 
         with patch(
-            "serverless_sandbox.utils.async_bridge.run_sync", return_value=mock_sb
+            "easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb
         ):
             result = runner.invoke(
                 cli, ["create", "-m", "owner=test", "-m", "env=dev"]
@@ -117,7 +117,7 @@ class TestConnect:
             return mock_sb
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ), patch(
@@ -136,7 +136,7 @@ class TestConnect:
         mock_sb.commands = MagicMock()
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ), patch(
@@ -160,7 +160,7 @@ class TestConnect:
         mock_sb.commands.run = AsyncMock(return_value=mock_result)
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ), patch(
@@ -181,11 +181,11 @@ class TestList:
     def _patch_list_deps(self, mock_return):
         """Common patches for list command's lazy imports."""
         return [
-            patch("serverless_sandbox.transport.config.load_config"),
-            patch("serverless_sandbox.transport.auth.create_auth_provider"),
-            patch("serverless_sandbox.transport.http.HttpClient"),
-            patch("serverless_sandbox.protocol.sandbox.SandboxProtocol"),
-            patch("serverless_sandbox.utils.async_bridge.run_sync", return_value=mock_return),
+            patch("easy_sandbox.transport.config.load_config"),
+            patch("easy_sandbox.transport.auth.create_auth_provider"),
+            patch("easy_sandbox.transport.http.HttpClient"),
+            patch("easy_sandbox.protocol.sandbox.SandboxProtocol"),
+            patch("easy_sandbox.utils.async_bridge.run_sync", return_value=mock_return),
         ]
 
     def test_list_basic(self, runner: CliRunner) -> None:
@@ -244,7 +244,7 @@ class TestInfo:
         mock_sb = _make_sandbox()
 
         with patch(
-            "serverless_sandbox.utils.async_bridge.run_sync", return_value=mock_sb
+            "easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb
         ):
             result = runner.invoke(cli, ["info", "sbx-cli-test-001"])
 
@@ -262,7 +262,7 @@ class TestKill:
         mock_sb = _make_sandbox()
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ):
@@ -283,15 +283,15 @@ class TestKill:
     def test_kill_all_empty(self, runner: CliRunner) -> None:
         """--all with no running sandboxes."""
         with patch(
-            "serverless_sandbox.transport.config.load_config",
+            "easy_sandbox.transport.config.load_config",
         ), patch(
-            "serverless_sandbox.transport.auth.create_auth_provider",
+            "easy_sandbox.transport.auth.create_auth_provider",
         ), patch(
-            "serverless_sandbox.transport.http.HttpClient",
+            "easy_sandbox.transport.http.HttpClient",
         ), patch(
-            "serverless_sandbox.protocol.sandbox.SandboxProtocol",
+            "easy_sandbox.protocol.sandbox.SandboxProtocol",
         ), patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             return_value=[],
         ):
             result = runner.invoke(cli, ["kill", "--all", "--yes"])
@@ -320,19 +320,19 @@ class TestKill:
             return _aio.run(coro)
 
         with patch(
-            "serverless_sandbox.transport.config.load_config",
+            "easy_sandbox.transport.config.load_config",
         ), patch(
-            "serverless_sandbox.transport.auth.create_auth_provider",
+            "easy_sandbox.transport.auth.create_auth_provider",
         ), patch(
-            "serverless_sandbox.transport.http.HttpClient",
+            "easy_sandbox.transport.http.HttpClient",
         ), patch(
-            "serverless_sandbox.protocol.sandbox.SandboxProtocol",
+            "easy_sandbox.protocol.sandbox.SandboxProtocol",
         ), patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ), patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=side_effect,
         ):
             result = runner.invoke(cli, ["kill", "--all", "--yes"])
@@ -352,7 +352,7 @@ class TestExec:
         mock_sb.commands.run = AsyncMock(return_value=mock_result)
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ):
@@ -367,7 +367,7 @@ class TestExec:
         mock_sb.commands.run = AsyncMock(return_value=mock_result)
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ):
@@ -384,7 +384,7 @@ class TestExec:
         mock_sb.commands.run = AsyncMock(return_value=mock_result)
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ):
@@ -399,10 +399,10 @@ class TestExec:
 
 class TestErrorHandling:
     def test_auth_error_exit_code_3(self, runner: CliRunner) -> None:
-        from serverless_sandbox.models.errors import AuthenticationError
+        from easy_sandbox.models.errors import AuthenticationError
 
         with patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=AuthenticationError("bad key"),
         ):
             result = runner.invoke(cli, ["create"])
@@ -410,10 +410,10 @@ class TestErrorHandling:
         assert result.exit_code == 3
 
     def test_template_not_found_exit_code_4(self, runner: CliRunner) -> None:
-        from serverless_sandbox.models.errors import TemplateNotFoundError
+        from easy_sandbox.models.errors import TemplateNotFoundError
 
         with patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=TemplateNotFoundError("no such template"),
         ):
             result = runner.invoke(cli, ["create"])
@@ -421,13 +421,13 @@ class TestErrorHandling:
         assert result.exit_code == 4
 
     def test_timeout_error_exit_code_5(self, runner: CliRunner) -> None:
-        from serverless_sandbox.models.errors import CommandTimeoutError
+        from easy_sandbox.models.errors import CommandTimeoutError
 
         mock_sb = _make_sandbox()
         mock_sb.commands.run = AsyncMock(side_effect=CommandTimeoutError("timed out"))
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ):
@@ -436,10 +436,10 @@ class TestErrorHandling:
         assert result.exit_code == 5
 
     def test_quota_error_exit_code_6(self, runner: CliRunner) -> None:
-        from serverless_sandbox.models.errors import QuotaExceededError
+        from easy_sandbox.models.errors import QuotaExceededError
 
         with patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=QuotaExceededError("quota exceeded"),
         ):
             result = runner.invoke(cli, ["create"])
@@ -460,7 +460,7 @@ class TestUpload:
         mock_sb = _make_sandbox()
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ):
@@ -488,7 +488,7 @@ class TestUpload:
         mock_sb = _make_sandbox()
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ):
@@ -512,7 +512,7 @@ class TestDownload:
         dest = tmp_path / "result.csv"
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ):
@@ -530,7 +530,7 @@ class TestDownload:
         mock_sb.files.read_bytes = AsyncMock(return_value=b"log-data")
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ):
@@ -548,7 +548,7 @@ class TestDownload:
         dest = tmp_path / "deep" / "nested" / "file.bin"
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ):

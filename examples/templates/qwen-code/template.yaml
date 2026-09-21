@@ -1,7 +1,7 @@
 name: qwen-code
 version: "2.0.0"
 description: "通义千问编码 Agent 运行环境 - 支持 qwen-code 驱动的 AI 自主部署"
-author: "Serverless-Sandbox"
+author: "Easy-Sandbox"
 tags:
   - qwen
   - qwen-code

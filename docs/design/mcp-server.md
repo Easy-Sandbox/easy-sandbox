@@ -1,6 +1,6 @@
 # MCP Server 设计
 
-> Serverless Sandbox MCP Server 将沙箱能力暴露为 MCP (Model Context Protocol) Tools，让 AI Agent（Cursor、Claude Desktop、VS Code 等）可以直接操作云端沙箱。
+> Easy Sandbox MCP Server 将沙箱能力暴露为 MCP (Model Context Protocol) Tools，让 AI Agent（Cursor、Claude Desktop、VS Code 等）可以直接操作云端沙箱。
 
 ---
 
@@ -261,7 +261,7 @@ sequenceDiagram
 
 ```mermaid
 graph LR
-    IDE["IDE / Agent<br/>Cursor, Claude, VS Code"] <-->|"STDIO stdin/stdout<br/>JSON-RPC over STDIO"| MCP["MCP Server<br/>sbox mcp"]
+    IDE["IDE / Agent<br/>Cursor, Claude, VS Code"] <-->|"STDIO stdin/stdout<br/>JSON-RPC over STDIO"| MCP["MCP Server<br/>ebx mcp"]
     MCP --> SM[Sandbox Manager]
     SM --> FC[阿里云 FC]
 ```
@@ -283,7 +283,7 @@ graph LR
 
 **适用场景**：远程服务、团队共享、多客户端同时使用。
 
-**启动方式**：`sbox mcp start --transport http --port 8765`
+**启动方式**：`ebx mcp start --transport http --port 8765`
 
 ---
 
@@ -296,7 +296,7 @@ graph TD
         TR["Tool Registry\nP0 Core / P1 Ext / P2 Adv / Skills"]
         SM["Session Manager\nSession A~C / sb-001~003"]
         RR["Request Router\n认证 - 路由 - 执行 - 格式化 - 响应"]
-        SC["Sandbox Client\nserverless_sandbox SDK"]
+        SC["Sandbox Client\neasy_sandbox SDK"]
     end
     TL --> RR
     TR --> RR
@@ -313,28 +313,28 @@ graph TD
 
 ```bash
 # 安装到 Cursor
-sbox mcp install --target cursor
+ebx mcp install --target cursor
 
 # 安装到 Claude Desktop
-sbox mcp install --target claude
+ebx mcp install --target claude
 
 # 安装到 VS Code (Copilot)
-sbox mcp install --target vscode
+ebx mcp install --target vscode
 
 # 安装到 Qoder
-sbox mcp install --target qoder
+ebx mcp install --target qoder
 
 # 安装并指定 Skills
-sbox mcp install --target cursor --skills data-analysis,playwright
+ebx mcp install --target cursor --skills data-analysis,playwright
 
 # 安装 HTTP 模式（远程服务器）
-sbox mcp install --transport http --port 8765
+ebx mcp install --transport http --port 8765
 ```
 
 ### 安装过程
 
 ```bash
-$ sbox mcp install --target cursor
+$ ebx mcp install --target cursor
 
 ✓ 检测 Cursor 配置目录: ~/.cursor/
 ✓ 写入 MCP 配置: ~/.cursor/mcp.json
@@ -363,8 +363,8 @@ $ sbox mcp install --target cursor
 // ~/Library/Application Support/Claude/claude_desktop_config.json
 {
   "mcpServers": {
-    "serverless-sandbox": {
-      "command": "sbox",
+    "easy-sandbox": {
+      "command": "ebx",
       "args": ["mcp", "start", "--transport", "stdio"],
       "env": {
         "SANDBOX_API_KEY": "your-api-key",
@@ -381,8 +381,8 @@ $ sbox mcp install --target cursor
 // ~/.cursor/mcp.json
 {
   "mcpServers": {
-    "serverless-sandbox": {
-      "command": "sbox",
+    "easy-sandbox": {
+      "command": "ebx",
       "args": ["mcp", "start"],
       "env": {
         "SANDBOX_API_KEY": "your-api-key"
@@ -398,8 +398,8 @@ $ sbox mcp install --target cursor
 // .vscode/settings.json
 {
   "mcp.servers": {
-    "serverless-sandbox": {
-      "command": "sbox",
+    "easy-sandbox": {
+      "command": "ebx",
       "args": ["mcp", "start"],
       "env": {
         "SANDBOX_API_KEY": "your-api-key"
@@ -413,7 +413,7 @@ $ sbox mcp install --target cursor
 
 ```bash
 # 启动 HTTP MCP Server
-sbox mcp start --transport http --port 8765 --host 0.0.0.0
+ebx mcp start --transport http --port 8765 --host 0.0.0.0
 
 # 客户端连接
 # SSE endpoint: http://server:8765/sse
@@ -424,7 +424,7 @@ sbox mcp start --transport http --port 8765 --host 0.0.0.0
 // 远程 MCP 配置
 {
   "mcpServers": {
-    "serverless-sandbox-remote": {
+    "easy-sandbox-remote": {
       "url": "http://your-server:8765/sse",
       "transport": "sse"
     }

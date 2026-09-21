@@ -1,7 +1,7 @@
 name: browser-automation
 version: "1.0.0"
 description: "浏览器自动化沙箱环境 - 预装 Playwright + Chromium，支持网页抓取与 UI 测试"
-author: "Serverless-Sandbox"
+author: "Easy-Sandbox"
 tags:
   - browser
   - playwright

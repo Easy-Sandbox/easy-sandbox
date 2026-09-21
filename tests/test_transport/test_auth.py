@@ -6,12 +6,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from serverless_sandbox.models.errors import (
+from easy_sandbox.models.errors import (
     InvalidAPIKeyError,
     InvalidCredentialsError,
     TokenExpiredError,
 )
-from serverless_sandbox.transport.auth import (
+from easy_sandbox.transport.auth import (
     ApiKeyAuth,
     AkSkAuth,
     EnvdTokenManager,

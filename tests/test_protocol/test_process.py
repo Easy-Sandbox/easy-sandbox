@@ -7,13 +7,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from serverless_sandbox.models.process import (
+from easy_sandbox.models.process import (
     ProcessChunk,
     ProcessChunkType,
     ProcessInfo,
 )
-from serverless_sandbox.protocol.process import ProcessProtocol, _parse_process_chunk
-from serverless_sandbox.transport.auth import EnvdTokenManager
+from easy_sandbox.protocol.process import ProcessProtocol, _parse_process_chunk
+from easy_sandbox.transport.auth import EnvdTokenManager
 
 
 @pytest.fixture

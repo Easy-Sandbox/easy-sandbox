@@ -1,7 +1,7 @@
 """node-web — Node.js Web 服务沙箱命令。"""
 from __future__ import annotations
 
-from serverless_sandbox.server import (
+from easy_sandbox.server import (
     CapabilityGroup,
     CommandRegistry,
     SandboxServer,

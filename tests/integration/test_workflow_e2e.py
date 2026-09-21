@@ -14,15 +14,15 @@ import pytest
 import yaml
 from click.testing import CliRunner
 
-from serverless_sandbox.api.capability import (
+from easy_sandbox.api.capability import (
     ResolvedCapabilities,
     check_capability,
     resolve_capabilities,
 )
-from serverless_sandbox.api.image import Image
-from serverless_sandbox.cli.main import cli
-from serverless_sandbox.models.errors import CapabilityNotSupportedError
-from serverless_sandbox.models.template import (
+from easy_sandbox.api.image import Image
+from easy_sandbox.cli.main import cli
+from easy_sandbox.models.errors import CapabilityNotSupportedError
+from easy_sandbox.models.template import (
     DEFAULT_CAPABILITIES,
     SandboxTemplate,
 )
@@ -131,7 +131,7 @@ class TestCapabilityResolution:
         assert result.capabilities == {"shell", "files", "terminal"}
 
     async def test_resolve_from_local_cache(self, tmp_path):
-        """Priority 2: scan ~/.sbox/templates/."""
+        """Priority 2: scan ~/.ebx/templates/."""
         cache_dir = tmp_path / "templates" / "my-template"
         cache_dir.mkdir(parents=True)
         yaml_content = {
@@ -141,7 +141,7 @@ class TestCapabilityResolution:
         }
         (cache_dir / "template.yaml").write_text(yaml.dump(yaml_content))
 
-        with patch("serverless_sandbox.api.capability.TEMPLATE_CACHE_DIR", tmp_path / "templates"):
+        with patch("easy_sandbox.api.capability.TEMPLATE_CACHE_DIR", tmp_path / "templates"):
             result = await resolve_capabilities("my-template")
 
         assert "ports" in result.capabilities
@@ -270,8 +270,8 @@ class TestImageChainBuilder:
 class TestCLICompleteness:
     """Verify that all expected commands are registered and accessible."""
 
-    def test_sbox_help_contains_all_commands(self, runner):
-        """sbox --help should list all expected subcommands."""
+    def test_ebx_help_contains_all_commands(self, runner):
+        """ebx --help should list all expected subcommands."""
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         output = result.output
@@ -283,41 +283,41 @@ class TestCLICompleteness:
             "skill", "template", "upload",
         ]
         for cmd in expected_commands:
-            assert cmd in output, f"Command '{cmd}' not found in sbox --help output"
+            assert cmd in output, f"Command '{cmd}' not found in ebx --help output"
 
     def test_template_help(self, runner):
-        """sbox template --help should show subcommands."""
+        """ebx template --help should show subcommands."""
         result = runner.invoke(cli, ["template", "--help"])
         assert result.exit_code == 0
         assert "template" in result.output.lower()
 
     def test_config_list_runs(self, runner):
-        """sbox config list should run without errors."""
+        """ebx config list should run without errors."""
         result = runner.invoke(cli, ["config", "list"])
         assert result.exit_code == 0
 
     def test_auth_help(self, runner):
-        """sbox auth --help should show auth subcommands."""
+        """ebx auth --help should show auth subcommands."""
         result = runner.invoke(cli, ["auth", "--help"])
         assert result.exit_code == 0
 
     def test_session_help(self, runner):
-        """sbox session --help should be accessible."""
+        """ebx session --help should be accessible."""
         result = runner.invoke(cli, ["session", "--help"])
         assert result.exit_code == 0
 
     def test_secret_help(self, runner):
-        """sbox secret --help should be accessible."""
+        """ebx secret --help should be accessible."""
         result = runner.invoke(cli, ["secret", "--help"])
         assert result.exit_code == 0
 
     def test_skill_help(self, runner):
-        """sbox skill --help should be accessible."""
+        """ebx skill --help should be accessible."""
         result = runner.invoke(cli, ["skill", "--help"])
         assert result.exit_code == 0
 
     def test_version_option(self, runner):
-        """sbox --version should print package version."""
+        """ebx --version should print package version."""
         result = runner.invoke(cli, ["--version"])
         assert result.exit_code == 0
 
@@ -333,14 +333,14 @@ class TestDeclarativeServerBridge:
     def test_register_bridges_to_server_registry(self):
         """@sandbox.register should register the command in both registries."""
         # Import fresh to avoid cross-test pollution of the default registry
-        from serverless_sandbox.declarative.decorator import _SandboxFactory
-        from serverless_sandbox.server.registry import CommandRegistry as ServerCommandRegistry
+        from easy_sandbox.declarative.decorator import _SandboxFactory
+        from easy_sandbox.server.registry import CommandRegistry as ServerCommandRegistry
 
         # Create a fresh server registry and patch default_registry()
         fresh_server_reg = ServerCommandRegistry()
 
         with patch(
-            "serverless_sandbox.server.registry.default_registry",
+            "easy_sandbox.server.registry.default_registry",
             return_value=fresh_server_reg,
         ):
             factory = _SandboxFactory()
@@ -374,13 +374,13 @@ class TestDeclarativeServerBridge:
 
     def test_register_with_defaults(self):
         """Arguments with defaults should be marked required=False."""
-        from serverless_sandbox.declarative.decorator import _SandboxFactory
-        from serverless_sandbox.server.registry import CommandRegistry as ServerCommandRegistry
+        from easy_sandbox.declarative.decorator import _SandboxFactory
+        from easy_sandbox.server.registry import CommandRegistry as ServerCommandRegistry
 
         fresh_server_reg = ServerCommandRegistry()
 
         with patch(
-            "serverless_sandbox.server.registry.default_registry",
+            "easy_sandbox.server.registry.default_registry",
             return_value=fresh_server_reg,
         ):
             factory = _SandboxFactory()
@@ -400,13 +400,13 @@ class TestDeclarativeServerBridge:
 
     def test_registered_function_still_callable(self):
         """The original function should still be callable locally."""
-        from serverless_sandbox.declarative.decorator import _SandboxFactory
-        from serverless_sandbox.server.registry import CommandRegistry as ServerCommandRegistry
+        from easy_sandbox.declarative.decorator import _SandboxFactory
+        from easy_sandbox.server.registry import CommandRegistry as ServerCommandRegistry
 
         fresh_server_reg = ServerCommandRegistry()
 
         with patch(
-            "serverless_sandbox.server.registry.default_registry",
+            "easy_sandbox.server.registry.default_registry",
             return_value=fresh_server_reg,
         ):
             factory = _SandboxFactory()
@@ -420,13 +420,13 @@ class TestDeclarativeServerBridge:
 
     def test_list_registered_commands(self):
         """list_registered() returns metadata for all registered commands."""
-        from serverless_sandbox.declarative.decorator import _SandboxFactory
-        from serverless_sandbox.server.registry import CommandRegistry as ServerCommandRegistry
+        from easy_sandbox.declarative.decorator import _SandboxFactory
+        from easy_sandbox.server.registry import CommandRegistry as ServerCommandRegistry
 
         fresh_server_reg = ServerCommandRegistry()
 
         with patch(
-            "serverless_sandbox.server.registry.default_registry",
+            "easy_sandbox.server.registry.default_registry",
             return_value=fresh_server_reg,
         ):
             factory = _SandboxFactory()

@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from serverless_sandbox.declarative.decorator import (
+from easy_sandbox.declarative.decorator import (
     _annotation_to_type_str,
     _coerce_kwargs,
     _detect_python_cmd,
@@ -17,8 +17,8 @@ from serverless_sandbox.declarative.decorator import (
     _ServerProxy,
     sandbox,
 )
-from serverless_sandbox.models.process import ProcessResult
-from serverless_sandbox.models.template import CustomCommandArg
+from easy_sandbox.models.process import ProcessResult
+from easy_sandbox.models.template import CustomCommandArg
 
 # ---------------------------------------------------------------------------
 # _annotation_to_type_str
@@ -306,7 +306,7 @@ class TestRunRegistered:
         with pytest.raises(ValueError, match="Unknown registered command"):
             factory.run("nonexistent")
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_run_basic(self, mock_sandbox_cls: MagicMock) -> None:
         """Run a registered command end-to-end (mocked sandbox HTTP)."""
         mock_sb = AsyncMock()
@@ -328,7 +328,7 @@ class TestRunRegistered:
         mock_sb.run_command.assert_awaited_once_with("demo", x=1, y="hello")
         mock_sb.kill.assert_awaited_once()
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_run_type_coercion(self, mock_sandbox_cls: MagicMock) -> None:
         """String arguments are coerced to declared types."""
         mock_sb = AsyncMock()
@@ -348,7 +348,7 @@ class TestRunRegistered:
         # Verify coerced types were passed via HTTP
         mock_sb.run_command.assert_awaited_once_with("multiply", a=5, b=2.0)
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_run_uses_run_command(self, mock_sandbox_cls: MagicMock) -> None:
         """Execution goes through Sandbox.run_command (HTTP), not scripts."""
         mock_sb = AsyncMock()
@@ -369,7 +369,7 @@ class TestRunRegistered:
         # No file write occurred (old script-upload path gone)
         assert not hasattr(mock_sb, "files") or not mock_sb.files.write.called
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_run_creates_sandbox_with_template(self, mock_sandbox_cls: MagicMock) -> None:
         """Sandbox is created with the code-interpreter-v1 template."""
         mock_sb = AsyncMock()
@@ -391,7 +391,7 @@ class TestRunRegistered:
         )
         assert effective_tpl == "code-interpreter-v1"
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_run_command_error_raises(self, mock_sandbox_cls: MagicMock) -> None:
         """RuntimeError from run_command propagates to the caller."""
         mock_sb = AsyncMock()
@@ -443,7 +443,7 @@ def _make_mock_sandbox(
 class TestDecoratorUuidPath:
     """@sandbox() decorator now uses UUID temp paths, not hardcoded."""
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_script_path_is_uuid(self, mock_sandbox_cls: MagicMock) -> None:
         mock_sb = _make_mock_sandbox(stdout=json.dumps(42))
         mock_sandbox_cls.create = AsyncMock(return_value=mock_sb)
@@ -457,7 +457,7 @@ class TestDecoratorUuidPath:
         # Verify the path written is a UUID path
         write_call = mock_sb.files.write.call_args
         path = write_call[0][0]
-        assert re.match(r"/tmp/_sbox_[a-f0-9]{32}\.py", path)
+        assert re.match(r"/tmp/_ebx_[a-f0-9]{32}\.py", path)
 
 
 # ---------------------------------------------------------------------------
@@ -468,7 +468,7 @@ class TestDecoratorUuidPath:
 class TestDecoratorPipFix:
     """packages= uses '{py_cmd} -m pip install' + shlex.quote."""
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_pip_uses_python_m_pip(self, mock_sandbox_cls: MagicMock) -> None:
         mock_sb = _make_mock_sandbox(stdout=json.dumps(None))
         mock_sandbox_cls.create = AsyncMock(return_value=mock_sb)
@@ -520,12 +520,12 @@ class TestSingleton:
         assert isinstance(sandbox.server, _ServerProxy)
 
     def test_import_from_declarative(self) -> None:
-        from serverless_sandbox.declarative import sandbox as sb
+        from easy_sandbox.declarative import sandbox as sb
         assert isinstance(sb, _SandboxFactory)
         assert callable(sb)
 
     def test_import_from_top(self) -> None:
-        from serverless_sandbox import sandbox as sb
+        from easy_sandbox import sandbox as sb
         assert callable(sb)
 
 
@@ -535,7 +535,7 @@ class TestSingleton:
 
 
 class TestServerProxy:
-    """sandbox.server proxies to serverless_sandbox.server module."""
+    """sandbox.server proxies to easy_sandbox.server module."""
 
     def test_server_is_server_proxy(self) -> None:
         factory = _SandboxFactory()
@@ -545,13 +545,13 @@ class TestServerProxy:
         factory = _SandboxFactory()
         assert factory.server is factory.server  # cached
 
-    @patch("serverless_sandbox.server.start")
+    @patch("easy_sandbox.server.start")
     def test_server_start_delegates(self, mock_start: MagicMock) -> None:
         factory = _SandboxFactory()
         factory.server.start(port=8080)
         mock_start.assert_called_once_with(port=8080, host="0.0.0.0")
 
-    @patch("serverless_sandbox.server.start")
+    @patch("easy_sandbox.server.start")
     def test_server_start_defaults(self, mock_start: MagicMock) -> None:
         factory = _SandboxFactory()
         factory.server.start()
@@ -560,7 +560,7 @@ class TestServerProxy:
     def test_server_getattr_proxies(self) -> None:
         """Attribute access on .server proxies to the server module."""
         factory = _SandboxFactory()
-        # SandboxServer is exported from serverless_sandbox.server
+        # SandboxServer is exported from easy_sandbox.server
         assert factory.server.SandboxServer is not None
 
 
@@ -572,13 +572,13 @@ class TestServerProxy:
 class TestRegisterUploadDownload:
     """register.upload() / .download() toggle server built-in routes."""
 
-    @patch("serverless_sandbox.server.enable_builtin")
+    @patch("easy_sandbox.server.enable_builtin")
     def test_upload_enables_builtin(self, mock_enable: MagicMock) -> None:
         factory = _SandboxFactory()
         factory.register.upload()
         mock_enable.assert_called_once_with("upload")
 
-    @patch("serverless_sandbox.server.enable_builtin")
+    @patch("easy_sandbox.server.enable_builtin")
     def test_download_enables_builtin(self, mock_enable: MagicMock) -> None:
         factory = _SandboxFactory()
         factory.register.download()

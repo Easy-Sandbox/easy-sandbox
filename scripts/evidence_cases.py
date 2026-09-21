@@ -75,18 +75,18 @@ def format_result(stdout: str, stderr: str, exit_code: int) -> str:
 # Patch targets
 # ═══════════════════════════════════════════════════════════════════════════
 
-_RUN_SYNC = "serverless_sandbox.utils.async_bridge.run_sync"
-_SANDBOX_CONNECT = "serverless_sandbox.api.sandbox.Sandbox.connect"
-_SANDBOX_CREATE = "serverless_sandbox.api.sandbox.Sandbox.create"
-_SANDBOX_CONNECT = "serverless_sandbox.api.sandbox.Sandbox.connect"
-_SANDBOX_CREATE = "serverless_sandbox.api.sandbox.Sandbox.create"
-_CFG_CMD = "serverless_sandbox.cli.commands.config_cmd"
-_MCP_CMD = "serverless_sandbox.cli.commands.mcp"
-_LOAD_CFG = "serverless_sandbox.transport.config.load_config"
-_CREATE_AUTH = "serverless_sandbox.transport.auth.create_auth_provider"
-_HTTP_CLIENT = "serverless_sandbox.transport.http.HttpClient"
-_SANDBOX_PROTO = "serverless_sandbox.protocol.sandbox.SandboxProtocol"
-_REG_CACHE = "serverless_sandbox.utils.registry.TEMPLATE_CACHE_DIR"
+_RUN_SYNC = "easy_sandbox.utils.async_bridge.run_sync"
+_SANDBOX_CONNECT = "easy_sandbox.api.sandbox.Sandbox.connect"
+_SANDBOX_CREATE = "easy_sandbox.api.sandbox.Sandbox.create"
+_SANDBOX_CONNECT = "easy_sandbox.api.sandbox.Sandbox.connect"
+_SANDBOX_CREATE = "easy_sandbox.api.sandbox.Sandbox.create"
+_CFG_CMD = "easy_sandbox.cli.commands.config_cmd"
+_MCP_CMD = "easy_sandbox.cli.commands.mcp"
+_LOAD_CFG = "easy_sandbox.transport.config.load_config"
+_CREATE_AUTH = "easy_sandbox.transport.auth.create_auth_provider"
+_HTTP_CLIENT = "easy_sandbox.transport.http.HttpClient"
+_SANDBOX_PROTO = "easy_sandbox.protocol.sandbox.SandboxProtocol"
+_REG_CACHE = "easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -100,7 +100,7 @@ def _make_sb(
     region: str = "cn-hangzhou",
 ) -> MagicMock:
     """Build a realistic mock Sandbox with SandboxInfo."""
-    from serverless_sandbox.models.sandbox import SandboxInfo
+    from easy_sandbox.models.sandbox import SandboxInfo
 
     sb_info = SandboxInfo.model_validate(
         {
@@ -132,7 +132,7 @@ def _make_sb(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def _cfg(toml: str = "", env: str = ""):
-    """Config command mock — patches _CONFIG_FILE / _SBOX_DIR / _ENV_FILE."""
+    """Config command mock — patches _CONFIG_FILE / _EBX_DIR / _ENV_FILE."""
 
     @contextmanager
     def _ctx() -> Iterator[dict[str, Any]]:
@@ -148,7 +148,7 @@ def _cfg(toml: str = "", env: str = ""):
             try:
                 with (
                     patch(f"{_CFG_CMD}._CONFIG_FILE", cf),
-                    patch(f"{_CFG_CMD}._SBOX_DIR", tmp),
+                    patch(f"{_CFG_CMD}._EBX_DIR", tmp),
                     patch(f"{_CFG_CMD}._ENV_FILE", ef),
                 ):
                     yield {}
@@ -270,7 +270,7 @@ def _create_nl(tmpl: str, display: str, kw: str, cpu: int = 2, mem: int = 4096):
 
     @contextmanager
     def _ctx() -> Iterator[dict[str, Any]]:
-        from serverless_sandbox.agent.infer import InferResult
+        from easy_sandbox.agent.infer import InferResult
 
         sb = _make_sb(tmpl=tmpl)
         calls = [0]
@@ -299,7 +299,7 @@ def _exec(stdout: str = "hello\n", stderr: str = "", exit_code: int = 0):
 
     @contextmanager
     def _ctx() -> Iterator[dict[str, Any]]:
-        from serverless_sandbox.models.process import ProcessResult
+        from easy_sandbox.models.process import ProcessResult
 
         sb = _make_sb()
         pr = ProcessResult(stdout=stdout, stderr=stderr, exit_code=exit_code, execution_time=0.1)
@@ -353,7 +353,7 @@ def _download_file():
 
 
 def _run_cmd(custom_commands: dict[str, Any]):
-    """Mock for ``sbox run`` — exercises the REAL :meth:`Sandbox.run` dispatch.
+    """Mock for ``ebx run`` — exercises the REAL :meth:`Sandbox.run` dispatch.
 
     Patches ``Sandbox.connect`` as AsyncMock so the merged
     ``_connect_and_run`` coroutine executes with the real ``run_sync``.
@@ -367,8 +367,8 @@ def _run_cmd(custom_commands: dict[str, Any]):
 
     @contextmanager
     def _ctx() -> Iterator[dict[str, Any]]:
-        from serverless_sandbox.api.sandbox import Sandbox
-        from serverless_sandbox.models.process import ProcessResult
+        from easy_sandbox.api.sandbox import Sandbox
+        from easy_sandbox.models.process import ProcessResult
 
         sb = _make_sb()
         sb._custom_commands = custom_commands
@@ -403,7 +403,7 @@ def _kill_all():
     def _ctx() -> Iterator[dict[str, Any]]:
         import asyncio as _aio
 
-        from serverless_sandbox.models.sandbox import SandboxInfo
+        from easy_sandbox.models.sandbox import SandboxInfo
 
         infos = [
             SandboxInfo.model_validate(
@@ -517,21 +517,21 @@ def _tmpl_install_builtin():
 
 
 def _build_registry() -> list[EvidenceCase]:
-    from serverless_sandbox.models.errors import (
+    from easy_sandbox.models.errors import (
         AuthenticationError,
         CommandTimeoutError,
         QuotaExceededError,
         TemplateNotFoundError,
     )
-    from serverless_sandbox.models.sandbox import SandboxInfo
-    from serverless_sandbox.models.template import CustomCommand, CustomCommandArg
+    from easy_sandbox.models.sandbox import SandboxInfo
+    from easy_sandbox.models.template import CustomCommand, CustomCommandArg
 
     E = EvidenceCase
     cases: list[EvidenceCase] = []
 
     # ── Help (27) ──────────────────────────────────────────────────────
     _help = [
-        ([], "sbox"),
+        ([], "ebx"),
         (["create"], "create"),
         (["list"], "list"),
         (["info"], "info"),

@@ -1,6 +1,6 @@
-# Awesome Serverless Sandbox Templates
+# Awesome Easy Sandbox Templates
 
-开箱即用的 **Serverless Sandbox** 沙箱模板集合。
+开箱即用的 **Easy Sandbox** 沙箱模板集合。
 
 这个目录（或者说这个仓库）刻意保持**极简形态**：
 
@@ -23,8 +23,8 @@
 新增一个模板 = 新增一个文件夹；下线一个模板 = 删掉一个文件夹。索引就是本文件里的表格，
 并由离线测试（`tests/test_templates/test_template_catalog.py`）保证表格与 YAML 不漂移。
 
-> 本目录既可以留在主仓库 `serverless-sandbox` 内（路径 `examples/templates/`），
-> 也可以**整份原样**拎出去作为独立仓库 `awesome-serverless-sandbox-templates`。
+> 本目录既可以留在主仓库 `easy-sandbox` 内（路径 `examples/templates/`），
+> 也可以**整份原样**拎出去作为独立仓库 `awesome-easy-sandbox-templates`。
 > 两种形态下，本文档的描述与命令都成立——差别只在于 install 时使用的引用（ref）格式，
 > 下文[安装](#安装)一节会同时给出两种写法。
 
@@ -49,7 +49,7 @@
 
 > **说明**
 > - `关键词` 一列取自各模板 `template.yaml` 的 `tags` 字段，也是自然语言推断
->   （`sbox create "……"`）时的命中依据之一。
+>   （`ebx create "……"`）时的命中依据之一。
 > - `resources` 一列取自 `resources.cpu` / `resources.memory`；`python-hello` 未声明该块，
 >   运行时使用平台默认规格。
 > - `capabilities` 与 `custom commands` 直接来自 YAML，**必须**与文件内容一致；
@@ -61,7 +61,7 @@
 
 `install` 做的事情是：解析引用 → 拉取模板目录 → 读取 `template.yaml` →
 生成 Dockerfile → 提交平台构建。安装完成后会得到一个 `TemplateID` 与 `Alias`，
-后续用 `sbox create --template <alias>` 创建沙箱。
+后续用 `ebx create --template <alias>` 创建沙箱。
 
 ### 方式一：从本地目录安装（`--registry-type local`）
 
@@ -69,13 +69,13 @@
 
 ```bash
 # 主仓库内（相对仓库根目录执行）
-sbox install ./examples/templates/node-web --registry-type local
+ebx install ./examples/templates/node-web --registry-type local
 
 # 独立仓库 clone 到本地后
-sbox install ./awesome-serverless-sandbox-templates/node-web --registry-type local
+ebx install ./awesome-easy-sandbox-templates/node-web --registry-type local
 
 # 绝对路径同样可用
-sbox install /abs/path/to/node-web --registry-type local
+ebx install /abs/path/to/node-web --registry-type local
 ```
 
 > `--registry-type local` 显式声明本地来源；若省略，以 `./` 或 `/` 开头的引用、
@@ -84,7 +84,7 @@ sbox install /abs/path/to/node-web --registry-type local
 也可以指定别名，避免与同名模板冲突：
 
 ```bash
-sbox install ./examples/templates/node-web --registry-type local --alias my-node-web
+ebx install ./examples/templates/node-web --registry-type local --alias my-node-web
 ```
 
 ### 方式二：从 GitHub 安装（`--registry-type github`）
@@ -92,47 +92,48 @@ sbox install ./examples/templates/node-web --registry-type local --alias my-node
 `<ref>` 采用 Terraform 风格的双斜杠子目录语法：
 
 ```
-owner/repo                              # 整个仓库（模板必须位于仓库根）
-owner/repo@v1.0.0                       # 整个仓库 + 指定 release tag
-owner/repo//path/to/template            # 仓库内子目录（latest release）
-owner/repo//path/to/template@v1.0.0     # 仓库内子目录 + 指定 release tag
+owner/repo                              # 整个仓库（模板必须位于仓库根，默认分支）
+owner/repo@v1.0.0                       # 整个仓库 + 指定 ref(tag/branch/sha)
+owner/repo//path/to/template            # 仓库内子目录（默认分支）
+owner/repo//path/to/template@v1.0.0     # 仓库内子目录 + 指定 ref(tag/branch/sha)
 ```
 
 本集合中每个模板都是仓库根下的一个子目录，因此使用 `//<模板文件夹名>` 形式：
 
 ```bash
 # 本目录作为独立仓库发布时
-sbox install anycodes/awesome-serverless-sandbox-templates//node-web \
+ebx install anycodes/awesome-easy-sandbox-templates//node-web \
   --registry-type github \
   --registry-url https://github.com
 
-# 锁定版本（对应仓库的一个 GitHub Release tag）
-sbox install anycodes/awesome-serverless-sandbox-templates//node-web@v1.0.0 \
+# 锁定版本（tag / branch / commit sha 均可）
+ebx install anycodes/awesome-easy-sandbox-templates//node-web@v1.0.0 \
   --registry-type github \
   --registry-url https://github.com
 
 # 私有仓库需要令牌
-sbox install anycodes/awesome-serverless-sandbox-templates//codex \
+ebx install anycodes/awesome-easy-sandbox-templates//codex \
   --registry-type github \
   --registry-url https://github.com \
   --token "$GITHUB_TOKEN"
 ```
 
 `--registry-url` 默认即 `https://github.com`，仅在指向 GitHub Enterprise 或镜像源时必须显式给出。
-客户端会把 `github.com` 替换为 `api.github.com` 去查询 Release，因此**模板仓库必须发布 GitHub Release**
-（而不是只有一个默认分支），否则 `latest` 无法解析。
+客户端会把 `github.com` 替换为 `api.github.com`，通过 **GitHub tarball API 按 tag/branch/sha 拉取**
+（`GET /repos/{owner}/{repo}/tarball[/{ref}]`）。**无需发布 GitHub Release**：只推 git tag、
+用某个分支名、甚至指定 commit sha 都能安装；不带 `@ref` 时拉取默认分支。
 
-拉取结果会缓存到本地：
+拉取结果会缓存到本地（无 ref 时以 `default` 占位）：
 
 ```
-~/.sbox/templates/<owner>/<repo>/<tag>/[<path>/]
+~/.ebx/templates/<owner>/<repo>/<ref>/[<path>/]
 ```
 
 命中缓存时不会重复下载。查看与清理缓存：
 
 ```bash
-sbox template cache            # 列出已缓存模板
-sbox template cache --clear    # 清空缓存
+ebx template cache            # 列出已缓存模板
+ebx template cache --clear    # 清空缓存
 ```
 
 ---
@@ -142,21 +143,21 @@ sbox template cache --clear    # 清空缓存
 ### 创建沙箱
 
 ```bash
-sbox create --template node-web
+ebx create --template node-web
 # → sbx-xxxxxxxxxxxx
 ```
 
 也可以用自然语言，让推断引擎从上表关键词中挑选模板：
 
 ```bash
-sbox create "启动一个 Node.js Web 服务"
+ebx create "启动一个 Node.js Web 服务"
 ```
 
-### `sbox run` vs `sbox exec`：两条不同的执行路径
+### `ebx run` vs `ebx exec`：两条不同的执行路径
 
 这是使用模板时最容易混淆的一点，二者**不等价**：
 
-| | `sbox run <sandbox_id> <command_name>` | `sbox exec <sandbox_id> "<shell>"` |
+| | `ebx run <sandbox_id> <command_name>` | `ebx exec <sandbox_id> "<shell>"` |
 |---|---|---|
 | 命令来源 | 模板 `custom_commands` 中**预先声明**的具名命令 | 调用方**临时拼写**的原始 shell 字符串 |
 | 参数 | `--arg key=value`，填充 `cmd` 中的 `{placeholder}` | 无参数模型，全部自己写在字符串里 |
@@ -165,51 +166,51 @@ sbox create "启动一个 Node.js Web 服务"
 | 可发现性 | `sandbox.list_commands()` 可枚举，模板自带文档 | 不可枚举，靠口口相传 |
 | 失败模式 | 命令名不存在 / 必填参数缺失 / 占位符未填充 → 明确报错 | shell 语法错误、退出码非 0 |
 
-**`sbox run`：跑模板自定义命令**
+**`ebx run`：跑模板自定义命令**
 
 ```bash
 # node-web 声明了 dev / build / start 三个命令，且都固定 cwd=/app、timeout=120
-sbox run sbx-xxxxxxxxxxxx dev
-sbox run sbx-xxxxxxxxxxxx build
-sbox run sbx-xxxxxxxxxxxx start
+ebx run sbx-xxxxxxxxxxxx dev
+ebx run sbx-xxxxxxxxxxxx build
+ebx run sbx-xxxxxxxxxxxx start
 
 # 带参数：browser-automation 的 run(script)，默认 main.py
-sbox run sbx-xxxxxxxxxxxx run --arg script=scrape.py
+ebx run sbx-xxxxxxxxxxxx run --arg script=scrape.py
 
 # 必填参数（codex 的 run(prompt*)）不传会直接报错
-sbox run sbx-xxxxxxxxxxxx run --arg prompt="写一个快速排序"
+ebx run sbx-xxxxxxxxxxxx run --arg prompt="写一个快速排序"
 
 # claude-code 同理
-sbox run sbx-xxxxxxxxxxxx run --arg task="重构 utils 模块并补测试"
+ebx run sbx-xxxxxxxxxxxx run --arg task="重构 utils 模块并补测试"
 ```
 
-**`sbox exec`：跑原始 shell**
+**`ebx exec`：跑原始 shell**
 
 ```bash
-sbox exec sbx-xxxxxxxxxxxx "ls -la /app"
-sbox exec sbx-xxxxxxxxxxxx "npm install express" --cwd /workspace --timeout 300
+ebx exec sbx-xxxxxxxxxxxx "ls -la /app"
+ebx exec sbx-xxxxxxxxxxxx "npm install express" --cwd /workspace --timeout 300
 ```
 
 **经验法则**：模板作者已经想清楚、需要固定 `cwd`/`env`/`timeout` 的可复用动作 → 声明成
-`custom_commands` 并用 `sbox run`；一次性的探索、调试、临时命令 → 用 `sbox exec`。
+`custom_commands` 并用 `ebx run`；一次性的探索、调试、临时命令 → 用 `ebx exec`。
 
 SDK 侧等价写法：
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 sandbox = Sandbox.create(template="node-web")
 
-# 等价于 sbox run
+# 等价于 ebx run
 print(sandbox.list_commands())                 # [{'name': 'dev', 'description': ...}, ...]
 result = sandbox.run("start")                  # 具名自定义命令
 result = sandbox.run("run", script="app.py")   # 带参数填充
 
-# 等价于 sbox exec
+# 等价于 ebx exec
 result = sandbox.commands.run("ls -la /app", timeout=30, cwd="/app")
 ```
 
-> `sbox run` 依赖模板声明的 `custom_commands` 能被解析到（见下节 capabilities），
+> `ebx run` 依赖模板声明的 `custom_commands` 能被解析到（见下节 capabilities），
 > 若模板未声明该命令，会报 `Unknown custom command 'xxx'; available commands: ...`。
 
 ---
@@ -220,14 +221,14 @@ result = sandbox.commands.run("ls -la /app", timeout=30, cwd="/app")
 
 | 文件 | 必需 | 作用 |
 |------|------|------|
-| `template.yaml` | ✅ | 模板的**权威定义**：镜像、依赖、资源、capabilities、custom commands。`sbox install` 由它生成 Dockerfile |
-| `Dockerfile` | ✅ | 与 YAML 等价的可独立构建产物，供 `docker build` 直接验证、以及 `sbox template build -f` 使用 |
+| `template.yaml` | ✅ | 模板的**权威定义**：镜像、依赖、资源、capabilities、custom commands。`ebx install` 由它生成 Dockerfile |
+| `Dockerfile` | ✅ | 与 YAML 等价的可独立构建产物，供 `docker build` 直接验证、以及 `ebx template build -f` 使用 |
 | `README.md` | ✅ | 该模板的人类可读说明：环境内容、安装方式、使用示例、注意事项 |
 
 命名约定：
 
 - 文件夹名 == `template.yaml` 里的 `name` 字段 == 安装后的默认 `alias`。
-  三者一致，`resolve_capabilities()` 才能按名字在 `~/.sbox/templates/` 里反查到模板。
+  三者一致，`resolve_capabilities()` 才能按名字在 `~/.ebx/templates/` 里反查到模板。
 - 使用小写 + 连字符（kebab-case），不要空格、不要下划线。
 
 推荐（非必需）的附加文件：示例代码、`requirements.txt`、`.dockerignore` 等，
@@ -237,17 +238,17 @@ result = sandbox.commands.run("ls -la /app", timeout=30, cwd="/app")
 
 ## `template.yaml` 完整 Schema
 
-权威定义在 SDK 源码的 `src/serverless_sandbox/models/template.py`
+权威定义在 SDK 源码的 `src/easy_sandbox/models/template.py`
 （`SandboxTemplate` / `CustomCommand` / `CustomCommandArg` / `STANDARD_CAPABILITIES` /
-`DEFAULT_CAPABILITIES`），加载入口是 `src/serverless_sandbox/utils/registry.py`
+`DEFAULT_CAPABILITIES`），加载入口是 `src/easy_sandbox/utils/registry.py`
 的 `load_template_from_yaml()`。
 
-- 本目录位于主仓库内时：[`models/template.py`](../../src/serverless_sandbox/models/template.py)、
-  [`utils/registry.py`](../../src/serverless_sandbox/utils/registry.py)。
+- 本目录位于主仓库内时：[`models/template.py`](../../src/easy_sandbox/models/template.py)、
+  [`utils/registry.py`](../../src/easy_sandbox/utils/registry.py)。
 - 本目录已抽出为独立仓库时：到 SDK 仓库
-  [`anycodes/serverless-sandbox`](https://github.com/anycodes/serverless-sandbox)
+  [`anycodes/easy-sandbox`](https://github.com/anycodes/easy-sandbox)
   的同名路径下查看，或直接读已安装包的源码：
-  `python -c "import serverless_sandbox.models.template as m; print(m.__file__)"`。
+  `python -c "import easy_sandbox.models.template as m; print(m.__file__)"`。
 
 下文列出的字段名、默认值与校验规则均以这两个文件为准；如与本文描述不一致，**以源码为准**。
 
@@ -256,7 +257,7 @@ result = sandbox.commands.run("ls -la /app", timeout=30, cwd="/app")
 | 字段 | 类型 | 必需 | 默认值 | 说明 |
 |------|------|------|--------|------|
 | `name` | `str` | ✅ | — | 模板唯一标识，**必须**与所在文件夹同名 |
-| `version` | `str` | | `"1.0.0"` | 语义化版本，建议与仓库 Release tag 对齐 |
+| `version` | `str` | | `"1.0.0"` | 语义化版本，建议与仓库的 git tag/ref 对齐 |
 | `description` | `str` | | `""` | 一句话描述，会展示在索引表与 CLI 输出中 |
 | `base` | `str` | | `"ubuntu:22.04"` | 基础镜像，成为生成 Dockerfile 的 `FROM` |
 | `system_packages` | `list[str]` | | `[]` | apt 包 → `RUN apt-get update && apt-get install -y …` |
@@ -285,10 +286,10 @@ result = sandbox.commands.run("ls -la /app", timeout=30, cwd="/app")
 
 | capability | 含义 | 被门控的 SDK/CLI 面 |
 |------------|------|---------------------|
-| `shell` | 允许执行原始 shell 命令 | `sandbox.commands.*`、`sbox exec` |
-| `files` | 允许读写文件系统 | `sandbox.files.*`、`sbox upload` / `sbox download` |
+| `shell` | 允许执行原始 shell 命令 | `sandbox.commands.*`、`ebx exec` |
+| `files` | 允许读写文件系统 | `sandbox.files.*`、`ebx upload` / `ebx download` |
 | `code` | 允许代码解释器会话（有状态执行） | `sandbox.code.*` |
-| `terminal` | 允许交互式 PTY 终端 | `sandbox.terminal` / `TerminalSession`、`sbox connect` |
+| `terminal` | 允许交互式 PTY 终端 | `sandbox.terminal` / `TerminalSession`、`ebx connect` |
 | `ports` | 允许端口暴露与公网访问 | `sandbox.network.*` / host 解析 |
 
 规则：
@@ -301,7 +302,7 @@ result = sandbox.commands.run("ls -la /app", timeout=30, cwd="/app")
 - 词汇表外的取值会让 `SandboxTemplate` 校验直接失败：
   `Unknown capability 'xxx'; allowed: ['code', 'files', 'ports', 'shell', 'terminal']`。
 - 运行时解析顺序见 `api/capability.py::resolve_capabilities()`：显式 YAML 路径 →
-  扫描 `~/.sbox/templates/` 按 `name` 匹配 → 回落到 `DEFAULT_CAPABILITIES`（并打 warning）。
+  扫描 `~/.ebx/templates/` 按 `name` 匹配 → 回落到 `DEFAULT_CAPABILITIES`（并打 warning）。
   这就是"文件夹名 == `name`"约定重要的原因。
 
 本集合的分布：
@@ -315,7 +316,7 @@ result = sandbox.commands.run("ls -la /app", timeout=30, cwd="/app")
 
 ### `custom_commands` 结构
 
-`custom_commands` 是 `命令名 -> CustomCommand` 的映射。命令名即 `sbox run <sandbox_id> <命令名>`
+`custom_commands` 是 `命令名 -> CustomCommand` 的映射。命令名即 `ebx run <sandbox_id> <命令名>`
 中的 `<命令名>`，也是 SDK `sandbox.run("<命令名>")` 的入参。
 
 **`CustomCommand`**
@@ -356,8 +357,8 @@ custom_commands:
     cwd: "/app"
     timeout: 120
 
-  # 带默认值参数：sbox run <id> run            → python3 main.py
-  #                sbox run <id> run -a script=x.py → python3 x.py
+  # 带默认值参数：ebx run <id> run            → python3 main.py
+  #                ebx run <id> run -a script=x.py → python3 x.py
   run:
     cmd: "python3 {script}"
     description: "Run a Python script"
@@ -493,12 +494,12 @@ python -m pytest tests/test_templates/test_template_catalog.py -q
 python -m pytest tests/test_templates/test_local_install.py -q
 
 # 真实安装一次
-sbox install ./my-template --registry-type local
+ebx install ./my-template --registry-type local
 ```
 
 > 若本集合已被抽出为独立仓库，上面两条命令依然可用——只需把 `tests/test_templates/`
 > 一并 vendor 过去，并把 `conftest.py` 里的 `TEMPLATES_DIR` 指向仓库根即可。
-> 测试只依赖 `pydantic` + `pyyaml` + `click` + `pytest` + `serverless-sandbox[cli]`，
+> 测试只依赖 `pydantic` + `pyyaml` + `click` + `pytest` + `easy-sandbox[cli]`，
 > 全流程离线。完整说明见主仓库的 `docs/design/templates-catalog.md`
 > （在主仓库内可直接点开：[templates-catalog.md](../../docs/design/templates-catalog.md)）。
 

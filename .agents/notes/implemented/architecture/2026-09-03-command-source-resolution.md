@@ -7,16 +7,16 @@ To gate capabilities and dispatch named commands, the SDK/CLI must know a sandbo
 
 ## Decision
 Resolve command/capability definitions with a two-tier order, no separate index:
-1. **Local cache first**: read from `~/.sbox/templates` (the installed/cached template's `template.yaml`).
+1. **Local cache first**: read from `~/.ebx/templates` (the installed/cached template's `template.yaml`).
 2. **Online metadata fallback (Phase 2)**: `GET /templates/{id}` returns template `metadata` (capabilities + custom_commands). Until the backend endpoint is ready, degrade gracefully to `DEFAULT_CAPABILITIES` and emit a `warn` (no hard failure, no custom commands).
-3. **No `index.json`**: template volume is small, so a directory walk of `~/.sbox/templates` is sufficient. We do not introduce or maintain an index file.
+3. **No `index.json`**: template volume is small, so a directory walk of `~/.ebx/templates` is sufficient. We do not introduce or maintain an index file.
 
 ## API Design
 ```python
 # Resolution (pseudocode):
 def resolve_template_metadata(template_id) -> TemplateMetadata:
     # 1. local cache
-    local = load_from(~/.sbox/templates/<...>/template.yaml)
+    local = load_from(~/.ebx/templates/<...>/template.yaml)
     if local:
         return local
     # 2. online (Phase 2)
@@ -26,15 +26,15 @@ def resolve_template_metadata(template_id) -> TemplateMetadata:
     warn("template metadata unavailable; using DEFAULT_CAPABILITIES, no custom commands")
     return TemplateMetadata(capabilities=DEFAULT_CAPABILITIES, custom_commands={})
 ```
-Directory discovery uses a plain walk of `~/.sbox/templates` (no index file).
+Directory discovery uses a plain walk of `~/.ebx/templates` (no index file).
 
 ## Alternatives considered
-- **`~/.sbox/templates/index.json`** — Extra file to build, keep in sync, and invalidate; unjustified at current template scale. Rejected; see the capability-model-alternatives rejected ADR.
+- **`~/.ebx/templates/index.json`** — Extra file to build, keep in sync, and invalidate; unjustified at current template scale. Rejected; see the capability-model-alternatives rejected ADR.
 - **Online-only resolution** — Fails when offline or before the backend endpoint exists.
 - **Hard error when metadata missing** — Blocks all usage before Phase 2 backend is ready; we prefer degrade + warn.
 
 ## Dependencies
-- `~/.sbox/templates` cache layout (see minimal-template-repo ADR)
+- `~/.ebx/templates` cache layout (see minimal-template-repo ADR)
 - Platform API `GET /templates/{id}` (Phase 2)
 - `2026-09-03-capability-model.md` (`DEFAULT_CAPABILITIES` fallback)
 
@@ -44,7 +44,7 @@ Directory discovery uses a plain walk of `~/.sbox/templates` (no index file).
 - Directory walk discovers templates without any index file.
 
 ## Implementation status
-- **已实现（本地优先）**：`resolve_capabilities()` 从 `~/.sbox/templates` 下本地缓存的
+- **已实现（本地优先）**：`resolve_capabilities()` 从 `~/.ebx/templates` 下本地缓存的
   `template.yaml` 解析声明的 capabilities / custom_commands；本地缺失时回落
   `DEFAULT_CAPABILITIES` 并打 `warn`。
 - **线上 metadata 兜底 = Phase 2 延后**：`GET /templates/{id}` 的在线元数据兜底尚未接入，

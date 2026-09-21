@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from serverless_sandbox.models.session import SessionConfig, SessionInfo
+from easy_sandbox.models.session import SessionConfig, SessionInfo
 
 
 class TestSessionConfig:

@@ -7,7 +7,7 @@ Shows file read/write, directory management, upload/download in a sandbox.
 import asyncio
 import os
 
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 
 async def main() -> None:

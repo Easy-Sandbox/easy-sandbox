@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from serverless_sandbox.cli.main import cli
+from easy_sandbox.cli.main import cli
 
 
 @pytest.fixture

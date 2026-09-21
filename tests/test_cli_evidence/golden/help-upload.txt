@@ -4,9 +4,9 @@ Usage: cli upload [OPTIONS] SANDBOX_ID LOCAL_PATH REMOTE_PATH
 
   Examples:
 
-      sbox upload abc123 ./script.py /app/script.py
+      ebx upload abc123 ./script.py /app/script.py
 
-      sbox upload abc123 ./data/ /app/data/
+      ebx upload abc123 ./data/ /app/data/
 
 Options:
   --help  Show this message and exit.

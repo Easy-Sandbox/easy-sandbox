@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from serverless_sandbox.transport.codec import (
+from easy_sandbox.transport.codec import (
     ConnectCodec,
     CONNECT_CONTENT_TYPE,
     json_encode,

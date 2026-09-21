@@ -1,4 +1,4 @@
-"""Tests for serverless_sandbox.server.routes_browser — browser automation endpoints.
+"""Tests for easy_sandbox.server.routes_browser — browser automation endpoints.
 
 Covers:
 - BROWSER group disabled by default (endpoints return 404)
@@ -20,10 +20,10 @@ from unittest import mock
 import pytest
 
 # Import the browser routes so they register on the default table.
-import serverless_sandbox.server.routes_browser as routes_browser_mod  # noqa: F401
-from serverless_sandbox.server.app import SandboxRequestHandler
-from serverless_sandbox.server.registry import CommandRegistry
-from serverless_sandbox.server.router import CapabilityGroup, default_table
+import easy_sandbox.server.routes_browser as routes_browser_mod  # noqa: F401
+from easy_sandbox.server.app import SandboxRequestHandler
+from easy_sandbox.server.registry import CommandRegistry
+from easy_sandbox.server.router import CapabilityGroup, default_table
 
 # ---------------------------------------------------------------------------
 # Helpers

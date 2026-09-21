@@ -11,16 +11,16 @@ SDK 的 `Sandbox.list_commands()` 已实现基础的命令发现（`api/sandbox.
 
 ### Layer 1：本地静态发现（无需鉴权、无需连服务器）
 
-1. **YAML 分支（已实现）**：`api/capability.py` 的 `_find_local_template()` 扫描 `~/.sbox/templates/**/template.yaml`，解析 `custom_commands:` + `capabilities:`。由 `resolve_capabilities()` 在 `Sandbox.create()`/`Sandbox.connect()` 时触发。
+1. **YAML 分支（已实现）**：`api/capability.py` 的 `_find_local_template()` 扫描 `~/.ebx/templates/**/template.yaml`，解析 `custom_commands:` + `capabilities:`。由 `resolve_capabilities()` 在 `Sandbox.create()`/`Sandbox.connect()` 时触发。
 2. **Python 命令模块内省（缺口，由 @sandbox.register 填补）**：装饰器在导入时产出 `CustomCommand` 对象，注入同一个 `custom_commands` 字典。CLI 内省只需 `import` 用户模块即可发现。
-3. **权限**：纯本地操作，只需读 `~/.sbox/templates` 目录或导入 Python 模块。不需要、也不应该要求鉴权。
+3. **权限**：纯本地操作，只需读 `~/.ebx/templates` 目录或导入 Python 模块。不需要、也不应该要求鉴权。
 
 ### Layer 2：server 远程发现（运行时注册的命令）
 
-> **⚠ 关键变更（2026-09-05）**：原 ADR 仅考虑平台 `GET /templates/{id}` 作为远程发现来源，并将"用户自建 server 暴露发现端点"列为 Rejected。此决策已推翻。新增的 `serverless_sandbox.server` 模块（见 `2026-09-05-sandbox-server-module.md`）提供 `GET /commands` 发现端点，成为 Layer 2 的主要来源。
+> **⚠ 关键变更（2026-09-05）**：原 ADR 仅考虑平台 `GET /templates/{id}` 作为远程发现来源，并将"用户自建 server 暴露发现端点"列为 Rejected。此决策已推翻。新增的 `easy_sandbox.server` 模块（见 `2026-09-05-sandbox-server-module.md`）提供 `GET /commands` 发现端点，成为 Layer 2 的主要来源。
 
-4. **server 模块提供 `GET /commands` 发现端点**：`serverless_sandbox.server` 启动后，`GET https://{port}-{sandbox_id}.{domain}/commands` 返回所有已注册命令及其参数 schema。这是运行时注册命令的标准发现方式。
-5. **平台模板发现（辅助）**：`protocol/template.py` 的 `GET /templates/{id}` + `transport/http.py:84` 的 `auth_headers = await self._auth.get_headers()` 自动注入 L1 凭证。`sbox template info` 是活的端到端实证。接线缺口：`api/capability.py:196` 仅一行 `# 3. TODO(Phase2): online fallback`。
+4. **server 模块提供 `GET /commands` 发现端点**：`easy_sandbox.server` 启动后，`GET https://{port}-{sandbox_id}.{domain}/commands` 返回所有已注册命令及其参数 schema。这是运行时注册命令的标准发现方式。
+5. **平台模板发现（辅助）**：`protocol/template.py` 的 `GET /templates/{id}` + `transport/http.py:84` 的 `auth_headers = await self._auth.get_headers()` 自动注入 L1 凭证。`ebx template info` 是活的端到端实证。接线缺口：`api/capability.py:196` 仅一行 `# 3. TODO(Phase2): online fallback`。
 6. **鉴权复用**：
    - Platform 平面 → `AuthProvider.get_headers()`（`transport/auth.py` 的 `ApiKeyAuth` 或 `AkSkAuth`）
    - envd 平面 → `EnvdTokenManager.get_headers()`（4 header）
@@ -32,7 +32,7 @@ SDK 的 `Sandbox.list_commands()` 已实现基础的命令发现（`api/sandbox.
 7. **发现权限 ⊆ 执行权限**：
    - **身份级**：接入 Layer 2 后**自动成立**。发现与执行共用同一 L1 身份；token 无效则 `platform_request` 的 `raise_for_status()` 先抛。
    - **命令级（细粒度）**：今天不成立，且我们**无法单方面实现**。平台返回的是模板级清单，细粒度需服务端按 caller 身份过滤（超出协议客户端能力范围）。V1 明确标注"只保证身份级鉴权，不保证命令级最小可见性"。
-   - **现状**（Layer 1 only）：零鉴权，泄露面仅限本地 `~/.sbox/templates`，方向安全（发现比执行更宽）。
+   - **现状**（Layer 1 only）：零鉴权，泄露面仅限本地 `~/.ebx/templates`，方向安全（发现比执行更宽）。
 
 ### 现有 list_commands() 缺陷
 
@@ -41,7 +41,7 @@ SDK 的 `Sandbox.list_commands()` 已实现基础的命令发现（`api/sandbox.
 
 ### O5 平台 custom_commands 承载
 
-10. **`GET /templates/{id}` 响应是否携带 `custom_commands` 待验证**。`models/template.py` 的 `TemplateInfo` 无该字段，只有泛型 `metadata: dict[str, Any]`。`custom_commands` 是本仓库的客户端侧 YAML 扩展，不是 E2B/FC 模板模型的一部分。**需 #103 的真实 E2E 验证**：`sbox template info <id> --json` 看响应是否含 `metadata`/`customCommands`。此验证直接决定 M6b（远程发现接线）是"一次函数调用"还是"需平台侧支持"。
+10. **`GET /templates/{id}` 响应是否携带 `custom_commands` 待验证**。`models/template.py` 的 `TemplateInfo` 无该字段，只有泛型 `metadata: dict[str, Any]`。`custom_commands` 是本仓库的客户端侧 YAML 扩展，不是 E2B/FC 模板模型的一部分。**需 #103 的真实 E2E 验证**：`ebx template info <id> --json` 看响应是否含 `metadata`/`customCommands`。此验证直接决定 M6b（远程发现接线）是"一次函数调用"还是"需平台侧支持"。
 
 ## API Design
 ```python
@@ -64,7 +64,7 @@ capabilities = sandbox.capabilities
 ## Alternatives considered
 - **envd 暴露命令清单端点** — 结构性不可行。envd 端点面封闭且已完整枚举（Process/Filesystem/CodeInterpreter/File/Terminal），E2B OpenAPI 的 `Envd` tag 只有 health/stats/envs，envd 版本由镜像掌控。Rejected。
 - **`process.Process/List` 当发现 API** — 语义错误，它返回的是"当前运行的 OS 进程"（PID 级运行时状态），不是"支持哪些命名命令 + 参数 schema"。Rejected。
-- **用户自建 server 暴露发现端点** — ~~原标为 Rejected~~。**已采纳（2026-09-05）**：`serverless_sandbox.server` 模块提供 `GET /commands` 发现端点，需 `ports` 能力门控。这成为 Layer 2 运行时发现的主要方式。
+- **用户自建 server 暴露发现端点** — ~~原标为 Rejected~~。**已采纳（2026-09-05）**：`easy_sandbox.server` 模块提供 `GET /commands` 发现端点，需 `ports` 能力门控。这成为 Layer 2 运行时发现的主要方式。
 - **用 `NetworkModule.get_access_headers()` 做鉴权** — 被 `ports` 门控 + `secure=False` 返回空 dict，会让发现权限小于执行权限。Rejected。
 
 ## Dependencies
@@ -92,5 +92,5 @@ capabilities = sandbox.capabilities
 - 实现后，此 ADR 从 `proposed/` 移至 `implemented/`。
 
 ## Evidence
-- `docs/evidence/research/2026-09-04-container-serve-boundary.md` §6.4
-- `docs/evidence/research/2026-09-04-fc-claude-code-image-inspection.md`（确认 Gateway routeDynamic 支持动态端口路由）
+- `.agents/evidence/research/2026-09-04-container-serve-boundary.md` §6.4
+- `.agents/evidence/research/2026-09-04-fc-claude-code-image-inspection.md`（确认 Gateway routeDynamic 支持动态端口路由）

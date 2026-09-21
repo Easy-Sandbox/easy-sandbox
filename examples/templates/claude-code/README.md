@@ -21,13 +21,13 @@ Anthropic Claude Code 的沙箱运行环境，预装 Claude Code CLI，支持 AI
 **从本地安装：**
 
 ```bash
-sbox install ./examples/templates/claude-code --registry-type local
+ebx install ./examples/templates/claude-code --registry-type local
 ```
 
 **从 GitHub 安装：**
 
 ```bash
-sbox install Serverless-Sandbox/awesome-templates//claude-code
+ebx install Easy-Sandbox/awesome-templates//claude-code
 ```
 
 ## 使用示例
@@ -35,25 +35,25 @@ sbox install Serverless-Sandbox/awesome-templates//claude-code
 创建沙箱实例并传入 API Key：
 
 ```bash
-sbox create --template claude-code --env ANTHROPIC_API_KEY=sk-ant-xxx
+ebx create --template claude-code --env ANTHROPIC_API_KEY=sk-ant-xxx
 ```
 
 在沙箱中启动 Claude Code：
 
 ```bash
-sbox exec <sandbox-id> -- claude "编写一个 Python HTTP 服务器"
+ebx exec <sandbox-id> -- claude "编写一个 Python HTTP 服务器"
 ```
 
 非交互模式执行任务：
 
 ```bash
-sbox exec <sandbox-id> -- claude -p "重构这个函数以提高性能" --allowedTools "Edit,Read,Write"
+ebx exec <sandbox-id> -- claude -p "重构这个函数以提高性能" --allowedTools "Edit,Read,Write"
 ```
 
 使用 Python SDK：
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 sandbox = Sandbox.create(
     template="claude-code",
@@ -78,8 +78,8 @@ print(result.stdout)
 如需在模板基础上安装额外依赖，可在创建沙箱后执行：
 
 ```bash
-sbox exec <sandbox-id> -- pip install <package-name>
-sbox exec <sandbox-id> -- npm install -g <package-name>
+ebx exec <sandbox-id> -- pip install <package-name>
+ebx exec <sandbox-id> -- npm install -g <package-name>
 ```
 
 ## 注意事项

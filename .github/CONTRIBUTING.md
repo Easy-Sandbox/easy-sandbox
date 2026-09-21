@@ -1,4 +1,4 @@
-# Contributing to Serverless Sandbox
+# Contributing to Easy Sandbox
 
 Thank you for your interest in contributing! This guide will help you get started.
 
@@ -13,8 +13,8 @@ Thank you for your interest in contributing! This guide will help you get starte
 
 ```bash
 # 1. Fork and clone the repository
-git clone https://github.com/<your-username>/serverless-sandbox.git
-cd serverless-sandbox
+git clone https://github.com/<your-username>/easy-sandbox.git
+cd easy-sandbox
 
 # 2. Install in development mode (includes all extras + test/lint tooling)
 pip install -e ".[dev]"
@@ -127,7 +127,7 @@ Community sandbox templates are indexed in [`awesome-templates.yaml`](../awesome
    ```
 3. **Required fields**: `name`, `description`, `repo`, `tags`, `author`, `capabilities`, `status`
 4. **Status values**:
-   - `official` — maintained by the Serverless-Sandbox team (do not use for community PRs)
+   - `official` — maintained by the Easy-Sandbox team (do not use for community PRs)
    - `community` — community-contributed and maintained
    - `experimental` — early-stage or proof-of-concept
 5. **Ensure** your repo contains a valid `template.yaml` at the specified path
@@ -144,9 +144,9 @@ Your template repository should include:
 
 Use the CLI to search the community index:
 ```bash
-sbox template search python      # search by tag or keyword
-sbox template search ai-agent    # find AI agent templates
-sbox template search browser     # find browser automation templates
+ebx template search python      # search by tag or keyword
+ebx template search ai-agent    # find AI agent templates
+ebx template search browser     # find browser automation templates
 ```
 
 ## Commit Message Convention
@@ -165,12 +165,12 @@ We follow [Conventional Commits](https://www.conventionalcommits.org/):
 
 ## Reporting Issues
 
-- Use [GitHub Issues](https://github.com/Serverless-Sandbox/serverless-sandbox/issues/new/choose) with our templates
+- Use [GitHub Issues](https://github.com/Easy-Sandbox/easy-sandbox/issues/new/choose) with our templates
 - For security vulnerabilities, see our [Security Policy](SECURITY.md)
 
 ## Questions?
 
-- Open a [Discussion](https://github.com/Serverless-Sandbox/serverless-sandbox/discussions) for general questions
+- Open a [Discussion](https://github.com/Easy-Sandbox/easy-sandbox/discussions) for general questions
 - Check existing issues and discussions before creating new ones
 
 ## License

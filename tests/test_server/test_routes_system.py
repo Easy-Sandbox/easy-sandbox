@@ -1,4 +1,4 @@
-"""Tests for serverless_sandbox.server.routes_system — system endpoints.
+"""Tests for easy_sandbox.server.routes_system — system endpoints.
 
 Each test spins up a real ``ThreadingHTTPServer`` on a random free port in a
 background thread and uses ``http.client.HTTPConnection`` to hit it directly.
@@ -17,10 +17,10 @@ from typing import Any
 
 import pytest
 
-import serverless_sandbox.server.routes_system  # noqa: F401  # trigger registration
-from serverless_sandbox.server.app import SandboxRequestHandler
-from serverless_sandbox.server.registry import CommandRegistry
-from serverless_sandbox.server.router import CapabilityGroup, default_table
+import easy_sandbox.server.routes_system  # noqa: F401  # trigger registration
+from easy_sandbox.server.app import SandboxRequestHandler
+from easy_sandbox.server.registry import CommandRegistry
+from easy_sandbox.server.router import CapabilityGroup, default_table
 
 # ---------------------------------------------------------------------------
 # Helpers (mirrors test_app.py)
@@ -257,12 +257,12 @@ class TestEnvSet:
         assert status == 403
         assert "PATH" in body["error"]
 
-    def test_protected_sbox_token_rejected(self, server_port: int) -> None:
+    def test_protected_ebx_token_rejected(self, server_port: int) -> None:
         status, body = _request(
             server_port,
             "POST",
             "/env",
-            body={"vars": {"SBOX_SERVER_TOKEN": "hacked"}},
+            body={"vars": {"EBX_SERVER_TOKEN": "hacked"}},
         )
         assert status == 403
 

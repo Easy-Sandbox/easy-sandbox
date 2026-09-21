@@ -13,7 +13,7 @@
 
 Instead, please report them responsibly via email:
 
-📧 **security@serverless-sandbox.com**
+📧 **security@easy-sandbox.com**
 
 ### What to Include
 
@@ -44,13 +44,13 @@ When reporting a vulnerability, please include:
 
 ## Security Best Practices for Users
 
-- Keep `serverless-sandbox` updated to the latest version
+- Keep `easy-sandbox` updated to the latest version
 - Never commit API keys, tokens, or credentials to your repository
 - Use environment variables or the SDK's keychain for authentication
 - Review sandbox templates before deploying to production
 
 ## Scope
 
-This security policy applies to the `serverless-sandbox` Python package and CLI tool. For issues related to the underlying Alibaba Cloud FC service, please contact [Alibaba Cloud Security](https://security.alibaba.com/).
+This security policy applies to the `easy-sandbox` Python package and CLI tool. For issues related to the underlying Alibaba Cloud FC service, please contact [Alibaba Cloud Security](https://security.alibaba.com/).
 
-Thank you for helping keep Serverless Sandbox and its users safe! 🔒
+Thank you for helping keep Easy Sandbox and its users safe! 🔒

@@ -1,6 +1,6 @@
 # 沙箱类型体系设计
 
-> Serverless Sandbox 提供三种沙箱模式，覆盖从一次性脚本到长期运行服务的全部场景。当前**仅临时沙箱（Ephemeral）完整支持**，持久沙箱和休眠沙箱为远期规划。
+> Easy Sandbox 提供三种沙箱模式，覆盖从一次性脚本到长期运行服务的全部场景。当前**仅临时沙箱（Ephemeral）完整支持**，持久沙箱和休眠沙箱为远期规划。
 
 ---
 
@@ -30,7 +30,7 @@ async with await Sandbox.create(template="code-interpreter") as sb:
 
 ```python
 # Future API — 待底层支持
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 sb = await Sandbox.create(
     template="python-base",
@@ -54,7 +54,7 @@ result = await sb.commands.run("pip list")  # flask, sqlalchemy 仍在
 
 ```python
 # Future API — 待底层支持
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 sb = await Sandbox.create(
     template="python-data-science",
@@ -121,7 +121,7 @@ stateDiagram-v2
 ### 临时沙箱 — 典型工作流
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 场景：AI Agent 执行一次性代码
 async def execute_code(code: str) -> str:
@@ -144,7 +144,7 @@ async def process_batch(items: list[str]) -> list[str]:
 > **以下 API 待底层能力支持后实现。**
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 创建或连接持久开发环境
 try:
@@ -176,7 +176,7 @@ async for event in sb.files.watch("/app/src"):
 > **以下 API 待底层能力支持后实现。**
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 创建支持休眠的沙箱
 sb = await Sandbox.create(
@@ -248,13 +248,13 @@ for i in range(5):
 | 触发条件 | 动作 | 默认值 |
 |----------|------|--------|
 | 手动 `kill()` | 销毁 | — |
-| CLI `sbox kill` | 销毁 | — |
+| CLI `ebx kill` | 销毁 | — |
 | 账户欠费 | 冻结 → 7 天后销毁 | — |
 
 ### 全局清理策略
 
 ```python
-from serverless_sandbox import Config
+from easy_sandbox import Config
 
 # 全局配置自动清理
 Config.set(

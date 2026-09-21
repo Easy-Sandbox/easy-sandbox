@@ -16,14 +16,14 @@ Status: implemented
 
 验证平台已有模板的 CLI + SDK envd 能力（shell/files/code）：
 - **模板**：`code-interpreter-v1`（templateID: `8d926meb1xzckz1a83ib`）、`base`（templateID: `216g37mamkdfhzrauvxk`）
-- **测试内容**：`sbox create`/`sbox exec`（CLI）+ `Sandbox.create()`/`sandbox.commands.run()`（SDK）
+- **测试内容**：`ebx create`/`ebx exec`（CLI）+ `Sandbox.create()`/`sandbox.commands.run()`（SDK）
 - **覆盖能力**：shell 命令执行、文件读写、代码解释器
 
 ### 场景 B：自定义模板（Part 2）
 
 验证 CLI 本地构建→ACR 推送→模板创建→沙箱启动→Server 能力全链路：
 - **模板**：`examples/templates/` 下的 10 个模板（python-hello, codex, node-web, browser-automation, claude-code, deepseek-harness, hermes-agent, openclaw, qoder, qwen-code）
-- **测试内容**：`sbox template build-local`（CLI）+ `DockerBuilder`（SDK）+ Sandbox Server 能力
+- **测试内容**：`ebx template build-local`（CLI）+ `DockerBuilder`（SDK）+ Sandbox Server 能力
 - **覆盖能力**：Docker 构建、ACR 推送、模板注册、沙箱创建、Server 启动与调用
 
 ### 并行架构
@@ -46,7 +46,7 @@ cd <project-root>
 python3 scripts/cloud_e2e_test.py
 
 # 依赖项
-pip install "serverless-sandbox[cli]" httpx pyyaml python-dotenv
+pip install "easy-sandbox[cli]" httpx pyyaml python-dotenv
 ```
 
 ```python

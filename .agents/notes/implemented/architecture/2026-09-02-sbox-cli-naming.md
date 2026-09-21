@@ -1,4 +1,4 @@
-# Decision: CLI Named `sbox`
+# Decision: CLI Named `ebx`
 
 Status: implemented
 
@@ -6,7 +6,7 @@ Status: implemented
 Need a short, memorable CLI command name that doesn't conflict with existing system tools.
 
 ## Decision
-CLI command is `sbox`. Config directory is `~/.sbox/`.
+CLI command is `ebx`. Config directory is `~/.ebx/`.
 
 ## Alternatives considered
 - **`ss`** — Conflicts with Linux built-in `ss` (socket statistics)
@@ -17,9 +17,9 @@ CLI command is `sbox`. Config directory is `~/.sbox/`.
 - `pyproject.toml` entry_points configuration
 
 ## Test Strategy
-- Verify `sbox --help` works and shows all commands
+- Verify `ebx --help` works and shows all commands
 - Verify startup time < 200ms
 
 ## Consequences
 - Clear, memorable, no known conflicts
-- Config at `~/.sbox/` follows XDG-like convention
+- Config at `~/.ebx/` follows XDG-like convention

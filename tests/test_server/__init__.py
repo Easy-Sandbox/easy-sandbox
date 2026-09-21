@@ -1,1 +1,1 @@
-"""Tests for serverless_sandbox.server."""
+"""Tests for easy_sandbox.server."""

@@ -6,9 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
 
-from serverless_sandbox.protocol.terminal import TerminalSession
-from serverless_sandbox.transport.auth import EnvdTokenManager
-from serverless_sandbox.transport.config import TransportConfig
+from easy_sandbox.protocol.terminal import TerminalSession
+from easy_sandbox.transport.auth import EnvdTokenManager
+from easy_sandbox.transport.config import TransportConfig
 
 
 @pytest.fixture
@@ -82,7 +82,7 @@ class TestTerminalURLConversion:
         # Patch WebSocketClient to capture URL
         captured_args: dict = {}
 
-        import serverless_sandbox.protocol.terminal as term_mod
+        import easy_sandbox.protocol.terminal as term_mod
         original_ws_class = term_mod.WebSocketClient
 
         class FakeWS:
@@ -118,7 +118,7 @@ class TestTerminalURLConversion:
 
         captured_args: dict = {}
 
-        import serverless_sandbox.protocol.terminal as term_mod
+        import easy_sandbox.protocol.terminal as term_mod
         original_ws_class = term_mod.WebSocketClient
 
         class FakeWS:

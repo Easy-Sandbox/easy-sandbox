@@ -4,7 +4,7 @@ Status: implemented
 Implemented: 2026-09-21
 
 ## Problem
-当前 `serverless_sandbox.server` 模块仅提供 6 个基础端点（health、commands、upload、download、shell、run command），能力覆盖有限。要使 Server 成为完整的沙箱内服务层，需要扩展到覆盖文件系统 CRUD、进程管理、PTY 终端、流式输出、系统信息、环境变量管理、Git 操作、Code Interpreter、浏览器自动化等能力，同时保持架构可控——端点可按能力组开关，避免不需要的能力暴露攻击面。
+当前 `easy_sandbox.server` 模块仅提供 6 个基础端点（health、commands、upload、download、shell、run command），能力覆盖有限。要使 Server 成为完整的沙箱内服务层，需要扩展到覆盖文件系统 CRUD、进程管理、PTY 终端、流式输出、系统信息、环境变量管理、Git 操作、Code Interpreter、浏览器自动化等能力，同时保持架构可控——端点可按能力组开关，避免不需要的能力暴露攻击面。
 
 ## Decision
 引入声明式 **RouteTable** + **CapabilityGroup** 能力分组开关机制，将端点从 6 个扩充到 42 个，按 8 个能力组分类管理。
@@ -26,7 +26,7 @@ Implemented: 2026-09-21
 
 1. **声明式 RouteTable**：每个路由定义为 `RouteInfo` 记录，包含 method、path pattern（支持 `{param}` 占位符编译为正则）、handler、CapabilityGroup、auth_required、streaming 等属性。启动时根据启用的 CapabilityGroup 自动注册。替代当前 `handle_*` 函数在 `do_GET`/`do_POST` 中的硬编码 if/elif 分支。
 
-2. **除 `/health` 外全部可开关**：`/health` 和 `/capabilities` 端点属于 CORE 组，始终可用且不可禁用。其他所有端点均可通过 CapabilityGroup 启用/禁用。运行时可通过 `SBOX_SERVER_DISABLED_GROUPS` 环境变量配置。
+2. **除 `/health` 外全部可开关**：`/health` 和 `/capabilities` 端点属于 CORE 组，始终可用且不可禁用。其他所有端点均可通过 CapabilityGroup 启用/禁用。运行时可通过 `EBX_SERVER_DISABLED_GROUPS` 环境变量配置。
 
 3. **命令隐藏（hidden）**：`RegisteredCommand` 支持 `hidden=True` 属性，隐藏的命令不出现在 `GET /commands` 发现端点中，但仍可通过 `POST /commands/{name}` 调用。
 
@@ -47,7 +47,7 @@ Implemented: 2026-09-21
 
 ### 文件安全
 
-- `_resolve_safe_path()` 路径遍历防护，所有文件操作路径限制在 `SBOX_SERVER_BASE_DIR`（默认 `/home/user`）下。
+- `_resolve_safe_path()` 路径遍历防护，所有文件操作路径限制在 `EBX_SERVER_BASE_DIR`（默认 `/home/user`）下。
 - 环境变量敏感字段（TOKEN/SECRET/KEY/PASSWORD）自动屏蔽。
 - 受保护变量（PATH/HOME/USER/SHELL）不可被 `POST /env` 覆盖。
 - 进程信号限制为允许列表（SIGINT/SIGKILL/SIGTERM 等），拒绝向 PID 1 或自身进程发送信号。
@@ -96,5 +96,5 @@ server = SandboxServer(
 - ✅ 此 ADR 已从 `proposed/` 移至 `implemented/`。
 
 ## Evidence
-- 源码实现：`src/serverless_sandbox/server/` 目录下所有路由模块。
+- 源码实现：`src/easy_sandbox/server/` 目录下所有路由模块。
 - 测试覆盖：`tests/test_server/` 目录下对应测试文件。

@@ -5,8 +5,8 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from serverless_sandbox.api.files import FilesModule
-from serverless_sandbox.models.filesystem import FileInfo, FileType
+from easy_sandbox.api.files import FilesModule
+from easy_sandbox.models.filesystem import FileInfo, FileType
 
 from tests.test_api.conftest import TEST_ENVD_URL
 

@@ -6,16 +6,16 @@ import json
 import httpx
 import pytest
 
-from serverless_sandbox.models.errors import (
+from easy_sandbox.models.errors import (
     SandboxCreationError,
     TemplateNotFoundError,
     QuotaExceededError,
 )
-from serverless_sandbox.models.sandbox import SandboxConfig, SandboxInfo, SandboxStatus
-from serverless_sandbox.protocol.sandbox import SandboxProtocol
-from serverless_sandbox.transport.auth import ApiKeyAuth
-from serverless_sandbox.transport.config import TransportConfig
-from serverless_sandbox.transport.http import HttpClient
+from easy_sandbox.models.sandbox import SandboxConfig, SandboxInfo, SandboxStatus
+from easy_sandbox.protocol.sandbox import SandboxProtocol
+from easy_sandbox.transport.auth import ApiKeyAuth
+from easy_sandbox.transport.config import TransportConfig
+from easy_sandbox.transport.http import HttpClient
 
 BASE = "https://sandbox-test.example.com"
 

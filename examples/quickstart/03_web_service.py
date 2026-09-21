@@ -7,7 +7,7 @@ Shows how to start a Node.js Express server in a sandbox and get its public URL.
 import asyncio
 import os
 
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # Express 应用代码
 EXPRESS_APP = """\

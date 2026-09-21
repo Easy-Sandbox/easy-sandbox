@@ -20,13 +20,13 @@
 **从本地安装：**
 
 ```bash
-sbox install ./examples/templates/browser-automation --registry-type local
+ebx install ./examples/templates/browser-automation --registry-type local
 ```
 
 **从 GitHub 安装：**
 
 ```bash
-sbox install Serverless-Sandbox/awesome-templates//browser-automation
+ebx install Easy-Sandbox/awesome-templates//browser-automation
 ```
 
 ## 高层业务命令
@@ -81,31 +81,31 @@ sbox install Serverless-Sandbox/awesome-templates//browser-automation
 创建沙箱实例：
 
 ```bash
-sbox create --template browser-automation
+ebx create --template browser-automation
 ```
 
 使用高层命令截图：
 
 ```bash
-sbox exec <sandbox-id> browse --url https://example.com --action screenshot
+ebx exec <sandbox-id> browse --url https://example.com --action screenshot
 ```
 
 使用高层命令提取文本：
 
 ```bash
-sbox exec <sandbox-id> browse --url https://example.com --action extract
+ebx exec <sandbox-id> browse --url https://example.com --action extract
 ```
 
 使用高层命令抓取指定元素：
 
 ```bash
-sbox exec <sandbox-id> scrape --url https://example.com --selector "h1"
+ebx exec <sandbox-id> scrape --url https://example.com --selector "h1"
 ```
 
 使用 Python SDK：
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 sandbox = Sandbox.create(template="browser-automation")
 

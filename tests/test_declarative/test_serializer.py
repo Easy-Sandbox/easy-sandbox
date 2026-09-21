@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from serverless_sandbox.declarative.serializer import Serializer, SerializerType
+from easy_sandbox.declarative.serializer import Serializer, SerializerType
 
 
 # ---------------------------------------------------------------------------

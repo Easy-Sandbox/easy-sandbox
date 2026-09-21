@@ -3,15 +3,15 @@ import time
 
 def bench_import():
     modules = [
-        "serverless_sandbox",
-        "serverless_sandbox.models",
-        "serverless_sandbox.transport",
-        "serverless_sandbox.protocol",
-        "serverless_sandbox.api",
-        "serverless_sandbox.agent",
-        "serverless_sandbox.declarative",
-        "serverless_sandbox.integrations",
-        "serverless_sandbox.session",
+        "easy_sandbox",
+        "easy_sandbox.models",
+        "easy_sandbox.transport",
+        "easy_sandbox.protocol",
+        "easy_sandbox.api",
+        "easy_sandbox.agent",
+        "easy_sandbox.declarative",
+        "easy_sandbox.integrations",
+        "easy_sandbox.session",
     ]
     for mod in modules:
         start = time.perf_counter()

@@ -37,7 +37,7 @@ sandbox-templates/
 ## Test Strategy
 - A repo with N template folders is discoverable by directory walk.
 - Each folder's `template.yaml` parses (including `capabilities` + `custom_commands`).
-- The collection can be `sbox install`-ed from a local path and from GitHub.
+- The collection can be `ebx install`-ed from a local path and from GitHub.
 
 ## Acceptance criteria
 - Repository is just `README` + template folders — no index or registry component.

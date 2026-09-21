@@ -3,16 +3,16 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "serverless-sandbox"
+name = "easy-sandbox"
 dynamic = ["version"]
-description = "Serverless Sandbox SDK — Create, manage, and interact with cloud sandboxes for AI agents"
+description = "Easy Sandbox SDK — Create, manage, and interact with cloud sandboxes for AI agents"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.10"
 authors = [
     { name = "Anycodes" },
 ]
-keywords = ["sandbox", "serverless", "ai", "agent", "cloud", "e2b"]
+keywords = ["sandbox", "easy", "ai", "agent", "cloud", "e2b"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -53,10 +53,10 @@ session = [
     "filelock>=3.12",
 ]
 all = [
-    "serverless-sandbox[cli,fast,session,mcp,declarative]",
+    "easy-sandbox[cli,fast,session,mcp,declarative]",
 ]
 dev = [
-    "serverless-sandbox[all]",
+    "easy-sandbox[all]",
     "pytest>=7.0",
     "pytest-asyncio>=0.21",
     "pytest-httpx>=0.30",
@@ -67,25 +67,25 @@ dev = [
 ]
 
 [project.scripts]
-sbox = "serverless_sandbox.cli.main:cli"
+ebx = "easy_sandbox.cli.main:cli"
 
 [project.urls]
-Homepage = "https://github.com/Serverless-Sandbox/serverless-sandbox"
-Documentation = "https://github.com/Serverless-Sandbox/serverless-sandbox/tree/main/docs"
-Repository = "https://github.com/Serverless-Sandbox/serverless-sandbox"
-Issues = "https://github.com/Serverless-Sandbox/serverless-sandbox/issues"
-Changelog = "https://github.com/Serverless-Sandbox/serverless-sandbox/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/Easy-Sandbox/easy-sandbox"
+Documentation = "https://github.com/Easy-Sandbox/easy-sandbox/tree/main/docs"
+Repository = "https://github.com/Easy-Sandbox/easy-sandbox"
+Issues = "https://github.com/Easy-Sandbox/easy-sandbox/issues"
+Changelog = "https://github.com/Easy-Sandbox/easy-sandbox/blob/main/CHANGELOG.md"
 
 [tool.hatch.version]
-path = "src/serverless_sandbox/_version.py"
+path = "src/easy_sandbox/_version.py"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/serverless_sandbox"]
+packages = ["src/easy_sandbox"]
 artifacts = ["py.typed"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "src/serverless_sandbox/",
+    "src/easy_sandbox/",
     "tests/",
     "README.md",
     "LICENSE",

@@ -93,16 +93,16 @@ def _template_server(
 ) -> Generator[int, None, None]:
     """Load a template's ``commands.py``, start the sandbox HTTP server on a
     random port, yield the port, then shut down and restore global state."""
-    from serverless_sandbox.server import SandboxServer
-    from serverless_sandbox.server.routes import _KNOWN_BUILTINS, _enabled_builtins
+    from easy_sandbox.server import SandboxServer
+    from easy_sandbox.server.routes import _KNOWN_BUILTINS, _enabled_builtins
 
     # --- 1. Save & clean global state ---
     saved_builtins = set(_enabled_builtins)
-    saved_base_dir = os.environ.get("SBOX_SERVER_BASE_DIR")
+    saved_base_dir = os.environ.get("EBX_SERVER_BASE_DIR")
 
     _enabled_builtins.clear()
     _enabled_builtins.update(_KNOWN_BUILTINS)
-    os.environ["SBOX_SERVER_BASE_DIR"] = base_dir
+    os.environ["EBX_SERVER_BASE_DIR"] = base_dir
 
     # --- 2. Import commands.py with SandboxServer.serve() patched out ---
     template_dir = os.path.join(_TEMPLATES_DIR, template_name)
@@ -162,9 +162,9 @@ def _template_server(
         _enabled_builtins.clear()
         _enabled_builtins.update(saved_builtins)
         if saved_base_dir is not None:
-            os.environ["SBOX_SERVER_BASE_DIR"] = saved_base_dir
+            os.environ["EBX_SERVER_BASE_DIR"] = saved_base_dir
         else:
-            os.environ.pop("SBOX_SERVER_BASE_DIR", None)
+            os.environ.pop("EBX_SERVER_BASE_DIR", None)
 
 
 # ---------------------------------------------------------------------------
@@ -174,8 +174,8 @@ def _template_server(
 
 @pytest.fixture()
 def base_dir() -> Generator[str, None, None]:
-    """Temporary directory used as ``SBOX_SERVER_BASE_DIR``."""
-    with tempfile.TemporaryDirectory(prefix="sbox_e2e_") as d:
+    """Temporary directory used as ``EBX_SERVER_BASE_DIR``."""
+    with tempfile.TemporaryDirectory(prefix="ebx_e2e_") as d:
         yield d
 
 

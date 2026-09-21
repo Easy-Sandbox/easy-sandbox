@@ -1,6 +1,6 @@
 [E2001] Template 'bad' not found
-  Suggestion: Run 'sbox template list' to see available templates.
+  Suggestion: Run 'ebx template list' to see available templates.
 [exit_code:4]
 [stderr]
 [E2001] Template 'bad' not found
-  Suggestion: Run 'sbox template list' to see available templates.
+  Suggestion: Run 'ebx template list' to see available templates.

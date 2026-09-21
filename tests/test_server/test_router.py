@@ -1,7 +1,7 @@
-"""Tests for serverless_sandbox.server.router — the declarative RouteTable.
+"""Tests for easy_sandbox.server.router — the declarative RouteTable.
 
 Covers route registration + matching, path-parameter extraction, capability
-group toggles, the ``SBOX_SERVER_DISABLED_GROUPS`` environment variable, and
+group toggles, the ``EBX_SERVER_DISABLED_GROUPS`` environment variable, and
 the decorator form of :meth:`RouteTable.route`.
 """
 
@@ -11,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from serverless_sandbox.server.router import (
+from easy_sandbox.server.router import (
     CapabilityGroup,
     RouteInfo,
     RouteTable,
@@ -166,10 +166,10 @@ class TestCapabilityGroups:
 
 
 class TestEnvConfig:
-    """``SBOX_SERVER_DISABLED_GROUPS`` seeds disabled groups at construction."""
+    """``EBX_SERVER_DISABLED_GROUPS`` seeds disabled groups at construction."""
 
     def test_env_disables_groups(self, monkeypatch: Any) -> None:
-        monkeypatch.setenv("SBOX_SERVER_DISABLED_GROUPS", "file_ops,process")
+        monkeypatch.setenv("EBX_SERVER_DISABLED_GROUPS", "file_ops,process")
         table = RouteTable()
         assert table.is_group_enabled(CapabilityGroup.FILE_OPS) is False
         assert table.is_group_enabled(CapabilityGroup.PROCESS) is False
@@ -179,14 +179,14 @@ class TestEnvConfig:
         assert table.is_group_enabled(CapabilityGroup.COMMANDS) is True
 
     def test_env_ignores_unknown_and_core(self, monkeypatch: Any) -> None:
-        monkeypatch.setenv("SBOX_SERVER_DISABLED_GROUPS", "core, bogus , system")
+        monkeypatch.setenv("EBX_SERVER_DISABLED_GROUPS", "core, bogus , system")
         table = RouteTable()
         # CORE cannot be disabled; unknown names are ignored.
         assert table.is_group_enabled(CapabilityGroup.CORE) is True
         assert table.is_group_enabled(CapabilityGroup.SYSTEM) is False
 
     def test_empty_env_uses_defaults(self, monkeypatch: Any) -> None:
-        monkeypatch.setenv("SBOX_SERVER_DISABLED_GROUPS", "")
+        monkeypatch.setenv("EBX_SERVER_DISABLED_GROUPS", "")
         table = RouteTable()
         assert table.is_group_enabled(CapabilityGroup.FILE_OPS) is True
         assert table.is_group_enabled(CapabilityGroup.DEV_TOOLS) is False

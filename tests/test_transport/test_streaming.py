@@ -6,7 +6,7 @@ from typing import Any, AsyncIterator
 
 import pytest
 
-from serverless_sandbox.transport.streaming import StreamReader
+from easy_sandbox.transport.streaming import StreamReader
 
 
 async def _async_iter(items: list[dict[str, Any]]) -> AsyncIterator[dict[str, Any]]:

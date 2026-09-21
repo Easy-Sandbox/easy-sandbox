@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from serverless_sandbox.declarative.config import SandboxDeclarativeConfig
+from easy_sandbox.declarative.config import SandboxDeclarativeConfig
 
 
 class TestSandboxDeclarativeConfigDefaults:

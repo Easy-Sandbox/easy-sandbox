@@ -18,7 +18,7 @@ import time
 # 确保 API Key 可用 / Ensure API key is available
 API_KEY = os.environ.get("E2B_API_KEY", "")
 
-from serverless_sandbox.declarative import sandbox
+from easy_sandbox.declarative import sandbox
 
 
 # ── 示例 1: 蒙特卡洛法计算 π / Monte Carlo Pi estimation ──────────────────

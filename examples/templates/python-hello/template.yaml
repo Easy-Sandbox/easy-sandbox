@@ -1,7 +1,7 @@
 name: python-hello
 version: "1.0.0"
 description: "A minimal Python hello world template for testing"
-author: "Serverless-Sandbox"
+author: "Easy-Sandbox"
 tags:
   - python
   - hello-world

@@ -5,10 +5,10 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from serverless_sandbox.api.template import TemplateManager
-from serverless_sandbox.models.template import TemplateInfo, BuildStatus
-from serverless_sandbox.protocol.template import TemplateProtocol, TemplateBuildError
-from serverless_sandbox.transport.http import HttpClient
+from easy_sandbox.api.template import TemplateManager
+from easy_sandbox.models.template import TemplateInfo, BuildStatus
+from easy_sandbox.protocol.template import TemplateProtocol, TemplateBuildError
+from easy_sandbox.transport.http import HttpClient
 
 
 # --- Sample data ---

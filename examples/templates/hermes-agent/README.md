@@ -20,13 +20,13 @@ NousResearch Hermes 系列模型驱动的 AI Agent 沙箱运行环境，支持�
 **从本地安装：**
 
 ```bash
-sbox install ./examples/templates/hermes-agent --registry-type local
+ebx install ./examples/templates/hermes-agent --registry-type local
 ```
 
 **从 GitHub 安装：**
 
 ```bash
-sbox install Serverless-Sandbox/awesome-templates//hermes-agent
+ebx install Easy-Sandbox/awesome-templates//hermes-agent
 ```
 
 ## 使用示例
@@ -34,7 +34,7 @@ sbox install Serverless-Sandbox/awesome-templates//hermes-agent
 创建沙箱实例并传入 LLM 配置：
 
 ```bash
-sbox create --template hermes-agent \
+ebx create --template hermes-agent \
     --env OPENAI_API_KEY=sk-xxx \
     --env OPENAI_BASE_URL=https://api.your-provider.com/v1
 ```
@@ -42,13 +42,13 @@ sbox create --template hermes-agent \
 使用 uv 快速安装 Agent 框架：
 
 ```bash
-sbox exec <sandbox-id> -- uv pip install langchain langgraph
+ebx exec <sandbox-id> -- uv pip install langchain langgraph
 ```
 
 通过 OpenAI 兼容接口调用 Hermes 模型：
 
 ```bash
-sbox exec <sandbox-id> -- python3 -c "
+ebx exec <sandbox-id> -- python3 -c "
 from openai import OpenAI
 client = OpenAI()
 response = client.chat.completions.create(
@@ -70,7 +70,7 @@ print(response.choices[0].message)
 使用 Python SDK：
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 sandbox = Sandbox.create(
     template="hermes-agent",
@@ -100,10 +100,10 @@ print(result.stdout)
 
 ```bash
 # 使用 uv 安装包（速度远快于 pip）
-sbox exec <sandbox-id> -- uv pip install <package-name>
+ebx exec <sandbox-id> -- uv pip install <package-name>
 
 # 使用 uv 创建项目
-sbox exec <sandbox-id> -- uv init my-agent-project
+ebx exec <sandbox-id> -- uv init my-agent-project
 ```
 
 ## 注意事项

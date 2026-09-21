@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from serverless_sandbox.protocol.port import PortClient
+from easy_sandbox.protocol.port import PortClient
 
 
 class TestGetHost:

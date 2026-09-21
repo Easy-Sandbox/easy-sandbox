@@ -46,18 +46,18 @@ import yaml  # type: ignore[import-untyped]
 # ---------------------------------------------------------------------------
 # SDK imports
 # ---------------------------------------------------------------------------
-from serverless_sandbox.api.sandbox import Sandbox
-from serverless_sandbox.api.template import TemplateManager
-from serverless_sandbox.models.template import SandboxTemplate
-from serverless_sandbox.transport.auth import create_auth_provider
-from serverless_sandbox.transport.config import load_config, reset_config
-from serverless_sandbox.transport.http import HttpClient
+from easy_sandbox.api.sandbox import Sandbox
+from easy_sandbox.api.template import TemplateManager
+from easy_sandbox.models.template import SandboxTemplate
+from easy_sandbox.transport.auth import create_auth_provider
+from easy_sandbox.transport.config import load_config, reset_config
+from easy_sandbox.transport.http import HttpClient
 
 # ---------------------------------------------------------------------------
 # 常量
 # ---------------------------------------------------------------------------
 TEMPLATES_DIR = PROJECT_ROOT / "examples" / "templates"
-SBOX_TEMPLATES_CACHE = Path.home() / ".sbox" / "templates"
+EBX_TEMPLATES_CACHE = Path.home() / ".ebx" / "templates"
 
 CUSTOM_TEMPLATES = [
     "python-hello",
@@ -141,10 +141,10 @@ def _load_template_yaml(name: str) -> SandboxTemplate | None:
 
 
 def _install_templates_to_cache() -> None:
-    """同步模板到 ~/.sbox/templates/ 以便 resolve_capabilities 发现自定义命令。"""
+    """同步模板到 ~/.ebx/templates/ 以便 resolve_capabilities 发现自定义命令。"""
     for name in CUSTOM_TEMPLATES:
         src = TEMPLATES_DIR / name
-        dst = SBOX_TEMPLATES_CACHE / name
+        dst = EBX_TEMPLATES_CACHE / name
         if not src.exists():
             continue
         dst.mkdir(parents=True, exist_ok=True)
@@ -152,7 +152,7 @@ def _install_templates_to_cache() -> None:
             s = src / fname
             if s.exists():
                 shutil.copy2(s, dst / fname)
-    print(f"  📁 已同步 {len(CUSTOM_TEMPLATES)} 个模板到 {SBOX_TEMPLATES_CACHE}")
+    print(f"  📁 已同步 {len(CUSTOM_TEMPLATES)} 个模板到 {EBX_TEMPLATES_CACHE}")
 
 
 async def _list_existing_templates() -> dict[str, str]:
@@ -295,8 +295,8 @@ async def _test_envd_capabilities(
 # CLI 测试辅助
 # =====================================================================
 def _run_cli(*args: str, timeout: int = 120) -> subprocess.CompletedProcess[str]:
-    """运行 sbox CLI 命令并返回结果。"""
-    cmd = [sys.executable, "-m", "serverless_sandbox.cli.main"] + list(args)
+    """运行 ebx CLI 命令并返回结果。"""
+    cmd = [sys.executable, "-m", "easy_sandbox.cli.main"] + list(args)
     return subprocess.run(
         cmd, capture_output=True, text=True, timeout=timeout,
         env={**__import__("os").environ, "PYTHONPATH": str(SRC_DIR)},
@@ -393,12 +393,12 @@ async def _test_existing_template(
 
 
 def _test_cli(template_name: str, template_id: str) -> TemplateTestResult:
-    """测试 sbox CLI 命令（串行）。"""
-    result = TemplateTestResult(template_name="[CLI]sbox 命令")
+    """测试 ebx CLI 命令（串行）。"""
+    result = TemplateTestResult(template_name="[CLI]ebx 命令")
     t_start = time.monotonic()
 
-    # -- sbox template list --
-    step = SubStep(name="sbox template list")
+    # -- ebx template list --
+    step = SubStep(name="ebx template list")
     t0 = time.monotonic()
     try:
         r = _run_cli("--json", "template", "list")
@@ -413,8 +413,8 @@ def _test_cli(template_name: str, template_id: str) -> TemplateTestResult:
     step.duration = time.monotonic() - t0
     result.steps.append(step)
 
-    # -- sbox create --
-    step = SubStep(name="sbox create")
+    # -- ebx create --
+    step = SubStep(name="ebx create")
     t0 = time.monotonic()
     sandbox_id: str | None = None
     try:
@@ -435,14 +435,14 @@ def _test_cli(template_name: str, template_id: str) -> TemplateTestResult:
     result.steps.append(step)
 
     if not sandbox_id:
-        for sub in ["sbox list", "sbox exec", "sbox kill"]:
+        for sub in ["ebx list", "ebx exec", "ebx kill"]:
             result.steps.append(SubStep(name=sub, status="SKIP",
                                         detail="沙箱未创建"))
         _finalize_result(result, t_start)
         return result
 
-    # -- sbox list --
-    step = SubStep(name="sbox list")
+    # -- ebx list --
+    step = SubStep(name="ebx list")
     t0 = time.monotonic()
     try:
         r = _run_cli("--json", "list")
@@ -456,8 +456,8 @@ def _test_cli(template_name: str, template_id: str) -> TemplateTestResult:
     step.duration = time.monotonic() - t0
     result.steps.append(step)
 
-    # -- sbox exec --
-    step = SubStep(name="sbox exec")
+    # -- ebx exec --
+    step = SubStep(name="ebx exec")
     t0 = time.monotonic()
     try:
         # 等待 envd 就绪
@@ -475,8 +475,8 @@ def _test_cli(template_name: str, template_id: str) -> TemplateTestResult:
     step.duration = time.monotonic() - t0
     result.steps.append(step)
 
-    # -- sbox kill --
-    step = SubStep(name="sbox kill")
+    # -- ebx kill --
+    step = SubStep(name="ebx kill")
     t0 = time.monotonic()
     try:
         r = _run_cli("kill", sandbox_id, "--yes")
@@ -910,7 +910,7 @@ async def run_all_e2e() -> int:
 
 def main() -> int:
     print("=" * 94)
-    print("  Serverless Sandbox — 云端 E2E 测试")
+    print("  Easy Sandbox — 云端 E2E 测试")
     print("  Part 1: 平台官方模板 (CLI + SDK envd)")
     print("  Part 2: 自定义模板 (CLI + SDK envd + Server)")
     print("=" * 94)

@@ -39,7 +39,7 @@ RUN pip install --no-cache-dir --upgrade pip \
     anthropic \
     httpx \
     rich
-RUN pip install --no-cache-dir serverless-sandbox
+RUN pip install --no-cache-dir easy-sandbox
 
 # Set environment variables
 ENV ANTHROPIC_API_KEY=""

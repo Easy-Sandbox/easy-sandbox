@@ -1,7 +1,7 @@
 name: qoder
 version: "1.0.0"
 description: "Qoder AI 编程助手运行环境 - 集成 Python 与 Node.js 的智能开发沙箱"
-author: "Serverless-Sandbox"
+author: "Easy-Sandbox"
 tags:
   - qoder
   - ai-coding

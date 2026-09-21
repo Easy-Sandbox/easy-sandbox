@@ -1,4 +1,4 @@
-# Decision: serverless_sandbox.server — 用户 Opt-in 容器内 HTTP Server 模块
+# Decision: easy_sandbox.server — 用户 Opt-in 容器内 HTTP Server 模块
 
 Status: implemented
 Implemented: 2026-09-21
@@ -8,7 +8,7 @@ Task: #118
 用户需要在沙箱容器内注册和执行自定义命令。原方案（源码投递执行：`files.write` 投递脚本 + `commands.run` 执行）每次调用都需完整链路，延迟高、无法常驻状态、不支持并发。需要一个容器内常驻 HTTP server 承载自定义命令，同时不引入第三方依赖（容器内可能没有 pip 包管理环境）。
 
 ## Decision
-新增 `serverless_sandbox.server` 模块，stdlib-only 零依赖的容器内 HTTP server，用户 opt-in 启动。
+新增 `easy_sandbox.server` 模块，stdlib-only 零依赖的容器内 HTTP server，用户 opt-in 启动。
 
 ### 核心设计原则
 
@@ -54,7 +54,7 @@ Server 模块最终扩展到 **42 个端点**，按 **8 个 CapabilityGroup** �
 ## API Design
 ```python
 # 客户端侧
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 sandbox = await Sandbox.create(template="my-template")
 
@@ -80,7 +80,7 @@ commands = await sandbox.server.discover()
 ```
 
 ```python
-# 容器内 server 模块（serverless_sandbox/server/）
+# 容器内 server 模块（easy_sandbox/server/）
 # 纯 stdlib，零依赖
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -111,7 +111,7 @@ class SandboxServer:
 - `transport/auth.py`（`EnvdTokenManager` 获取 `X-Access-Token`）
 - `2026-09-03-capability-model.md`（`ports` 能力门控）
 - `2026-09-04-envd-container-service-model.md`（两层模型：envd 基础层 + server opt-in 层）
-- `docs/evidence/research/2026-09-04-fc-claude-code-image-inspection.md`（确认 Gateway routeDynamic 支持动态端口路由，是 server 可达性的基础）
+- `.agents/evidence/research/2026-09-04-fc-claude-code-image-inspection.md`（确认 Gateway routeDynamic 支持动态端口路由，是 server 可达性的基础）
 
 ## Test Strategy
 - 单元测试：server 模块的命令注册、请求路由、JSON 序列化/反序列化。
@@ -123,7 +123,7 @@ class SandboxServer:
 - 零依赖验证：server 模块源码不含任何 `import` 第三方包。
 
 ## Acceptance criteria
-- ✅ `serverless_sandbox.server` 模块仅使用 Python 标准库，零第三方依赖。
+- ✅ `easy_sandbox.server` 模块仅使用 Python 标准库，零第三方依赖。
 - ✅ 内置 upload/download/runshell 三个命令，直接操作本地文件系统。
 - ✅ WIRE CONTRACT 稳定：`POST /commands/{name}` + JSON body → `{"result"}` 或 `{"error","type"}`。
 - ✅ `GET /commands` 发现端点返回所有已注册命令及参数 schema。
@@ -133,5 +133,5 @@ class SandboxServer:
 - ✅ 此 ADR 已从 `proposed/` 移至 `implemented/`。
 
 ## Evidence
-- `docs/evidence/research/2026-09-04-fc-claude-code-image-inspection.md`（Gateway routeDynamic 确认动态端口路由可行）
-- `docs/evidence/research/2026-09-04-fc-sandbox-official-docs.md`（端口 URL 格式 `{port}-{sandbox_id}.{domain}` 确认）
+- `.agents/evidence/research/2026-09-04-fc-claude-code-image-inspection.md`（Gateway routeDynamic 确认动态端口路由可行）
+- `.agents/evidence/research/2026-09-04-fc-sandbox-official-docs.md`（端口 URL 格式 `{port}-{sandbox_id}.{domain}` 确认）

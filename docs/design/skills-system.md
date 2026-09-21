@@ -1,6 +1,6 @@
 # Skills 系统设计
 
-> Skills 是 Serverless Sandbox 的可复用能力包，将「沙箱环境配置 + Agent 使用说明 + MCP Tools 扩展」封装为一个可分发的单元。开发者可以像安装 npm 包一样安装 Skill，AI Agent 可以自动发现并使用 Skill 提供的能力。
+> Skills 是 Easy Sandbox 的可复用能力包，将「沙箱环境配置 + Agent 使用说明 + MCP Tools 扩展」封装为一个可分发的单元。开发者可以像安装 npm 包一样安装 Skill，AI Agent 可以自动发现并使用 Skill 提供的能力。
 
 ---
 
@@ -190,13 +190,13 @@ plt.savefig('/app/output/chart.png')
 
 ## 5. CLI 命令
 
-### sbox skill search
+### ebx skill search
 
 ```bash
 # 搜索 Skill
-sbox skill search "data science"
-sbox skill search python --category ai-ml
-sbox skill search "browser automation" --sort popularity
+ebx skill search "data science"
+ebx skill search python --category ai-ml
+ebx skill search "browser automation" --sort popularity
 
 # 输出：
 #   NAME                  CATEGORY     STARS  DESCRIPTION
@@ -205,37 +205,37 @@ sbox skill search "browser automation" --sort popularity
 #   playwright            browser      ⭐ 1.5k  浏览器自动化
 ```
 
-### sbox skill install
+### ebx skill install
 
 ```bash
 # 安装到当前项目
-sbox skill install data-analysis
+ebx skill install data-analysis
 
 # 安装到全局
-sbox skill install data-analysis --global
+ebx skill install data-analysis --global
 
 # 安装到特定 IDE
-sbox skill install data-analysis --target cursor
-sbox skill install data-analysis --target claude
-sbox skill install data-analysis --target vscode
-sbox skill install data-analysis --target qoder
+ebx skill install data-analysis --target cursor
+ebx skill install data-analysis --target claude
+ebx skill install data-analysis --target vscode
+ebx skill install data-analysis --target qoder
 
 # 安装指定版本
-sbox skill install data-analysis@1.2.0
+ebx skill install data-analysis@1.2.0
 
 # 从 Git 安装
-sbox skill install https://github.com/user/my-skill.git
+ebx skill install https://github.com/user/my-skill.git
 
 # 从本地安装
-sbox skill install ./my-local-skill
+ebx skill install ./my-local-skill
 ```
 
-### sbox skill list
+### ebx skill list
 
 ```bash
-sbox skill list
-sbox skill list --global
-sbox skill list --target cursor
+ebx skill list
+ebx skill list --global
+ebx skill list --target cursor
 
 # 输出：
 #   NAME              VERSION  SCOPE    INSTALLED
@@ -244,11 +244,11 @@ sbox skill list --target cursor
 #   python-base       1.0.0    cursor   2024-01-08
 ```
 
-### sbox skill create
+### ebx skill create
 
 ```bash
 # 创建 Skill 脚手架
-sbox skill create my-awesome-skill
+ebx skill create my-awesome-skill
 
 # 输出：
 # ✓ 创建目录: my-awesome-skill/
@@ -258,20 +258,20 @@ sbox skill create my-awesome-skill
 # 下一步：
 #   cd my-awesome-skill
 #   编辑 SKILL.md 和 sandbox.yaml
-#   sbox skill publish
+#   ebx skill publish
 ```
 
-### sbox skill publish
+### ebx skill publish
 
 ```bash
 # 发布到官方 Registry
-sbox skill publish ./my-skill
+ebx skill publish ./my-skill
 
 # 发布到私有 Registry
-sbox skill publish ./my-skill --registry https://registry.mycompany.com
+ebx skill publish ./my-skill --registry https://registry.mycompany.com
 
 # 发布前验证
-sbox skill publish ./my-skill --dry-run
+ebx skill publish ./my-skill --dry-run
 ```
 
 ---
@@ -283,7 +283,7 @@ Skills 可以安装到不同的目标环境：
 | 目标 | 命令 | 效果 |
 |------|------|------|
 | 项目 | `--scope project` | 写入 `sandbox.yaml`，项目级生效 |
-| 全局 | `--global` | 写入 `~/.sbox/skills/`，全局生效 |
+| 全局 | `--global` | 写入 `~/.ebx/skills/`，全局生效 |
 | Cursor | `--target cursor` | 写入 Cursor MCP 配置 |
 | Claude Desktop | `--target claude` | 写入 Claude Desktop 配置 |
 | VS Code | `--target vscode` | 写入 VS Code settings |
@@ -292,13 +292,13 @@ Skills 可以安装到不同的目标环境：
 ### 安装到 Cursor 的效果
 
 ```bash
-sbox skill install data-analysis --target cursor
+ebx skill install data-analysis --target cursor
 
 # 自动写入 ~/.cursor/mcp.json:
 # {
 #   "mcpServers": {
-#     "serverless-sandbox": {
-#       "command": "sbox",
+#     "easy-sandbox": {
+#       "command": "ebx",
 #       "args": ["mcp", "start"],
 #       "skills": ["data-analysis"]
 #     }
@@ -325,18 +325,18 @@ registry.sandbox.alicloud.com
 
 ```bash
 # 从 GitHub 安装
-sbox skill install github:user/repo
-sbox skill install https://github.com/user/skill-repo.git
+ebx skill install github:user/repo
+ebx skill install https://github.com/user/skill-repo.git
 
 # 从 GitLab 安装
-sbox skill install gitlab:user/repo
+ebx skill install gitlab:user/repo
 ```
 
 ### 本地文件夹
 
 ```bash
 # 开发模式：直接使用本地 Skill
-sbox skill install ./my-local-skill --link
+ebx skill install ./my-local-skill --link
 
 # link 模式：不复制文件，创建软链接，便于开发调试
 ```
@@ -345,10 +345,10 @@ sbox skill install ./my-local-skill --link
 
 ```bash
 # 配置私有 Registry
-sbox config set registry.private https://registry.mycompany.com
+ebx config set registry.private https://registry.mycompany.com
 
 # 从私有 Registry 安装
-sbox skill install my-company-skill --registry private
+ebx skill install my-company-skill --registry private
 ```
 
 ---
@@ -357,7 +357,7 @@ sbox skill install my-company-skill --registry private
 
 ### Skill 自动发现
 
-当 AI Agent 通过 MCP 连接到 Serverless Sandbox 时，已安装的 Skills 会自动注册为 MCP Tools：
+当 AI Agent 通过 MCP 连接到 Easy Sandbox 时，已安装的 Skills 会自动注册为 MCP Tools：
 
 ```mermaid
 graph TD
@@ -378,7 +378,7 @@ Skill 为沙箱提供预配置的环境和工具。内置 Agent 已简化为 AI 
 3. **Agent 通过 CLI 执行**：Agent API（`sb.agent.code()` 等）是 `commands.run()` 的语法糖，在 Skill 配置的环境中执行 AI CLI 工具
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # Skill 提供环境，Agent 模板提供 AI 能力
 asb = await Sandbox.create(template="codex")  # codex 模板预装 Codex CLI
@@ -398,7 +398,7 @@ result = await sb.commands.run("codex '分析 /app/data.csv 并生成可视化�
 
 ```python
 # 多个 Skill 可组合使用，它们共同定义沙箱环境
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 使用组合了多个 Skill 的模板
 sb = await Sandbox.create(

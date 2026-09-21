@@ -15,7 +15,7 @@ Style: E2B (imperative)
 import asyncio
 import os
 
-from serverless_sandbox import Sandbox, SandboxError
+from easy_sandbox import Sandbox, SandboxError
 
 # ── 爬虫脚本（将在沙箱中执行）/ Scraper script (runs inside sandbox) ───────
 SCRAPER_SCRIPT = """\

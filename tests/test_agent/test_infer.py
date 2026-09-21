@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from serverless_sandbox.agent.infer import (
+from easy_sandbox.agent.infer import (
     InferResult,
     TEMPLATE_CATALOG,
     TemplateProfile,

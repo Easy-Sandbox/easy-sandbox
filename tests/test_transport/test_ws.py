@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import pytest
 
-from serverless_sandbox.transport.config import TransportConfig
-from serverless_sandbox.transport.ws import WebSocketClient
+from easy_sandbox.transport.config import TransportConfig
+from easy_sandbox.transport.ws import WebSocketClient
 
 
 @pytest.fixture

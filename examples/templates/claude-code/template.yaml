@@ -1,7 +1,7 @@
 name: claude-code
 version: "1.0.0"
 description: "Claude Code Agent 运行环境 - Anthropic Claude 驱动的 AI 编程助手"
-author: "Serverless-Sandbox"
+author: "Easy-Sandbox"
 tags:
   - claude
   - anthropic

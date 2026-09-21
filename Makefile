@@ -13,7 +13,7 @@ test:  ## Run tests
 	pytest tests/ -v --tb=short
 
 test-cov:  ## Run tests with coverage
-	pytest tests/ -v --tb=short --cov=serverless_sandbox --cov-report=term-missing
+	pytest tests/ -v --tb=short --cov=easy_sandbox --cov-report=term-missing
 
 lint:  ## Run linter
 	ruff check src/ tests/
@@ -22,7 +22,7 @@ format:  ## Format code
 	ruff format src/ tests/
 
 typecheck:  ## Run type checker
-	mypy src/serverless_sandbox/
+	mypy src/easy_sandbox/
 
 clean:  ## Clean build artifacts
 	rm -rf build/ dist/ *.egg-info src/*.egg-info .pytest_cache .mypy_cache .ruff_cache

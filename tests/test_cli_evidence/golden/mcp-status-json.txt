@@ -1,5 +1,5 @@
 {
-  "server": "serverless-sandbox",
+  "server": "easy-sandbox",
   "transport": "stdio",
   "tools_count": 7,
   "tools": [
@@ -13,7 +13,7 @@
   ],
   "auth_configured": false,
   "installed_cursor": true,
-  "installed_claude": true,
+  "installed_claude": false,
   "installed_vscode": true
 }
 [exit_code:0]

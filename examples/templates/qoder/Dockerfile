@@ -39,7 +39,7 @@ RUN pip install --no-cache-dir --upgrade pip \
     httpx \
     rich \
     pyyaml
-RUN pip install --no-cache-dir serverless-sandbox
+RUN pip install --no-cache-dir easy-sandbox
 
 # Set environment variables
 ENV E2B_API_KEY=""

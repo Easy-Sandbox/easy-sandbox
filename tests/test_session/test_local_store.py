@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from serverless_sandbox.models.session import SessionInfo
-from serverless_sandbox.session.local import LocalSessionStore
+from easy_sandbox.models.session import SessionInfo
+from easy_sandbox.session.local import LocalSessionStore
 
 
 @pytest.fixture

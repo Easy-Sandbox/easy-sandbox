@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import pytest
 
-from serverless_sandbox.extensions.vpc import VPCConfig
-from serverless_sandbox.extensions.oss import OSSMount
-from serverless_sandbox.extensions.domain import DomainConfig
-from serverless_sandbox.extensions import VPCConfig as VPCConfigExport
-from serverless_sandbox.extensions import OSSMount as OSSMountExport
-from serverless_sandbox.extensions import DomainConfig as DomainConfigExport
+from easy_sandbox.extensions.vpc import VPCConfig
+from easy_sandbox.extensions.oss import OSSMount
+from easy_sandbox.extensions.domain import DomainConfig
+from easy_sandbox.extensions import VPCConfig as VPCConfigExport
+from easy_sandbox.extensions import OSSMount as OSSMountExport
+from easy_sandbox.extensions import DomainConfig as DomainConfigExport
 
 
 class TestVPCConfig:

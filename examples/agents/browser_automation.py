@@ -9,7 +9,7 @@ Shows how to install Playwright in a sandbox, scrape a web page, and capture scr
 import asyncio
 import os
 
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # Playwright 爬取脚本
 SCRAPER_SCRIPT = """\

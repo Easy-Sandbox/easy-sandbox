@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from serverless_sandbox.models.errors import (
+from easy_sandbox.models.errors import (
     SandboxError,
     AuthenticationError,
     InvalidAPIKeyError,
@@ -119,7 +119,7 @@ class TestCreationErrors:
         err = TemplateNotFoundError("no template")
         assert isinstance(err, SandboxCreationError)
         assert err.code == "E2001"
-        assert "sbox template list" in err.suggestion
+        assert "ebx template list" in err.suggestion
 
     def test_quota_exceeded(self):
         err = QuotaExceededError("over quota")

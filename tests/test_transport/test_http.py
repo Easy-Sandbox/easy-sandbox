@@ -6,11 +6,11 @@ import json
 import httpx
 import pytest
 
-from serverless_sandbox.models.errors import ConnectionError_
-from serverless_sandbox.transport.auth import ApiKeyAuth, EnvdTokenManager, PLATFORM_AUTH_HEADER
-from serverless_sandbox.transport.codec import CONNECT_CONTENT_TYPE
-from serverless_sandbox.transport.config import TransportConfig
-from serverless_sandbox.transport.http import HttpClient
+from easy_sandbox.models.errors import ConnectionError_
+from easy_sandbox.transport.auth import ApiKeyAuth, EnvdTokenManager, PLATFORM_AUTH_HEADER
+from easy_sandbox.transport.codec import CONNECT_CONTENT_TYPE
+from easy_sandbox.transport.config import TransportConfig
+from easy_sandbox.transport.http import HttpClient
 
 
 @pytest.fixture

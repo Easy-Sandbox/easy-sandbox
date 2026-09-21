@@ -1,7 +1,7 @@
 name: hermes-agent
 version: "1.0.0"
 description: "Hermes Agent 运行环境 - NousResearch Hermes 系列模型驱动的 AI Agent"
-author: "Serverless-Sandbox"
+author: "Easy-Sandbox"
 tags:
   - hermes
   - nousresearch

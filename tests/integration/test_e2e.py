@@ -16,18 +16,18 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-from serverless_sandbox.api.sandbox import Sandbox
-from serverless_sandbox.models.errors import (
+from easy_sandbox.api.sandbox import Sandbox
+from easy_sandbox.models.errors import (
     CommandTimeoutError,
     QuotaExceededError,
     TemplateNotFoundError,
 )
-from serverless_sandbox.models.filesystem import FileInfo, FileType
-from serverless_sandbox.models.process import ProcessChunk, ProcessChunkType
-from serverless_sandbox.models.sandbox import SandboxInfo, SandboxStatus
-from serverless_sandbox.transport.auth import ApiKeyAuth, EnvdTokenManager
-from serverless_sandbox.transport.config import TransportConfig, reset_config
-from serverless_sandbox.transport.http import HttpClient
+from easy_sandbox.models.filesystem import FileInfo, FileType
+from easy_sandbox.models.process import ProcessChunk, ProcessChunkType
+from easy_sandbox.models.sandbox import SandboxInfo, SandboxStatus
+from easy_sandbox.transport.auth import ApiKeyAuth, EnvdTokenManager
+from easy_sandbox.transport.config import TransportConfig, reset_config
+from easy_sandbox.transport.http import HttpClient
 
 
 # ---------------------------------------------------------------------------
@@ -478,7 +478,7 @@ async def test_multiple_sandbox_management():
         mock_platform.return_value = _make_httpx_response(
             json_data=[sb1_info, sb2_info],
         )
-        from serverless_sandbox.protocol.sandbox import SandboxProtocol
+        from easy_sandbox.protocol.sandbox import SandboxProtocol
         proto = SandboxProtocol(sandbox1._http_client)
         sandboxes = await proto.list()
         assert len(sandboxes) == 2

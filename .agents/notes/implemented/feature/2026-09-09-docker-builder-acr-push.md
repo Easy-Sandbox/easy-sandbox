@@ -7,7 +7,7 @@ Status: implemented
 
 1. **调试困难**：构建过程在远端执行，错误信息不直观，无法本地 `docker build` 调试。
 2. **无 ACR 推送能力**：平台端构建需要镜像已在 ACR 中存在（v2 API `from_image` 参数），但 SDK 没有提供本地构建→ACR 推送的完整链路。
-3. **CLI 缺少本地构建命令**：用户无法通过 `sbox` CLI 一键完成"构建→推送→注册模板"流程。
+3. **CLI 缺少本地构建命令**：用户无法通过 `ebx` CLI 一键完成"构建→推送→注册模板"流程。
 
 ## Decision
 新增 `api/docker_builder.py` 模块，提供 `DockerBuilder` 类封装完整的本地构建→ACR 推送→模板注册流程。
@@ -28,12 +28,12 @@ Status: implemented
 
 ### CLI 命令
 
-新增 `sbox template build-local` 子命令：
+新增 `ebx template build-local` 子命令：
 ```bash
-sbox template build-local ./examples/templates/python-hello \
+ebx template build-local ./examples/templates/python-hello \
     --acr-namespace my-ns --acr-repo python-hello
 
-sbox template build-local ./my-template \
+ebx template build-local ./my-template \
     --acr-namespace prod --acree-instance-id cri-xxx
 ```
 
@@ -110,13 +110,13 @@ class ACRLoginError(SandboxError):
 - 单元测试：`DockerBuilder` 参数校验、`ACRConfig` 数据类构造。
 - Mock 测试：mock `subprocess.run` 验证 `docker build`/`docker login`/`docker push` 命令拼接正确。
 - 错误场景：Docker 未安装 → `DockerBuildError`；ACR 凭证错误 → `ACRLoginError`；推送失败 → `ACRPushError`。
-- CLI 测试：`sbox template build-local --help` 参数完整性。
+- CLI 测试：`ebx template build-local --help` 参数完整性。
 - E2E 测试：在 `scripts/cloud_e2e_test.py` 场景 B 中覆盖真实构建→推送→注册链路。
 
 ## Acceptance criteria
 - `DockerBuilder.build_and_push()` 完成"构建→登录→推送→注册"全链路。
 - 三个新增错误类（E7020/E7021/E7022）在对应失败场景中正确抛出。
-- `sbox template build-local` CLI 命令可执行完整流程。
+- `ebx template build-local` CLI 命令可执行完整流程。
 - `protocol/template.py` 的 v3/v2 API 方法与 E2B SDK 2.31.0 对齐。
 
 ## Files changed

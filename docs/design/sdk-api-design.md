@@ -1,6 +1,6 @@
 # SDK API 设计 — 三种使用范式
 
-> Serverless Sandbox SDK 提供三种使用范式，覆盖从简单脚本到复杂 AI 应用的全部场景。用户可根据需求选择最适合的范式，三种范式可混合使用。
+> Easy Sandbox SDK 提供三种使用范式，覆盖从简单脚本到复杂 AI 应用的全部场景。用户可根据需求选择最适合的范式，三种范式可混合使用。
 
 ---
 
@@ -28,7 +28,7 @@
 ### 自然语言创建沙箱
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 自然语言描述 → SDK 自动推断模板 + 资源配置
 sb = await Sandbox.create("运行 python 数据分析环境，需要 GPU")
@@ -107,7 +107,7 @@ sb = await Sandbox.create("需要 GPU 环境", template="ml-gpu", memory=32768)
 ### 基础用法
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 创建沙箱（async 模式）
 sb = await Sandbox.create(template="code-interpreter")
@@ -132,7 +132,7 @@ await sb.kill()
 ### 同步模式
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 同步 API（内部自动管理事件循环）
 sb = Sandbox.create_sync(template="code-interpreter")
@@ -143,7 +143,7 @@ sb.kill_sync()
 ### Context Manager
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 async with await Sandbox.create(template="code-interpreter") as sb:
     result = await sb.run_code("import sys; print(sys.version)")
@@ -174,7 +174,7 @@ async for chunk in sb.commands.stream("pip install pandas && python train.py"):
 ### 基础用法
 
 ```python
-from serverless_sandbox import sandbox, Image
+from easy_sandbox import sandbox, Image
 
 @sandbox(template="python-data-science", cpu=2, memory=4096)
 def analyze(data: str) -> str:
@@ -193,7 +193,7 @@ print(result)
 ### 自定义镜像
 
 ```python
-from serverless_sandbox import sandbox, Image
+from easy_sandbox import sandbox, Image
 
 custom_image = (
     Image.from_template("python-data-science")
@@ -216,7 +216,7 @@ def train_model(dataset_path: str) -> dict:
 ### Async 装饰器
 
 ```python
-from serverless_sandbox import sandbox
+from easy_sandbox import sandbox
 
 @sandbox(template="node-web", async_mode=True)
 async def run_lighthouse(url: str) -> dict:
@@ -238,7 +238,7 @@ results = await asyncio.gather(
 ### 带状态的装饰器（持久沙箱）
 
 ```python
-from serverless_sandbox import sandbox
+from easy_sandbox import sandbox
 
 @sandbox(template="python-base", persistent=True, sandbox_id="my-dev-env")
 def install_deps():
@@ -263,7 +263,7 @@ def run_app():
 ### 浏览器 Agent
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 sb = await Sandbox.create(template="browser-automation")
 
@@ -274,7 +274,7 @@ print(result.summary)     # 页面摘要
 
 # 复杂交互
 result = await sb.agent.browse(
-    "登录 GitHub，搜索 'serverless-sandbox'，获取第一个仓库的 star 数"
+    "登录 GitHub，搜索 'easy-sandbox'，获取第一个仓库的 star 数"
 )
 print(result.data)  # {"repo": "...", "stars": 1234}
 ```
@@ -332,7 +332,7 @@ print(result.explanation)  # 解释
 ### 自定义 Agent
 
 ```python
-from serverless_sandbox import Agent, Sandbox
+from easy_sandbox import Agent, Sandbox
 
 # 创建自定义 Agent
 my_agent = Agent(
@@ -366,7 +366,7 @@ print(result.issues)       # 发现的问题列表
 SDK 采用零配置理念，按优先级加载配置：
 
 ```
-代码参数 > 环境变量 > .env 文件 > ~/.sbox/config.toml > 默认值
+代码参数 > 环境变量 > .env 文件 > ~/.ebx/config.toml > 默认值
 ```
 
 ### 环境变量
@@ -388,7 +388,7 @@ export SANDBOX_LOG_LEVEL=INFO                    # 日志级别
 ### 配置文件
 
 ```toml
-# ~/.sbox/config.toml
+# ~/.ebx/config.toml
 
 [default]
 region = "cn-hangzhou"
@@ -410,7 +410,7 @@ access_key_secret = "prod-sk"
 ### 代码配置
 
 ```python
-from serverless_sandbox import Sandbox, Config
+from easy_sandbox import Sandbox, Config
 
 # 全局配置
 Config.set(
@@ -635,7 +635,7 @@ await sb.files.upload("./data.csv", "/app/data.csv")  # 需 'files' 能力
 result = await sb.run("serve", port="9000")
 
 # 调用沙箱不具备的能力 → 明确报错，不静默降级
-from serverless_sandbox.errors import CapabilityNotSupportedError
+from easy_sandbox.errors import CapabilityNotSupportedError
 try:
     await sb.commands.run("tmux new-session")   # 需 'terminal'，未声明
 except CapabilityNotSupportedError as e:
@@ -651,7 +651,7 @@ except CapabilityNotSupportedError as e:
 ## Image 链式构建
 
 ```python
-from serverless_sandbox import Image
+from easy_sandbox import Image
 
 # 链式构建自定义镜像
 image = (
@@ -697,7 +697,7 @@ CMD ["python", "app.py"]
 ## SandboxPool 沙箱池
 
 ```python
-from serverless_sandbox import SandboxPool
+from easy_sandbox import SandboxPool
 
 # 创建沙箱池
 pool = SandboxPool(
@@ -733,8 +733,8 @@ await pool.shutdown()
 ### VPC 网络配置
 
 ```python
-from serverless_sandbox import Sandbox
-from serverless_sandbox.extensions import VPCConfig
+from easy_sandbox import Sandbox
+from easy_sandbox.extensions import VPCConfig
 
 sb = await Sandbox.create(
     template="base",
@@ -752,7 +752,7 @@ result = await sb.commands.run("curl http://10.0.1.100:3306")
 ### OSS 挂载
 
 ```python
-from serverless_sandbox.extensions import OSSMount
+from easy_sandbox.extensions import OSSMount
 
 sb = await Sandbox.create(
     template="python-data-science",
@@ -783,7 +783,7 @@ df.to_csv('/output/result.csv')        # 写入 OSS
 ### 自定义域名
 
 ```python
-from serverless_sandbox.extensions import DomainConfig
+from easy_sandbox.extensions import DomainConfig
 
 sb = await Sandbox.create(
     template="node-web",
@@ -835,7 +835,7 @@ SandboxError (基类)
 | `E1001` | 认证 | API Key 无效 | 检查 E2B_API_KEY 环境变量 |
 | `E1002` | 认证 | Token 过期 | SDK 将自动刷新，若持续出现请检查时钟同步 |
 | `E1003` | 认证 | AK/SK 无效 | 检查 ALICLOUD_ACCESS_KEY_ID 环境变量 |
-| `E2001` | 创建 | 模板不存在 | 运行 `sbox template list` 查看可用模板 |
+| `E2001` | 创建 | 模板不存在 | 运行 `ebx template list` 查看可用模板 |
 | `E2002` | 创建 | 配额超限 | 联系管理员提升配额或销毁闲置沙箱 |
 | `E2003` | 创建 | 区域不可用 | 切换到可用区域：cn-hangzhou, cn-shanghai |
 | `E3001` | 执行 | 命令超时 | 增大 timeout 参数或优化命令 |
@@ -844,13 +844,13 @@ SandboxError (基类)
 | `E3004` | 执行 | 能力不支持（CapabilityNotSupportedError） | 沙箱未声明该标准能力，在 template.yaml 的 `capabilities` 中声明 |
 | `E4001` | 文件 | 文件不存在 | 确认路径正确，使用 `files.list()` 检查 |
 | `E5001` | 网络 | 连接失败 | 检查网络连通性和防火墙规则 |
-| `E6001` | Session | Session 未找到 | 运行 `sbox session list` 查看可用 Session |
+| `E6001` | Session | Session 未找到 | 运行 `ebx session list` 查看可用 Session |
 
 ### 错误处理示例
 
 ```python
-from serverless_sandbox import Sandbox
-from serverless_sandbox.errors import (
+from easy_sandbox import Sandbox
+from easy_sandbox.errors import (
     SandboxError,
     QuotaExceededError,
     TimeoutError,
@@ -931,7 +931,7 @@ class AgentResult:
 **范式一：E2B 兼容**
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 async def analyze_csv_e2b(csv_path: str):
     sb = await Sandbox.create(template="python-data-science")
@@ -954,7 +954,7 @@ print(df.describe().to_string())
 **范式二：装饰器**
 
 ```python
-from serverless_sandbox import sandbox
+from easy_sandbox import sandbox
 
 @sandbox(template="python-data-science")
 def analyze_csv_decorator(csv_content: str) -> str:
@@ -968,7 +968,7 @@ result = analyze_csv_decorator(open("data.csv").read())
 **范式三：Agent**
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 async def analyze_csv_agent(csv_path: str):
     sb = await Sandbox.create(template="python-data-science")

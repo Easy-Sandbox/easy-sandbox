@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, MagicMock, PropertyMock
 
 import pytest
 
-from serverless_sandbox.agent.builtin import AgentModule
+from easy_sandbox.agent.builtin import AgentModule
 
 
 def _make_mock_sandbox() -> MagicMock:

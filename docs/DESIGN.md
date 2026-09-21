@@ -1,8 +1,8 @@
-# Serverless Sandbox — 完整设计文档
+# Easy Sandbox — 完整设计文档
 
 > **版本**：v1.1 | **最后更新**：2026-09-02
 >
-> 本文档整合了 Serverless Sandbox 项目的所有设计决策，是一份可直接交给团队执行的完整技术蓝图。
+> 本文档整合了 Easy Sandbox 项目的所有设计决策，是一份可直接交给团队执行的完整技术蓝图。
 
 ---
 
@@ -10,13 +10,15 @@
 
 ### 1.1 项目基本信息
 
+> **更名注记**：本项目已从 Serverless Sandbox 完成全量改名为 **Easy Sandbox**。PyPI 包名: `easy-sandbox`（`pip install easy-sandbox`），CLI 命令: `ebx`，Python 导入: `easy_sandbox`。
+
 | 项目 | 值 |
 |------|-----|
-| **项目名称** | Serverless Sandbox |
-| **GitHub 仓库** | `serverless-sandbox` |
-| **CLI 命令** | `sbox`（简洁且语义明确） |
-| **Python 包名** | `serverless-sandbox`（PyPI），导入名 `serverless_sandbox` |
-| **npm 包名** | `@serverless-sandbox/sdk` |
+| **品牌名称** | Easy Sandbox |
+| **GitHub 仓库** | `easy-sandbox` |
+| **CLI 命令** | `ebx`（简洁且语义明确） |
+| **PyPI 包名** | `easy-sandbox`（`pip install easy-sandbox`），Python 导入名 `easy_sandbox` |
+| **npm 包名** | `@easy-sandbox/sdk` |
 | **定位** | 面向 AI Agent 的云端 Serverless 代码执行沙箱平台 |
 
 ### 1.2 我们要解决什么问题
@@ -32,21 +34,21 @@ E2B 是当前 AI Agent 沙箱领域的标杆产品，但在实际使用中存在
 | 5 | **FC Extensions 缺失** — VPC/OSS/域名需额外 SDK | 统一 SDK 覆盖 E2B 兼容 + 阿里云扩展 |
 | 6 | **无 Agent 集成** — 缺少 MCP Server 和 Tool Schema | 内置 MCP Server + 一键安装到 IDE |
 | 7 | **无 Skills 系统** — 不能封装和分发最佳实践 | Skills 注册/安装/分享生态 |
-| 8 | **模板能力有限** — 仅 Dockerfile，无链式构建 | Image 链式构建器 + 模板继承 + GitHub Release 分发 |
+| 8 | **模板能力有限** — 仅 Dockerfile，无链式构建 | Image 链式构建器 + 模板继承 + GitHub tarball API 按 ref 分发 |
 | 9 | **错误信息不友好** — 英文错误，无修复建议 | 结构化错误码 + 中英双语 + 修复建议 |
 | 10 | **无结构化输出** — CLI 不支持 JSON | 全命令 `--json` 支持，AI 可直接解析 |
 
 ### 1.3 三大设计原则
 
-1. **E2B 协议兼容** — L4 层 API 兼容 E2B 数据面协议，提供迁移辅助层 `from serverless_sandbox.compat import Sandbox` 方便迁移用户（注意：需将同步调用改为 async 调用方式）；想用纯 E2B 的用户直接用 E2B SDK 即可
+1. **E2B 协议兼容** — L4 层 API 兼容 E2B 数据面协议，提供迁移辅助层 `from easy_sandbox.compat import Sandbox` 方便迁移用户（注意：需将同步调用改为 async 调用方式）；想用纯 E2B 的用户直接用 E2B SDK 即可
 2. **AI-First** — 自然语言创建沙箱、沙箱内置 AI CLI 工具、MCP Server 是一等公民，不是事后补丁
 3. **零配置默认** — 开箱即用，从安装到第一个沙箱运行不超过 3 行代码
 
 ### 1.4 与 E2B 的关系
 
-Serverless Sandbox **兼容 E2B 数据面协议**（Sandbox 生命周期、Commands、Filesystem、Code Interpreter），但**不是 E2B SDK 的替代品**。
+Easy Sandbox **兼容 E2B 数据面协议**（Sandbox 生命周期、Commands、Filesystem、Code Interpreter），但**不是 E2B SDK 的替代品**。
 
-**核心差异化价值**：Serverless Sandbox 的价值在 E2B 协议之上 —— 装饰器模式（`@sandbox`）、自然语言创建沙箱、Skills 生态、沙箱内置 AI CLI 工具（Codex / Qwen CLI）、MCP Server 深度集成、阿里云 FC Extensions 等，是 E2B SDK 不具备的独有能力。
+**核心差异化价值**：Easy Sandbox 的价值在 E2B 协议之上 —— 装饰器模式（`@sandbox`）、自然语言创建沙箱、Skills 生态、沙箱内置 AI CLI 工具（Codex / Qwen CLI）、MCP Server 深度集成、阿里云 FC Extensions 等，是 E2B SDK 不具备的独有能力。
 
 **迁移路径**：对于已有 E2B 用户，提供迁移辅助层简化迁移（需将同步调用改为 async 调用方式）：
 
@@ -55,23 +57,23 @@ Serverless Sandbox **兼容 E2B 数据面协议**（Sandbox 生命周期、Comma
 from e2b_code_interpreter import Sandbox
 sb = Sandbox()
 
-# 迁移到 Serverless Sandbox — 通过迁移辅助层（需改为 async 调用）
-from serverless_sandbox.compat import Sandbox
+# 迁移到 Easy Sandbox — 通过迁移辅助层（需改为 async 调用）
+from easy_sandbox.compat import Sandbox
 sb = await Sandbox.create(template="code-interpreter")
 
-# 推荐：使用 Serverless Sandbox 原生 API，享受全部增强能力
-from serverless_sandbox import Sandbox
+# 推荐：使用 Easy Sandbox 原生 API，享受全部增强能力
+from easy_sandbox import Sandbox
 sb = await Sandbox.create(template="code-interpreter")
 ```
 
 ### 1.5 Quick Start — 快速上手
 
-三步开始使用 Serverless Sandbox：
+三步开始使用 Easy Sandbox：
 
 **第一步：安装**
 
 ```bash
-pip install serverless-sandbox
+pip install easy-sandbox
 ```
 
 **第二步：配置认证**
@@ -81,16 +83,16 @@ pip install serverless-sandbox
 export SANDBOX_API_KEY=your-api-key
 
 # 方式二：通过 CLI 登录
-sbox auth login
+ebx auth login
 ```
 
 **第三步：创建第一个沙箱**
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 async with await Sandbox.create(template="code-interpreter") as sb:
-    result = await sb.run_code("print('Hello, Serverless Sandbox!')")
+    result = await sb.run_code("print('Hello, Easy Sandbox!')")
     print(result.text)
     # 退出时自动销毁沙箱
 ```
@@ -98,9 +100,9 @@ async with await Sandbox.create(template="code-interpreter") as sb:
 或使用 CLI：
 
 ```bash
-sbox create --template code-interpreter
-sbox exec <sandbox-id> "python -c 'print(1+1)'"
-sbox kill <sandbox-id>
+ebx create --template code-interpreter
+ebx exec <sandbox-id> "python -c 'print(1+1)'"
+ebx kill <sandbox-id>
 ```
 
 ---
@@ -109,7 +111,7 @@ sbox kill <sandbox-id>
 
 ### 2.1 六层分层架构
 
-Serverless Sandbox SDK 采用六层分层架构，从底层传输到上层 AI 集成逐层抽象，每层职责单一、边界清晰，用户可在任意层级接入使用。
+Easy Sandbox SDK 采用六层分层架构，从底层传输到上层 AI 集成逐层抽象，每层职责单一、边界清晰，用户可在任意层级接入使用。
 
 ```mermaid
 graph TD
@@ -270,7 +272,7 @@ graph TD
 **定位**：用完即弃的一次性执行环境，最常用的模式。**当前唯一完整支持的沙箱类型。**
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 默认就是临时沙箱
 sb = await Sandbox.create(template="code-interpreter")
@@ -291,7 +293,7 @@ async with await Sandbox.create(template="code-interpreter") as sb:
 
 ```python
 # Future API — 待底层支持
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 sb = await Sandbox.create(
     template="python-base",
@@ -314,7 +316,7 @@ result = await sb.commands.run("pip list")  # flask, sqlalchemy 仍在
 
 ```python
 # Future API — 待底层支持
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 sb = await Sandbox.create(
     template="python-data-science",
@@ -372,7 +374,7 @@ stateDiagram-v2
 | 触发条件 | 动作 | 默认值 |
 |----------|------|--------|
 | 手动 `kill()` | 销毁 | — |
-| CLI `sbox kill` | 销毁 | — |
+| CLI `ebx kill` | 销毁 | — |
 | 账户欠费 | 冻结 → 7 天后销毁 | — |
 
 #### 休眠沙箱（🔮 远期规划）
@@ -411,14 +413,14 @@ stateDiagram-v2
 
 ## 四、SDK API 设计
 
-Serverless Sandbox SDK 提供三种使用范式，覆盖从简单脚本到复杂 AI 应用的全部场景，三种范式可混合使用。
+Easy Sandbox SDK 提供三种使用范式，覆盖从简单脚本到复杂 AI 应用的全部场景，三种范式可混合使用。
 
 ### 4.1 配置系统（Zero Config）
 
 SDK 采用零配置理念，按优先级加载配置：
 
 ```
-代码参数 > 环境变量 > .env 文件 > ~/.sbox/config.toml > 默认值
+代码参数 > 环境变量 > .env 文件 > ~/.ebx/config.toml > 默认值
 ```
 
 #### 环境变量
@@ -440,10 +442,10 @@ export SANDBOX_LOG_LEVEL=INFO                    # 日志级别
 #### 配置文件
 
 ```toml
-# ~/.sbox/config.toml
+# ~/.ebx/config.toml
 # ⚠️ 安全警告：config.toml 中明文存储 API Key 存在安全风险。
 # 推荐使用系统 Keychain（macOS Keychain / Linux Secret Service）存储敏感凭证。
-# 参见 `sbox auth login --keychain` 命令。
+# 参见 `ebx auth login --keychain` 命令。
 
 [default]
 region = "cn-hangzhou"
@@ -465,7 +467,7 @@ api_key = "your-production-api-key"
 #### 代码配置
 
 ```python
-from serverless_sandbox import Sandbox, Config
+from easy_sandbox import Sandbox, Config
 
 # 全局配置
 Config.set(region="cn-hangzhou", timeout=300, log_level="DEBUG")
@@ -479,13 +481,13 @@ sb = await Sandbox.create(template="code-interpreter", region="cn-shanghai", tim
 兼容 E2B 数据面协议的 API，提供迁移辅助层方便现有 E2B 用户迁移（需将同步调用改为 async 调用方式）。
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 创建沙箱（async 模式）
 sb = await Sandbox.create(template="code-interpreter")
 
 # 执行代码
-result = await sb.run_code("print('Hello, Serverless Sandbox!')")
+result = await sb.run_code("print('Hello, Easy Sandbox!')")
 print(result.text)
 
 # 执行命令
@@ -504,7 +506,7 @@ await sb.kill()
 **同步模式**：
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 sb = Sandbox.create_sync(template="code-interpreter")
 result = sb.run_code_sync("print(1+1)")
@@ -538,7 +540,7 @@ async for chunk in sb.commands.stream("pip install pandas && python train.py"):
 借鉴 Modal 的声明式体验，用装饰器将本地函数透明地在远程沙箱中执行。
 
 ```python
-from serverless_sandbox import sandbox, Image
+from easy_sandbox import sandbox, Image
 
 @sandbox(template="python-data-science", cpu=2, memory=4096)
 def analyze(data: str) -> str:
@@ -555,7 +557,7 @@ result = analyze("name,score\nAlice,95\nBob,87\nCarol,92")
 **自定义镜像**：
 
 ```python
-from serverless_sandbox import sandbox, Image
+from easy_sandbox import sandbox, Image
 
 custom_image = (
     Image.from_template("python-data-science")
@@ -577,7 +579,7 @@ def train_model(dataset_path: str) -> dict:
 **Async 装饰器**：
 
 ```python
-from serverless_sandbox import sandbox
+from easy_sandbox import sandbox
 
 @sandbox(template="node-web", async_mode=True)
 async def run_lighthouse(url: str) -> dict:
@@ -626,7 +628,7 @@ results = await asyncio.gather(
 SDK 内置 AI Agent 能力封装。**核心思路**：沙箱模板内预装 AI CLI 工具（Codex、Qwen CLI 等），SDK Agent API 只是 `commands.run()` 的语法糖。
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 代码 Agent — 实质执行 sb.commands.run("codex 'fix bug in main.py'")
 sb = await Sandbox.create(template="codex")
@@ -651,7 +653,7 @@ print(result.output)
 > **用户不需要知道模板名、资源规格、配置参数，只需要描述想做什么，SDK 自动搞定一切。**
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 自然语言描述 → 自动推断模板 + 资源配置
 sb = await Sandbox.create("运行 python 数据分析环境，需要 GPU")
@@ -829,7 +831,7 @@ class CodeContextModule:
 ### 4.7 链式 Image 构建
 
 ```python
-from serverless_sandbox import Image
+from easy_sandbox import Image
 
 image = (
     Image.from_template("python-base")
@@ -866,7 +868,7 @@ CMD ["python", "app.py"]
 ### 4.8 SandboxPool 沙箱池
 
 ```python
-from serverless_sandbox import SandboxPool
+from easy_sandbox import SandboxPool
 
 pool = SandboxPool(
     template="code-interpreter",
@@ -898,8 +900,8 @@ await pool.shutdown()
 #### VPC 网络配置
 
 ```python
-from serverless_sandbox import Sandbox
-from serverless_sandbox.extensions import VPCConfig
+from easy_sandbox import Sandbox
+from easy_sandbox.extensions import VPCConfig
 
 sb = await Sandbox.create(
     template="base",
@@ -911,7 +913,7 @@ result = await sb.commands.run("curl http://10.0.1.100:3306")
 #### OSS 挂载
 
 ```python
-from serverless_sandbox.extensions import OSSMount
+from easy_sandbox.extensions import OSSMount
 
 sb = await Sandbox.create(
     template="python-data-science",
@@ -925,7 +927,7 @@ sb = await Sandbox.create(
 #### 自定义域名
 
 ```python
-from serverless_sandbox.extensions import DomainConfig
+from easy_sandbox.extensions import DomainConfig
 
 sb = await Sandbox.create(
     template="node-web",
@@ -967,7 +969,7 @@ SandboxError (基类)
 | `E1001` | 认证 | API Key 无效 | 检查 SANDBOX_API_KEY 环境变量 |
 | `E1002` | 认证 | Token 过期 | SDK 将自动刷新，若持续请检查时钟同步 |
 | `E1003` | 认证 | AK/SK 无效 | 检查 ALICLOUD_ACCESS_KEY_ID / SECRET 环境变量 |
-| `E2001` | 创建 | 模板不存在 | 运行 `sbox template list` 查看可用模板 |
+| `E2001` | 创建 | 模板不存在 | 运行 `ebx template list` 查看可用模板 |
 | `E2002` | 创建 | 配额超限 | 联系管理员提升配额或销毁闲置沙箱 |
 | `E3001` | 执行 | 命令超时 | 增大 timeout 参数 |
 | `E4001` | 文件 | 文件不存在 | 使用 `files.list()` 检查路径 |
@@ -977,8 +979,8 @@ SandboxError (基类)
 #### 错误处理示例
 
 ```python
-from serverless_sandbox import Sandbox
-from serverless_sandbox.errors import (
+from easy_sandbox import Sandbox
+from easy_sandbox.errors import (
     SandboxError, QuotaExceededError, TimeoutError, TemplateNotFoundError,
 )
 
@@ -1010,12 +1012,12 @@ except SandboxError as e:
 
 ## 五、CLI 设计
 
-`sbox` CLI 是 Serverless Sandbox 的命令行入口，兼顾人类开发者和 AI Agent 两种使用场景。
+`ebx` CLI 是 Easy Sandbox 的命令行入口，兼顾人类开发者和 AI Agent 两种使用场景。
 
 ### 5.1 命令体系
 
 ```
-sbox
+ebx
 ├── create [描述/模板]              # 创建沙箱（支持自然语言）
 ├── list                            # 列出所有沙箱
 ├── info <sandbox-id>               # 查看沙箱详情
@@ -1093,9 +1095,9 @@ sbox
 │   └── reset                       # 重置
 │
 │   # 🔮 远期规划命令
-│   # sbox hibernate <sandbox-id>   # 休眠沙箱
-│   # sbox wake <sandbox-id>        # 唤醒沙箱
-│   # sbox snapshot <sandbox-id>    # 创建快照
+│   # ebx hibernate <sandbox-id>   # 休眠沙箱
+│   # ebx wake <sandbox-id>        # 唤醒沙箱
+│   # ebx snapshot <sandbox-id>    # 创建快照
 │
 └── version                         # 版本信息
 ```
@@ -1117,7 +1119,7 @@ sbox
 
 ```bash
 # 自然语言描述 → 自动推断模板和配置
-sbox create "运行 python，运行 codex"
+ebx create "运行 python，运行 codex"
 # ✓ 推断结果：
 #   模板: code-interpreter
 #   CPU: 2 核  |  内存: 4096 MB
@@ -1125,27 +1127,27 @@ sbox create "运行 python，运行 codex"
 #   推断来源: Server 端 AI / Qwen CLI / 规则匹配
 # → 创建中... 完成！sandbox-id: sb-a1b2c3d4
 
-sbox create "启动一个 Node.js Web 服务"
+ebx create "启动一个 Node.js Web 服务"
 # ✓ 推断结果：模板: node-web, CPU: 1 核, 内存: 2048 MB, 端口: 3000
 
 # 只看推断结果，不实际创建
-sbox create "需要 TensorFlow GPU 环境" --dry-run
+ebx create "需要 TensorFlow GPU 环境" --dry-run
 
 # 自然语言推断 + 手动覆盖
-sbox create "python 数据分析" --memory 8192 --region cn-shanghai
+ebx create "python 数据分析" --memory 8192 --region cn-shanghai
 
 # 传统模板模式 — 100% 向后兼容
-sbox create --template code-interpreter
+ebx create --template code-interpreter
 ```
 
-### 5.3 项目直接部署（sbox build / sbox deploy）
+### 5.3 项目直接部署（ebx build / ebx deploy）
 
 ```bash
 # 从当前目录构建镜像
-sbox build . --name my-app --tag v1.0
+ebx build . --name my-app --tag v1.0
 
 # 直接部署项目到运行中的沙箱
-sbox deploy ./my-flask-app --name api-server
+ebx deploy ./my-flask-app --name api-server
 # ✓ 检测项目类型: Python (requirements.txt + app.py)
 # ✓ 检测框架: Flask
 # ✓ 选择模板: python-base
@@ -1156,7 +1158,7 @@ sbox deploy ./my-flask-app --name api-server
 # ✓ 服务就绪: https://api-server.sandbox.alicloud.com
 
 # 开发模式：本地文件变更自动同步到沙箱
-sbox deploy . --watch
+ebx deploy . --watch
 ```
 
 **自动项目检测**：
@@ -1177,35 +1179,35 @@ sbox deploy . --watch
 #### 工作流 1：快速实验
 
 ```bash
-sbox create "python 数据分析，需要 pandas 和 matplotlib"
+ebx create "python 数据分析，需要 pandas 和 matplotlib"
 # → sb-abc123
-sbox exec sb-abc123 "python -c 'import pandas; print(pandas.__version__)'"
-sbox kill sb-abc123
+ebx exec sb-abc123 "python -c 'import pandas; print(pandas.__version__)'"
+ebx kill sb-abc123
 ```
 
 #### 工作流 2：项目开发
 
 ```bash
-sbox deploy ./my-api --name api-dev --watch --expose 8080
-sbox logs api-dev --follow        # 另一个终端（⚠️ 实验性）
-sbox exec api-dev "pytest tests/ -v"
-sbox kill api-dev
+ebx deploy ./my-api --name api-dev --watch --expose 8080
+ebx logs api-dev --follow        # 另一个终端（⚠️ 实验性）
+ebx exec api-dev "pytest tests/ -v"
+ebx kill api-dev
 ```
 
 #### 工作流 3：AI Agent 集成
 
 ```bash
-sbox mcp install --target cursor
-sbox create "全栈开发环境" --name agent-env
+ebx mcp install --target cursor
+ebx create "全栈开发环境" --name agent-env
 # AI Agent 通过 MCP 自动使用沙箱
 ```
 
 #### 工作流 4：模板定制
 
 ```bash
-sbox template build ./my-template --name my-ml-env
-sbox create --template my-ml-env
-sbox template push my-ml-env --tag v1.0
+ebx template build ./my-template --name my-ml-env
+ebx create --template my-ml-env
+ebx template push my-ml-env --tag v1.0
 ```
 
 ### 5.5 AI Friendly 设计原则
@@ -1214,7 +1216,7 @@ sbox template push my-ml-env --tag v1.0
 2. **幂等操作** — 重复创建同名沙箱返回已有的，重复销毁静默成功
 3. **确定性退出码** — `0` 成功，`1` 一般错误，`2` 参数错误，`3` 认证失败，`4` 资源不存在，`5` 超时，`6` 配额超限
 4. **无交互模式** — `--yes` 跳过确认，`--quiet` 最小化输出
-5. **可组合管道** — `ID=$(sbox create "python" --quiet)` 直接获取 ID
+5. **可组合管道** — `ID=$(ebx create "python" --quiet)` 直接获取 ID
 6. **自描述帮助** — 错误信息包含修复建议
 7. **进度反馈** — 人类模式有进度条，AI 模式（`--json`）输出结构化事件
 8. **自然语言容错** — 模糊描述尽力推断，失败给出引导
@@ -1236,11 +1238,11 @@ Session 与沙箱的关系：
 ### 6.2 SDK 自动 Session 管理
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # SDK 自动追踪 session
 sb = await Sandbox.create(template="python", name="my-work")
-# Session 自动创建，ID 保存到 ~/.sbox/sessions/
+# Session 自动创建，ID 保存到 ~/.ebx/sessions/
 
 # 下次可以直接恢复
 sb = await Sandbox.connect("my-work")  # 通过名字连接
@@ -1265,19 +1267,19 @@ running = await Sandbox.sessions.list(state="running")
 
 ```bash
 # 启动一个命名 session（创建沙箱 + 注册 session）
-sbox start my-project
-sbox start my-project --template python-data-science --cpu 2
+ebx start my-project
+ebx start my-project --template python-data-science --cpu 2
 
 # 列出所有活跃 session
-sbox sessions list
-sbox sessions list --all  # 包含已断开的
+ebx sessions list
+ebx sessions list --all  # 包含已断开的
 
 # 连接到已有 session
-sbox connect my-project
-sbox connect _            # 最近的 session（快捷方式）
+ebx connect my-project
+ebx connect _            # 最近的 session（快捷方式）
 
 # Session 信息
-sbox sessions info my-project
+ebx sessions info my-project
 # ╭─── Session: my-project ──────────────────────╮
 # │  Sandbox ID:  sbx-abc123                     │
 # │  Template:    python-data-science            │
@@ -1288,11 +1290,11 @@ sbox sessions info my-project
 # ╰──────────────────────────────────────────────╯
 
 # Session 操作
-sbox sessions rename old-name new-name     # 重命名
-sbox sessions export my-project            # 导出 Session 配置信息（JSON 格式，可分享）
-sbox sessions import session-config.json   # 从配置文件恢复 Session
-sbox sessions clean                        # 清理过期 session
-sbox sessions clean --dry-run              # 预览清理
+ebx sessions rename old-name new-name     # 重命名
+ebx sessions export my-project            # 导出 Session 配置信息（JSON 格式，可分享）
+ebx sessions import session-config.json   # 从配置文件恢复 Session
+ebx sessions clean                        # 清理过期 session
+ebx sessions clean --dry-run              # 预览清理
 ```
 
 > **说明**：`sessions export/import` 导出的是 Session 配置信息（模板、资源规格、环境变量等），而非沙箱状态快照。这确保了在任何环境下都能根据配置重建相同的沙箱。
@@ -1302,7 +1304,7 @@ sbox sessions clean --dry-run              # 预览清理
 Session 元信息存储采用可插拔设计，支持多种存储后端：
 
 ```python
-from serverless_sandbox.session import (
+from easy_sandbox.session import (
     SessionStore,          # 抽象基类
     LocalSessionStore,     # 本地文件（默认）
     OSSSessionStore,       # 阿里云 OSS
@@ -1310,10 +1312,10 @@ from serverless_sandbox.session import (
 )
 
 # 默认：本地文件存储
-# Session 数据存储在 ~/.sbox/sessions/
+# Session 数据存储在 ~/.ebx/sessions/
 
 # 多机器共享：OSS 存储
-from serverless_sandbox import Config
+from easy_sandbox import Config
 Config.set(session_store=OSSSessionStore(
     bucket="my-team-sessions",
     prefix="sandbox-sessions/",
@@ -1343,7 +1345,7 @@ class MySessionStore(SessionStore):
 #### 本地存储目录结构（默认）
 
 ```
-~/.sbox/sessions/
+~/.ebx/sessions/
 ├── my-project.toml          # Session 元信息
 ├── my-project.history       # 命令历史
 └── my-project.env           # 环境变量快照
@@ -1352,7 +1354,7 @@ class MySessionStore(SessionStore):
 **Session TOML 格式**：
 
 ```toml
-# ~/.sbox/sessions/my-project.toml
+# ~/.ebx/sessions/my-project.toml
 sandbox_id = "sbx-abc123"
 template = "python-data-science"
 created_at = "2026-09-01T10:00:00Z"
@@ -1375,7 +1377,7 @@ team = "data-science"
 **命令历史**（`.history` 文件）：
 
 ```
-# ~/.sbox/sessions/my-project.history
+# ~/.ebx/sessions/my-project.history
 2026-09-01T10:00:05Z  pip install pandas numpy
 2026-09-01T10:01:00Z  python train.py
 2026-09-01T10:15:00Z  python evaluate.py --model /app/model.pkl
@@ -1392,10 +1394,10 @@ team = "data-science"
 
 ```bash
 # 配置 session 策略
-sbox config set session.session_ttl 7d            # 7 天后过期
-sbox config set session.auto_cleanup true          # 开启自动清理
-sbox config set session.sync_interval 300          # 每 300 秒同步云端状态
-sbox config set session.on_orphan warn             # 孤儿 Session：warn/cleanup/ignore
+ebx config set session.session_ttl 7d            # 7 天后过期
+ebx config set session.auto_cleanup true          # 开启自动清理
+ebx config set session.sync_interval 300          # 每 300 秒同步云端状态
+ebx config set session.on_orphan warn             # 孤儿 Session：warn/cleanup/ignore
 ```
 
 **孤儿 Session 处理**：当本地 Session 引用的沙箱在云端已不存在时：
@@ -1408,14 +1410,14 @@ sbox config set session.on_orphan warn             # 孤儿 Session：warn/clean
 | 策略 | 说明 | 配置 |
 |------|------|------|
 | **自动命名** | 不指定名字时使用 `sbox-{timestamp}` 格式 | 默认开启 |
-| **自动清理** | `sbox sessions clean` 清理超过 `session_ttl` 的死亡 session | `session_ttl = 7d` |
+| **自动清理** | `ebx sessions clean` 清理超过 `session_ttl` 的死亡 session | `session_ttl = 7d` |
 | **云端验证** | `connect` 前先验证沙箱是否存活 | 默认开启 |
 | **GC 策略** | 定期清理本地 session 文件中引用的已不存在的沙箱 | `sync_interval = 300s` |
 
 **GC 流程**：
 
 ```
-定时触发 / sbox sessions clean
+定时触发 / ebx sessions clean
   │
   ├─ 读取 Session 存储中所有 Session
   ├─ 对每个 session:
@@ -1430,7 +1432,7 @@ sbox config set session.on_orphan warn             # 孤儿 Session：warn/clean
 
 ```python
 import asyncio
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 同时管理多个 session
 sessions = await Sandbox.sessions.list()
@@ -1451,32 +1453,32 @@ results = await asyncio.gather(
 
 ```bash
 # CLI 并发管理
-sbox start worker-1 --template python-base
-sbox start worker-2 --template python-base
-sbox start worker-3 --template python-base
+ebx start worker-1 --template python-base
+ebx start worker-2 --template python-base
+ebx start worker-3 --template python-base
 
-sbox sessions list
+ebx sessions list
 #   NAME       TEMPLATE       STATE     CREATED
 #   worker-1   python-base    running   2 min ago
 #   worker-2   python-base    running   1 min ago
 #   worker-3   python-base    running   30s ago
 
 # 批量操作
-sbox kill worker-1 worker-2 worker-3
+ebx kill worker-1 worker-2 worker-3
 ```
 
 ---
 
 ## 七、模板体系
 
-### 7.1 模板来源（GitHub Release 为核心）
+### 7.1 模板来源（GitHub tarball API 为核心）
 
-模板的核心分发机制基于 **GitHub Release**，类似 Go modules / GitHub Actions 的引用方式。SDK 按优先级依次解析模板来源：
+模板的核心分发机制基于 **GitHub tarball API（按 tag/branch/sha 拉取，无需发布 Release）**，类似 Go modules / GitHub Actions 的引用方式。SDK 按优先级依次解析模板来源：
 
 ```
 模板来源优先级：
 1. 内置模板（SDK 自带的 Tier 1 模板）
-2. GitHub Release 模板（owner/repo 格式）
+2. GitHub tarball 模板（owner/repo 格式；GitHub tarball API 按 tag/branch/sha 拉取，无需 Release）
 3. 本地模板（文件路径）
 4. 阿里云 ACR 镜像（registry URL）
 ```
@@ -1486,13 +1488,13 @@ sbox kill worker-1 worker-2 worker-3
 ```python
 "python"                → 内置 python 模板
 "code-interpreter"      → 内置 code-interpreter 模板
-"hello/world"           → github.com/hello/world latest release
-"hello/world@v1.0"      → github.com/hello/world tag v1.0
+"hello/world"           → github.com/hello/world 默认分支
+"hello/world@v1.0"      → github.com/hello/world ref v1.0（tag/branch/sha）
 "./my-template"         → 当前目录下的 my-template
 "acr://registry.cn-hangzhou.aliyuncs.com/ns/image:tag" → 阿里云容器镜像
 ```
 
-> **安全说明**：从远程拉取模板时，SDK 会校验模板包的 checksum（SHA-256），防止中间人篡改。`sbox template info <template>` 可查看模板 checksum 信息。checksum 校验失败时默认中止下载并报错，提供 `--skip-verify` 标志用于开发环境跳过校验。
+> **安全说明**：从远程拉取模板时，SDK 会校验模板包的 checksum（SHA-256），防止中间人篡改。`ebx template info <template>` 可查看模板 checksum 信息。checksum 校验失败时默认中止下载并报错，提供 `--skip-verify` 标志用于开发环境跳过校验。
 
 ### 7.2 官方核心模板
 
@@ -1541,7 +1543,7 @@ metadata:
   display_name: "Python 数据科学"
   description: "预装 pandas/numpy/matplotlib 的数据分析环境"
   version: "1.2.0"
-  author: "serverless-sandbox"
+  author: "easy-sandbox"
   tags: ["python", "data-science", "jupyter"]
   category: "data-science"
   checksum: "sha256:a1b2c3..."     # 模板包完整性校验
@@ -1607,7 +1609,7 @@ healthcheck:
 **方式一：SDK 编程式**
 
 ```python
-from serverless_sandbox import Image
+from easy_sandbox import Image
 
 image = (
     Image.from_template("python-base")
@@ -1625,8 +1627,8 @@ template_id = await image.build_and_push(name="my-flask-app", tag="v1.0")
 **方式二：CLI + Dockerfile**
 
 ```bash
-sbox template build . --name my-flask-app --tag v1.0
-sbox template push my-flask-app:v1.0
+ebx template build . --name my-flask-app --tag v1.0
+ebx template push my-flask-app:v1.0
 ```
 
 **方式三：sandbox.yaml 声明式**
@@ -1645,20 +1647,20 @@ resources: {cpu: 2, memory: 4096}
 entrypoint: python /app/main.py
 ```
 
-**方式四：发布到 GitHub Release**
+**方式四：发布到 GitHub（按 tag/branch/sha 拉取，无需发 Release）**
 
 ```bash
-sbox template init my-template          # 初始化脚手架
-sbox create ./my-template               # 本地测试
+ebx template init my-template          # 初始化脚手架
+ebx create ./my-template               # 本地测试
 cd my-template && git tag v1.0.0
-gh release create v1.0.0              # 发布
-# 其他人：sbox create yourname/my-template
+git push origin v1.0.0                 # 推 git tag 即可，无需发 Release
+# 其他人：ebx create yourname/my-template（默认分支）或 ebx create yourname/my-template@v1.0.0
 ```
 
 ### 7.5 模板缓存管理
 
 ```
-~/.sbox/templates/
+~/.ebx/templates/
 ├── hello/
 │   └── world/
 │       ├── v1.0.0/
@@ -1672,10 +1674,10 @@ gh release create v1.0.0              # 发布
 ```
 
 ```bash
-sbox template cache list                      # 查看缓存
-sbox template cache clean                     # 清理所有缓存
-sbox template cache clean hello/world         # 清理指定
-sbox create hello/world --no-cache            # 跳过缓存
+ebx template cache list                      # 查看缓存
+ebx template cache clean                     # 清理所有缓存
+ebx template cache clean hello/world         # 清理指定
+ebx create hello/world --no-cache            # 跳过缓存
 ```
 
 ---
@@ -1684,7 +1686,7 @@ sbox create hello/world --no-cache            # 跳过缓存
 
 ### 8.1 Skill 定义与结构
 
-Skills 是 Serverless Sandbox 的可复用能力包，将「沙箱环境配置 + Agent 使用说明 + MCP Tools 扩展」封装为一个可分发的单元。
+Skills 是 Easy Sandbox 的可复用能力包，将「沙箱环境配置 + Agent 使用说明 + MCP Tools 扩展」封装为一个可分发的单元。
 
 ```
 Skill = 沙箱环境配置 + Agent 使用说明 + MCP Tools 扩展
@@ -1729,25 +1731,25 @@ my-skill/
 
 ```bash
 # 搜索 Skill
-sbox skill search "data science"
-sbox skill search python --category ai-ml
+ebx skill search "data science"
+ebx skill search python --category ai-ml
 
 # 安装 Skill
-sbox skill install data-analysis                     # 安装到项目
-sbox skill install data-analysis --global            # 安装到全局
-sbox skill install data-analysis --target cursor     # 安装到 Cursor
-sbox skill install data-analysis@1.2.0               # 指定版本
-sbox skill install https://github.com/user/my-skill  # 从 Git 安装
-sbox skill install ./my-local-skill --link           # 本地开发模式
+ebx skill install data-analysis                     # 安装到项目
+ebx skill install data-analysis --global            # 安装到全局
+ebx skill install data-analysis --target cursor     # 安装到 Cursor
+ebx skill install data-analysis@1.2.0               # 指定版本
+ebx skill install https://github.com/user/my-skill  # 从 Git 安装
+ebx skill install ./my-local-skill --link           # 本地开发模式
 
 # 列出已安装
-sbox skill list
-sbox skill list --target cursor
+ebx skill list
+ebx skill list --target cursor
 
 # 创建和发布
-sbox skill create my-awesome-skill
-sbox skill publish ./my-skill
-sbox skill publish ./my-skill --dry-run
+ebx skill create my-awesome-skill
+ebx skill publish ./my-skill
+ebx skill publish ./my-skill --dry-run
 ```
 
 ### 8.4 安装目标
@@ -1755,7 +1757,7 @@ sbox skill publish ./my-skill --dry-run
 | 目标 | 命令 | 效果 |
 |------|------|------|
 | 项目 | `--scope project` | 写入 `sandbox.yaml`，项目级生效 |
-| 全局 | `--global` | 写入 `~/.sbox/skills/`，全局生效 |
+| 全局 | `--global` | 写入 `~/.ebx/skills/`，全局生效 |
 | Cursor | `--target cursor` | 写入 Cursor MCP 配置 |
 | Claude Desktop | `--target claude` | 写入 Claude Desktop 配置 |
 | VS Code | `--target vscode` | 写入 VS Code settings |
@@ -1763,7 +1765,7 @@ sbox skill publish ./my-skill --dry-run
 
 ### 8.5 与 MCP/Agent 联动
 
-当 AI Agent 通过 MCP 连接到 Serverless Sandbox 时，已安装的 Skills 会自动注册为 MCP Tools：
+当 AI Agent 通过 MCP 连接到 Easy Sandbox 时，已安装的 Skills 会自动注册为 MCP Tools：
 
 ```
 Agent（Cursor/Claude）
@@ -1849,7 +1851,7 @@ MCP Server 引入「默认沙箱」概念：
 | 方式 | 适用场景 | 启动方式 |
 |------|---------|---------|
 | STDIO | 本地 IDE（Cursor/Claude/VS Code） | IDE 配置自动启动 |
-| HTTP + SSE | 远程服务、多客户端共享 | `sbox mcp start --transport http --port 8765` |
+| HTTP + SSE | 远程服务、多客户端共享 | `ebx mcp start --transport http --port 8765` |
 
 > **⚠️ 安全要求**：HTTP 传输模式必须配置 Bearer Token 认证。通过 `--auth-token` 参数或 `SANDBOX_MCP_AUTH_TOKEN` 环境变量设置。STDIO 模式因在本地运行，无需额外认证。
 
@@ -1857,13 +1859,13 @@ MCP Server 引入「默认沙箱」概念：
 
 ```bash
 # 一键安装到 IDE
-sbox mcp install --target cursor
-sbox mcp install --target claude
-sbox mcp install --target vscode
-sbox mcp install --target qoder
+ebx mcp install --target cursor
+ebx mcp install --target claude
+ebx mcp install --target vscode
+ebx mcp install --target qoder
 
 # 安装并指定 Skills
-sbox mcp install --target cursor --skills data-analysis,playwright
+ebx mcp install --target cursor --skills data-analysis,playwright
 ```
 
 **生成的配置示例**（Cursor）：
@@ -1871,8 +1873,8 @@ sbox mcp install --target cursor --skills data-analysis,playwright
 ```json
 {
   "mcpServers": {
-    "serverless-sandbox": {
-      "command": "sbox",
+    "easy-sandbox": {
+      "command": "ebx",
       "args": ["mcp", "start"],
       "env": {
         "SANDBOX_API_KEY": "your-api-key"
@@ -1908,7 +1910,7 @@ sbox mcp install --target cursor --skills data-analysis,playwright
 ### 10.3 使用示例
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # === 代码 Agent ===
 sb = await Sandbox.create(template="codex")
@@ -2013,7 +2015,7 @@ class AgentModule:
 沙箱操作工具遵循 OpenAI function calling 格式，可直接导出为 LangChain / CrewAI / AutoGen 等框架的 Tool Schema：
 
 ```python
-from serverless_sandbox.agent import get_tool_schema
+from easy_sandbox.agent import get_tool_schema
 
 # 导出为 OpenAI 格式
 tools = get_tool_schema(format="openai")
@@ -2025,7 +2027,7 @@ tools = get_tool_schema(format="langchain")
 ### LangChain 适配器
 
 ```python
-from serverless_sandbox.integrations import LangChainToolkit
+from easy_sandbox.integrations import LangChainToolkit
 
 toolkit = LangChainToolkit(sandbox_config={"template": "code-interpreter"})
 tools = toolkit.get_tools()
@@ -2038,7 +2040,7 @@ agent = AgentExecutor(tools=tools, llm=llm)
 ### CrewAI 适配器
 
 ```python
-from serverless_sandbox.integrations import CrewAIToolkit
+from easy_sandbox.integrations import CrewAIToolkit
 
 toolkit = CrewAIToolkit()
 tools = toolkit.get_tools()
@@ -2068,7 +2070,7 @@ tools = toolkit.get_tools()
 ## 十三、项目结构
 
 ```
-src/serverless_sandbox/
+src/easy_sandbox/
 ├── __init__.py                    # 顶层导出：Sandbox, Image, sandbox
 ├── _version.py                    # 版本号
 │
@@ -2126,7 +2128,7 @@ src/serverless_sandbox/
 │   └── database.py                #   DatabaseSessionStore — Redis/MySQL
 │
 ├── compat/                        # E2B 迁移辅助层（非透明兼容，需调整 async 调用方式）
-│   ├── __init__.py                #   from serverless_sandbox.compat import Sandbox
+│   ├── __init__.py                #   from easy_sandbox.compat import Sandbox
 │   └── sandbox.py                 #   E2B 兼容的 Sandbox 封装
 │
 ├── integrations/                  # Agent 框架集成
@@ -2137,7 +2139,7 @@ src/serverless_sandbox/
 │
 ├── cli/                           # CLI 命令行工具
 │   ├── __init__.py
-│   ├── main.py                    #   CLI 入口（sbox 命令）
+│   ├── main.py                    #   CLI 入口（ebx 命令）
 │   ├── commands/                  #   子命令实现
 │   │   ├── sandbox.py             #     create/list/kill/...
 │   │   ├── session.py             #     sessions/start/connect
@@ -2184,12 +2186,12 @@ graph LR
 |------|--------|
 | 1-2 | L1 Transport & Auth（API Key + AK/SK 双认证）、L2 Core Protocol 最小子集（Sandbox 生命周期 + Process run + Filesystem read/write，约 8-10 个端点）、项目脚手架、CI/CD |
 | 3-4 | L2 完整协议实现（剩余端点）、`Sandbox.create()`、`kill()`、`run_code()`、`commands.*`、`files.*`、Context Manager、同步 API |
-| 5-6 | CLI `sbox create/exec/list/kill/shell`、Tier 1 模板 ×5、Session 基础管理、E2B 迁移辅助层、PyPI 发布、文档站点 |
+| 5-6 | CLI `ebx create/exec/list/kill/shell`、Tier 1 模板 ×5、Session 基础管理、E2B 迁移辅助层、PyPI 发布、文档站点 |
 
 **里程碑**：
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 async with await Sandbox.create(template="code-interpreter") as sb:
     result = await sb.run_code("import pandas as pd; print(pd.__version__)")
@@ -2204,15 +2206,15 @@ async with await Sandbox.create(template="code-interpreter") as sb:
 |------|--------|
 | 7-8 | VPC/OSS/域名 Extensions、SandboxPool、Image 构建器 |
 | 9-10 | Session 完整功能（可插拔存储、生命周期管理）、Secret 管理 |
-| 11-12 | MCP Server P0 Tools、STDIO 传输、`sbox mcp install`、自然语言创建（三级 Fallback）、Tier 2 ×3 |
+| 11-12 | MCP Server P0 Tools、STDIO 传输、`ebx mcp install`、自然语言创建（三级 Fallback）、Tier 2 ×3 |
 
 **里程碑**：
 
 ```bash
-sbox create "运行 Python 数据分析，需要 pandas"
-sbox mcp install --target cursor
-sbox start my-project
-sbox sessions list
+ebx create "运行 Python 数据分析，需要 pandas"
+ebx mcp install --target cursor
+ebx start my-project
+ebx sessions list
 ```
 
 ### Phase 3 — 生态（8 周）
@@ -2221,9 +2223,9 @@ sbox sessions list
 
 | 周次 | 交付物 |
 |------|--------|
-| 13-15 | Skill 规范、`sbox skill` CLI、官方 Skills ×10、安装目标、Skill Registry |
+| 13-15 | Skill 规范、`ebx skill` CLI、官方 Skills ×10、安装目标、Skill Registry |
 | 16-17 | `@sandbox` 装饰器、Agent 模板（codex/qwen-browser/qwen-code）、AgentModule SDK API |
-| 18-20 | 模板市场、`sbox build/deploy`、热重载、MCP P1 Tools、HTTP+SSE（含 Bearer Token 认证）、Tier 2 补全 |
+| 18-20 | 模板市场、`ebx build/deploy`、热重载、MCP P1 Tools、HTTP+SSE（含 Bearer Token 认证）、Tier 2 补全 |
 
 ### Phase 4 — 高级（持续）
 
@@ -2264,33 +2266,33 @@ Secrets 管理提供安全的敏感信息存储与注入机制，避免在代码
 | 存储方式 | 安全级别 | 场景 |
 |----------|---------|------|
 | **系统 Keychain**（推荐） | 高 | macOS Keychain / Linux Secret Service，本地开发 |
-| **加密文件** | 中 | `~/.sbox/secrets.enc`（AES-256 加密，需 master password） |
+| **加密文件** | 中 | `~/.ebx/secrets.enc`（AES-256 加密，需 master password） |
 | **环境变量** | 低 | CI/CD 场景，通过 `SANDBOX_SECRET_*` 前缀注入 |
 
 ### 15.3 CLI 命令
 
 ```bash
 # 创建 Secret
-sbox secret create DB_PASSWORD "my-secret-password"
-sbox secret create API_KEY "sk-xxx" --store keychain
+ebx secret create DB_PASSWORD "my-secret-password"
+ebx secret create API_KEY "sk-xxx" --store keychain
 
 # 列出 Secrets（仅显示名称，不显示值）
-sbox secret list
+ebx secret list
 #   NAME          STORE      CREATED
 #   DB_PASSWORD   keychain   2 days ago
 #   API_KEY       keychain   1 hour ago
 
 # 删除 Secret
-sbox secret delete DB_PASSWORD
+ebx secret delete DB_PASSWORD
 
 # 将 Secrets 注入沙箱
-sbox secret inject sb-abc123 --names DB_PASSWORD,API_KEY
+ebx secret inject sb-abc123 --names DB_PASSWORD,API_KEY
 ```
 
 ### 15.4 SDK 集成
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 创建沙箱时注入 Secrets
 sb = await Sandbox.create(
@@ -2308,9 +2310,9 @@ result = await sb.commands.run("echo $DB_PASSWORD")
 
 | 方案 | 否决理由 |
 |------|---------|
-| 自建模板 Registry（类似 npm registry） | 运营成本高，GitHub Release 是零运维方案，社区熟悉 |
+| 自建模板 Registry（类似 npm registry） | 运营成本高，GitHub tarball API（按 tag/branch/sha 拉取，无需 Release）是零运维方案，社区熟悉 |
 | CLI 命令用 `sandbox`（全称） | 太长，日常使用效率低 |
-| CLI 命令用 `ss`（两字母） | 与系统命令/常见缩写冲突风险大，`sbox` 语义更明确 |
+| CLI 命令用 `ss`（两字母） | 与系统命令/常见缩写冲突风险大，`ebx` 语义更明确 |
 | 仅支持 Dockerfile 构建模板 | 不够声明式，链式 Image API + template.yaml 更友好 |
 | 不兼容 E2B API | 放弃 E2B 生态会流失潜在用户，兼容优先 |
 | 封装 E2B SDK 作为 L2 核心实现 | 引入不必要的依赖和版本耦合，自行实现协议更可控 |
@@ -2324,22 +2326,22 @@ result = await sb.commands.run("echo $DB_PASSWORD")
 
 ## 十七、未来愿景
 
-### `sbox start <anything>` — 云端万物启动器
+### `ebx start <anything>` — 云端万物启动器
 
-Serverless Sandbox 的终极形态：**一条命令启动任何东西**。
+Easy Sandbox 的终极形态：**一条命令启动任何东西**。
 
 ```bash
 # 启动应用
-sbox start openclaw              # 启动名为 openclaw 的应用
-sbox start redis                 # 启动一个 Redis 实例
-sbox start jupyter               # 启动 Jupyter Notebook
-sbox start postgres              # 启动一个 PostgreSQL 数据库
-sbox start nginx                 # 启动一个 Nginx 服务器
+ebx start openclaw              # 启动名为 openclaw 的应用
+ebx start redis                 # 启动一个 Redis 实例
+ebx start jupyter               # 启动 Jupyter Notebook
+ebx start postgres              # 启动一个 PostgreSQL 数据库
+ebx start nginx                 # 启动一个 Nginx 服务器
 
 # 自然语言启动
-sbox start "我需要一个 ML 训练环境"
-sbox start "帮我搭建一个 Flask + Redis + PostgreSQL 的后端"
-sbox start "运行这个 GitHub 仓库: https://github.com/user/repo"
+ebx start "我需要一个 ML 训练环境"
+ebx start "帮我搭建一个 Flask + Redis + PostgreSQL 的后端"
+ebx start "运行这个 GitHub 仓库: https://github.com/user/repo"
 
 # 一切都是 Serverless
 # - 按需创建，按秒计费
@@ -2347,4 +2349,4 @@ sbox start "运行这个 GitHub 仓库: https://github.com/user/repo"
 # - 用完即走，或者休眠等待下次唤醒
 ```
 
-**愿景**：开发者不再需要理解 Docker、Kubernetes、云服务器。他们只需要告诉 `sbox` 自己想要什么，Serverless Sandbox 负责把一切跑起来。从一个代码片段到一个完整的分布式应用，从一个临时实验到一个长期运行的服务 — 一切都是 `sbox start`。
+**愿景**：开发者不再需要理解 Docker、Kubernetes、云服务器。他们只需要告诉 `ebx` 自己想要什么，Easy Sandbox 负责把一切跑起来。从一个代码片段到一个完整的分布式应用，从一个临时实验到一个长期运行的服务 — 一切都是 `ebx start`。

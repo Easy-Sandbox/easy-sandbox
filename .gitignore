@@ -53,3 +53,8 @@ Thumbs.db
 
 # Benchmarks output
 benchmarks/*.log
+
+# Process artifacts (evidence snapshots & research notes)
+# NOTE: .agents/notes/ (ADR decisions) is NOT ignored — it stays tracked.
+/.agents/evidence/
+/.agents/research/

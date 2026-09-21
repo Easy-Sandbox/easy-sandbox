@@ -2,18 +2,51 @@
 from __future__ import annotations
 
 import io
-import zipfile
+import tarfile
+import time
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from serverless_sandbox.models.template import TemplateRef
-from serverless_sandbox.utils.registry import (
+from easy_sandbox.models.template import TemplateRef
+from easy_sandbox.utils.registry import (
     BUILTIN_TEMPLATES,
     RegistryClient,
-    TEMPLATE_CACHE_DIR,
 )
+
+
+def _make_tarball(files: dict[str, str], prefix: str = "owner-repo-abc123") -> bytes:
+    """构造一个内存中的 .tar.gz，模拟 GitHub tarball（顶层单目录）。
+
+    keys 为相对于顶层目录的路径，会自动加上 ``{prefix}/`` 前缀。
+    """
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w:gz") as tf:
+        for rel_path, content in files.items():
+            data = content.encode("utf-8")
+            info = tarfile.TarInfo(name=f"{prefix}/{rel_path}")
+            info.size = len(data)
+            info.mtime = int(time.time())
+            tf.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+def _fake_tarball_response(tarball: bytes) -> MagicMock:
+    """模拟 tarball 下载响应（带 .content 与 raise_for_status）。"""
+    resp = MagicMock()
+    resp.content = tarball
+    resp.raise_for_status = MagicMock()
+    return resp
+
+
+def _patched_async_client(resp: object) -> MagicMock:
+    """构造一个作为 async context manager 的 httpx.AsyncClient mock。"""
+    mock_http = AsyncMock()
+    mock_http.get = AsyncMock(return_value=resp)
+    mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+    mock_http.__aexit__ = AsyncMock(return_value=False)
+    return mock_http
 
 
 class TestRegistryClientResolve:
@@ -304,40 +337,23 @@ class TestRegistryClientFetch:
         with pytest.raises(ValueError, match="must contain"):
             await client.fetch(ref)
 
-    # --- GitHub fetch 测试（原有） ---
+    # --- GitHub fetch 测试（tarball API） ---
 
     @pytest.mark.asyncio
     async def test_fetch_subdir_extracts_correctly(self, tmp_path: Path) -> None:
-        """带 path 的 fetch 应只提取子目录内容。"""
+        """带 path 的 fetch 应只提取子目录内容（tar.gz）。"""
         client = RegistryClient()
 
-        # 构建一个内存中的 zip，模拟 GitHub zipball
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w") as zf:
-            zf.writestr("owner-repo-abc123/README.md", "root readme")
-            zf.writestr(
-                "owner-repo-abc123/templates/python-data/template.yaml",
-                "name: python-data\n",
-            )
-            zf.writestr(
-                "owner-repo-abc123/templates/python-data/main.py",
-                "print('hello')\n",
-            )
-            zf.writestr(
-                "owner-repo-abc123/templates/node-web/package.json",
-                '{"name": "node-web"}\n',
-            )
-        zip_bytes = buf.getvalue()
-
-        # mock _get_release 和 httpx
-        mock_release = {
-            "tag_name": "v1.0",
-            "zipball_url": "https://fake/zipball",
-        }
-
-        mock_resp = MagicMock()
-        mock_resp.content = zip_bytes
-        mock_resp.raise_for_status = MagicMock()
+        # 构造一个内存中的 tar.gz，模拟 GitHub tarball
+        tarball = _make_tarball(
+            {
+                "README.md": "root readme",
+                "templates/python-data/template.yaml": "name: python-data\n",
+                "templates/python-data/main.py": "print('hello')\n",
+                "templates/node-web/package.json": '{"name": "node-web"}\n',
+            }
+        )
+        mock_resp = _fake_tarball_response(tarball)
 
         ref = TemplateRef(
             owner="owner",
@@ -346,19 +362,11 @@ class TestRegistryClientFetch:
             path="templates/python-data",
         )
 
-        with patch.object(
-            client, "_get_release", new_callable=AsyncMock, return_value=mock_release
+        with patch(
+            "easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path
         ), patch(
-            "serverless_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path
-        ), patch(
-            "httpx.AsyncClient"
-        ) as mock_http_cls:
-            mock_http = AsyncMock()
-            mock_http.get = AsyncMock(return_value=mock_resp)
-            mock_http.__aenter__ = AsyncMock(return_value=mock_http)
-            mock_http.__aexit__ = AsyncMock(return_value=False)
-            mock_http_cls.return_value = mock_http
-
+            "httpx.AsyncClient", return_value=_patched_async_client(mock_resp)
+        ):
             result = await client.fetch(ref)
 
         # 应只包含子目录内容
@@ -367,25 +375,16 @@ class TestRegistryClientFetch:
         # 不包含根目录的 README 和其他子目录
         assert not (result / "README.md").exists()
         assert not (result / "package.json").exists()
+        # 缓存落盘位置：<owner>/<repo>/<ref>/<subdir>
+        assert result == tmp_path / "owner" / "repo" / "v1.0" / "templates/python-data"
 
     @pytest.mark.asyncio
     async def test_fetch_subdir_not_found_raises(self, tmp_path: Path) -> None:
         """子目录不存在时应抛出异常。"""
         client = RegistryClient()
 
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w") as zf:
-            zf.writestr("owner-repo-abc123/README.md", "root readme")
-        zip_bytes = buf.getvalue()
-
-        mock_release = {
-            "tag_name": "v1.0",
-            "zipball_url": "https://fake/zipball",
-        }
-
-        mock_resp = MagicMock()
-        mock_resp.content = zip_bytes
-        mock_resp.raise_for_status = MagicMock()
+        tarball = _make_tarball({"README.md": "root readme"})
+        mock_resp = _fake_tarball_response(tarball)
 
         ref = TemplateRef(
             owner="owner",
@@ -394,61 +393,144 @@ class TestRegistryClientFetch:
             path="nonexistent/dir",
         )
 
-        with patch.object(
-            client, "_get_release", new_callable=AsyncMock, return_value=mock_release
+        with patch(
+            "easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path
         ), patch(
-            "serverless_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path
-        ), patch(
-            "httpx.AsyncClient"
-        ) as mock_http_cls:
-            mock_http = AsyncMock()
-            mock_http.get = AsyncMock(return_value=mock_resp)
-            mock_http.__aenter__ = AsyncMock(return_value=mock_http)
-            mock_http.__aexit__ = AsyncMock(return_value=False)
-            mock_http_cls.return_value = mock_http
-
-            with pytest.raises(ValueError, match="Subdirectory.*not found"):
-                await client.fetch(ref)
+            "httpx.AsyncClient", return_value=_patched_async_client(mock_resp)
+        ), pytest.raises(ValueError, match="Subdirectory.*not found"):
+            await client.fetch(ref)
 
     @pytest.mark.asyncio
     async def test_fetch_whole_repo_still_works(self, tmp_path: Path) -> None:
-        """path=None 时行为不变（向后兼容）。"""
+        """path=None 时提取整个仓库（剥离顶层目录）。"""
         client = RegistryClient()
 
-        buf = io.BytesIO()
-        with zipfile.ZipFile(buf, "w") as zf:
-            zf.writestr("owner-repo-abc123/template.yaml", "name: test\n")
-            zf.writestr("owner-repo-abc123/src/main.py", "pass\n")
-        zip_bytes = buf.getvalue()
-
-        mock_release = {
-            "tag_name": "v2.0",
-            "zipball_url": "https://fake/zipball",
-        }
-
-        mock_resp = MagicMock()
-        mock_resp.content = zip_bytes
-        mock_resp.raise_for_status = MagicMock()
+        tarball = _make_tarball(
+            {
+                "template.yaml": "name: test\n",
+                "src/main.py": "pass\n",
+            }
+        )
+        mock_resp = _fake_tarball_response(tarball)
 
         ref = TemplateRef(owner="owner", repo="repo", tag="v2.0")
 
-        with patch.object(
-            client, "_get_release", new_callable=AsyncMock, return_value=mock_release
+        with patch(
+            "easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path
         ), patch(
-            "serverless_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path
-        ), patch(
-            "httpx.AsyncClient"
-        ) as mock_http_cls:
-            mock_http = AsyncMock()
-            mock_http.get = AsyncMock(return_value=mock_resp)
-            mock_http.__aenter__ = AsyncMock(return_value=mock_http)
-            mock_http.__aexit__ = AsyncMock(return_value=False)
-            mock_http_cls.return_value = mock_http
-
+            "httpx.AsyncClient", return_value=_patched_async_client(mock_resp)
+        ):
             result = await client.fetch(ref)
 
         assert (result / "template.yaml").exists()
         assert (result / "src" / "main.py").exists()
+
+    @pytest.mark.asyncio
+    async def test_fetch_no_ref_uses_default_cache_key(self, tmp_path: Path) -> None:
+        """无 ref 时默认分支 tarball 成功，缓存 key 为 'default'。"""
+        client = RegistryClient()
+
+        tarball = _make_tarball({"template.yaml": "name: test\n"})
+        mock_resp = _fake_tarball_response(tarball)
+
+        ref = TemplateRef(owner="owner", repo="repo", tag=None)
+
+        patched = _patched_async_client(mock_resp)
+        with patch(
+            "easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path
+        ), patch("httpx.AsyncClient", return_value=patched):
+            result = await client.fetch(ref)
+
+        assert result == tmp_path / "owner" / "repo" / "default"
+        assert (result / "template.yaml").exists()
+        # 无 ref 时应命中不带 ref 的 tarball 端点
+        called_url = patched.get.await_args.args[0]
+        assert called_url.endswith("/repos/owner/repo/tarball")
+
+    @pytest.mark.asyncio
+    async def test_fetch_with_ref_hits_ref_tarball_and_cache(
+        self, tmp_path: Path
+    ) -> None:
+        """带 ref 时命中 /tarball/{ref}；二次安装命中缓存不再下载。"""
+        client = RegistryClient()
+
+        tarball = _make_tarball({"template.yaml": "name: test\n"})
+        mock_resp = _fake_tarball_response(tarball)
+        ref = TemplateRef(owner="owner", repo="repo", tag="v1.1.0")
+
+        patched = _patched_async_client(mock_resp)
+        with patch(
+            "easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path
+        ), patch("httpx.AsyncClient", return_value=patched):
+            first = await client.fetch(ref)
+            second = await client.fetch(ref)
+
+        assert first == second == tmp_path / "owner" / "repo" / "v1.1.0"
+        called_url = patched.get.await_args.args[0]
+        assert called_url.endswith("/repos/owner/repo/tarball/v1.1.0")
+        # 第二次命中缓存 → 只下载了一次
+        assert patched.get.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_fetch_with_branch_ref_cache_key_is_branch(
+        self, tmp_path: Path
+    ) -> None:
+        """branch 作为 ref：命中 /tarball/<branch>，cache_key 为该 branch。"""
+        client = RegistryClient()
+
+        tarball = _make_tarball({"template.yaml": "name: test\n"})
+        mock_resp = _fake_tarball_response(tarball)
+        ref = TemplateRef(owner="owner", repo="repo", tag="main")
+
+        patched = _patched_async_client(mock_resp)
+        with patch(
+            "easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path
+        ), patch("httpx.AsyncClient", return_value=patched):
+            result = await client.fetch(ref)
+
+        assert result == tmp_path / "owner" / "repo" / "main"
+        called_url = patched.get.await_args.args[0]
+        assert called_url.endswith("/repos/owner/repo/tarball/main")
+
+    @pytest.mark.asyncio
+    async def test_fetch_with_sha_ref_cache_key_is_sha(
+        self, tmp_path: Path
+    ) -> None:
+        """sha 作为 ref：命中 /tarball/<sha>，cache_key 为该 sha。"""
+        client = RegistryClient()
+
+        tarball = _make_tarball({"template.yaml": "name: test\n"})
+        mock_resp = _fake_tarball_response(tarball)
+        sha = "abc1234def5678"
+        ref = TemplateRef(owner="owner", repo="repo", tag=sha)
+
+        patched = _patched_async_client(mock_resp)
+        with patch(
+            "easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path
+        ), patch("httpx.AsyncClient", return_value=patched):
+            result = await client.fetch(ref)
+
+        assert result == tmp_path / "owner" / "repo" / sha
+        called_url = patched.get.await_args.args[0]
+        assert called_url.endswith(f"/repos/owner/repo/tarball/{sha}")
+
+    @pytest.mark.asyncio
+    async def test_fetch_private_repo_injects_token(self, tmp_path: Path) -> None:
+        """私有仓库：--token 应以 Bearer 形式注入 Authorization 头。"""
+        client = RegistryClient(token="test-placeholder-token")
+
+        tarball = _make_tarball({"template.yaml": "name: test\n"})
+        mock_resp = _fake_tarball_response(tarball)
+        ref = TemplateRef(owner="owner", repo="repo", tag="v1.0")
+
+        patched = _patched_async_client(mock_resp)
+        with patch(
+            "easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path
+        ), patch("httpx.AsyncClient", return_value=patched):
+            await client.fetch(ref)
+
+        headers = patched.get.await_args.kwargs["headers"]
+        assert headers["Authorization"] == "Bearer test-placeholder-token"
 
 
 class TestRegistryClientCache:
@@ -466,7 +548,7 @@ class TestRegistryClientCache:
         cache_dir.mkdir(parents=True)
         (cache_dir / "template.yaml").write_text("name: test\n")
 
-        with patch("serverless_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path):
+        with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path):
             result = client._check_cache("owner", "repo", "v1.0")
             assert result == cache_dir
 
@@ -477,7 +559,7 @@ class TestRegistryClientCache:
         cache_dir.mkdir(parents=True)
         (cache_dir / "template.yaml").write_text("name: test\n")
 
-        with patch("serverless_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path):
+        with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path):
             result = client._check_cache("owner", "repo", "v1.0", "templates/py")
             assert result == cache_dir
 
@@ -489,7 +571,7 @@ class TestRegistryClientCache:
         cache_dir.mkdir(parents=True)
         (cache_dir / "template.yaml").write_text("name: test\n")
 
-        with patch("serverless_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path):
+        with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path):
             result = client._check_cache("owner", "repo", "v1.0", "templates/py")
             assert result is None
 
@@ -498,10 +580,234 @@ class TestRegistryClientCache:
         (tmp_path / "owner1").mkdir()
         (tmp_path / "owner2").mkdir()
 
-        with patch("serverless_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path):
+        with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", tmp_path):
             client = RegistryClient()
             count = client.clear_cache()
             assert count == 2
+
+
+class TestTarballFetchErrors:
+    """Friendly error handling for the GitHub tarball fetch (_download_and_extract)."""
+
+    @staticmethod
+    def _patched_client(resp: object) -> AsyncMock:
+        mock_http = AsyncMock()
+        mock_http.get = AsyncMock(return_value=resp)
+        mock_http.__aenter__ = AsyncMock(return_value=mock_http)
+        mock_http.__aexit__ = AsyncMock(return_value=False)
+        return mock_http
+
+    @pytest.mark.asyncio
+    async def test_tarball_rate_limited(self, tmp_path: Path) -> None:
+        """403 + X-RateLimit-Remaining:0 → friendly NetworkError (token hint)."""
+        import httpx
+
+        from easy_sandbox.models.errors import NetworkError
+
+        client = RegistryClient()
+        resp = httpx.Response(
+            status_code=403,
+            headers={"X-RateLimit-Remaining": "0"},
+            json={"message": "API rate limit exceeded for 1.2.3.4"},
+            request=httpx.Request("GET", "https://api.github.com/x"),
+        )
+        with patch("httpx.AsyncClient", return_value=self._patched_client(resp)), \
+                pytest.raises(NetworkError) as ei:
+            await client._download_and_extract(
+                "https://api.github.com/repos/owner/repo/tarball",
+                tmp_path,
+                owner="owner",
+                repo="repo",
+                gh_ref=None,
+            )
+        assert "rate limit" in str(ei.value).lower()
+        assert "--token" in ei.value.suggestion
+        assert "GITHUB_TOKEN" in ei.value.suggestion
+
+    @pytest.mark.asyncio
+    async def test_tarball_403_private_repo(self, tmp_path: Path) -> None:
+        """403 without rate-limit signal → private-repo hint."""
+        import httpx
+
+        from easy_sandbox.models.errors import NetworkError
+
+        client = RegistryClient()
+        resp = httpx.Response(
+            status_code=403,
+            json={"message": "Forbidden"},
+            request=httpx.Request("GET", "https://api.github.com/x"),
+        )
+        with patch("httpx.AsyncClient", return_value=self._patched_client(resp)), \
+                pytest.raises(NetworkError) as ei:
+            await client._download_and_extract(
+                "https://api.github.com/repos/owner/repo/tarball",
+                tmp_path,
+                owner="owner",
+                repo="repo",
+                gh_ref=None,
+            )
+        assert "403" in str(ei.value)
+        assert "--token" in ei.value.suggestion
+
+    @pytest.mark.asyncio
+    async def test_tarball_not_found_is_template_not_found(
+        self, tmp_path: Path
+    ) -> None:
+        """404 → TemplateNotFoundError 提示校验 ref，不再提 Release。"""
+        import httpx
+
+        from easy_sandbox.models.errors import TemplateNotFoundError
+
+        client = RegistryClient()
+        resp = httpx.Response(
+            status_code=404,
+            json={"message": "Not Found"},
+            request=httpx.Request("GET", "https://api.github.com/x"),
+        )
+        with patch("httpx.AsyncClient", return_value=self._patched_client(resp)), \
+                pytest.raises(TemplateNotFoundError) as ei:
+            await client._download_and_extract(
+                "https://api.github.com/repos/owner/repo/tarball/v9.9",
+                tmp_path,
+                owner="owner",
+                repo="repo",
+                gh_ref="v9.9",
+            )
+        assert "owner/repo@v9.9" in str(ei.value)
+        # 文案应提示 ref 存在性，不再要求创建 Release
+        assert "tag/branch/sha" in ei.value.suggestion
+        assert "no Release is" in ei.value.suggestion
+
+    @pytest.mark.asyncio
+    async def test_tarball_server_error(self, tmp_path: Path) -> None:
+        """5xx → NetworkError with status code and target."""
+        import httpx
+
+        from easy_sandbox.models.errors import NetworkError
+
+        client = RegistryClient()
+        resp = httpx.Response(
+            status_code=500,
+            json={"message": "boom"},
+            request=httpx.Request("GET", "https://api.github.com/x"),
+        )
+        with patch("httpx.AsyncClient", return_value=self._patched_client(resp)), \
+                pytest.raises(NetworkError) as ei:
+            await client._download_and_extract(
+                "https://api.github.com/repos/owner/repo/tarball/v2.0",
+                tmp_path,
+                owner="owner",
+                repo="repo",
+                gh_ref="v2.0",
+            )
+        assert "500" in str(ei.value)
+        assert "owner/repo@v2.0" in str(ei.value)
+
+    @pytest.mark.asyncio
+    async def test_empty_tarball_is_template_not_found(
+        self, tmp_path: Path
+    ) -> None:
+        """空包（tarball 无任何成员）→ TemplateNotFoundError，不静默返回空目录。"""
+        from easy_sandbox.models.errors import TemplateNotFoundError
+
+        client = RegistryClient()
+        tarball = _make_tarball({})  # 没有任何成员
+        mock_resp = _fake_tarball_response(tarball)
+        dest = tmp_path / "owner" / "repo" / "default"
+
+        with patch(
+            "httpx.AsyncClient", return_value=_patched_async_client(mock_resp)
+        ), pytest.raises(TemplateNotFoundError) as ei:
+            await client._download_and_extract(
+                "https://api.github.com/repos/owner/repo/tarball",
+                dest,
+                owner="owner",
+                repo="repo",
+                gh_ref=None,
+            )
+        assert "empty" in str(ei.value).lower()
+        assert "template.yaml/Dockerfile" in ei.value.suggestion
+        # 不应静默落盘任何文件
+        assert not any(dest.glob("*")) if dest.exists() else True
+
+    @pytest.mark.asyncio
+    async def test_empty_tarball_with_subdir_is_template_not_found(
+        self, tmp_path: Path
+    ) -> None:
+        """空包：即使指定 subdir 也应抛 TemplateNotFoundError（而非 subdir not found）。"""
+        from easy_sandbox.models.errors import TemplateNotFoundError
+
+        client = RegistryClient()
+        tarball = _make_tarball({})
+        mock_resp = _fake_tarball_response(tarball)
+        dest = tmp_path / "owner" / "repo" / "default" / "sub"
+
+        with patch(
+            "httpx.AsyncClient", return_value=_patched_async_client(mock_resp)
+        ), pytest.raises(TemplateNotFoundError) as ei:
+            await client._download_and_extract(
+                "https://api.github.com/repos/owner/repo/tarball",
+                dest,
+                subdir="templates/foo",
+                owner="owner",
+                repo="repo",
+                gh_ref=None,
+            )
+        assert "empty" in str(ei.value).lower()
+
+
+class TestTarballUrl:
+    """_tarball_url 对 tag/branch/sha 统一走 /tarball/<ref> 端点。"""
+
+    def test_tarball_url_no_ref_is_default_branch(self) -> None:
+        client = RegistryClient()
+        url = client._tarball_url("owner", "repo", None)
+        assert url.endswith("/repos/owner/repo/tarball")
+
+    def test_tarball_url_branch_ref(self) -> None:
+        client = RegistryClient()
+        url = client._tarball_url("owner", "repo", "main")
+        assert url.endswith("/repos/owner/repo/tarball/main")
+
+    def test_tarball_url_sha_ref(self) -> None:
+        client = RegistryClient()
+        sha = "abc1234def5678"
+        url = client._tarball_url("owner", "repo", sha)
+        assert url.endswith(f"/repos/owner/repo/tarball/{sha}")
+
+
+class TestTarballPathTraversal:
+    """解压时必须拒绝逃逸目标目录的成员路径。"""
+
+    @pytest.mark.asyncio
+    async def test_path_traversal_member_rejected(self, tmp_path: Path) -> None:
+        """tarball 内含 ../ 逃逸路径时应报错，且不写出目标目录外。"""
+        client = RegistryClient()
+
+        # 顶层目录内嵌入一个 "../evil.txt" 成员（仍以顶层前缀开头）
+        tarball = _make_tarball(
+            {
+                "template.yaml": "name: test\n",
+                "../evil.txt": "pwned",
+            }
+        )
+        mock_resp = _fake_tarball_response(tarball)
+        dest = tmp_path / "cache" / "dest"
+
+        with patch(
+            "httpx.AsyncClient",
+            return_value=_patched_async_client(mock_resp),
+        ), pytest.raises(ValueError, match="Unsafe path"):
+            await client._download_and_extract(
+                "https://api.github.com/repos/owner/repo/tarball",
+                dest,
+                owner="owner",
+                repo="repo",
+                gh_ref=None,
+            )
+
+        # evil.txt 不应写到 dest 的父目录
+        assert not (tmp_path / "cache" / "evil.txt").exists()
 
 
 class TestBuiltinTemplates:

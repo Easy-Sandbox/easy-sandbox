@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from serverless_sandbox.agent.tools import (
+from easy_sandbox.agent.tools import (
     TOOL_SCHEMAS,
     TOOL_SCHEMA_MAP,
     TOOL_HANDLERS,
@@ -110,19 +110,19 @@ def _make_mock_manager():
     sandbox.url = "https://49983-sbx-test-001.cn-hangzhou.e2b.fc.aliyuncs.com"
 
     # Mock commands.run
-    from serverless_sandbox.models.process import ProcessResult
+    from easy_sandbox.models.process import ProcessResult
     sandbox.commands.run = AsyncMock(return_value=ProcessResult(
         stdout="hello\n", stderr="", exit_code=0, execution_time=0.5,
     ))
 
     # Mock run_code
-    from serverless_sandbox.models.process import CodeResult
+    from easy_sandbox.models.process import CodeResult
     sandbox.run_code = AsyncMock(return_value=CodeResult(
         text="42", stdout="42\n", stderr="", exit_code=0, output_files=[], execution_time=0.3,
     ))
 
     # Mock files
-    from serverless_sandbox.models.filesystem import FileInfo, FileType
+    from easy_sandbox.models.filesystem import FileInfo, FileType
     sandbox.files.read = AsyncMock(return_value="file content here")
     sandbox.files.write = AsyncMock(return_value=None)
     sandbox.files.list = AsyncMock(return_value=[

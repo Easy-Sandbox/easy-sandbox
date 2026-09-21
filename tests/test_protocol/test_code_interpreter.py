@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from serverless_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
-from serverless_sandbox.transport.auth import EnvdTokenManager
+from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
+from easy_sandbox.transport.auth import EnvdTokenManager
 
 
 @pytest.fixture

@@ -2,7 +2,7 @@
     模板: code-interpreter
     CPU: 2 核  |  内存: 4096 MB
     置信度: 0.88
-→ 创建中...
+... 创建中...
 ID        sbx-XXXXX
 Status    running
 Template  code-interpreter

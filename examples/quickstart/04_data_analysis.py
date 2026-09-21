@@ -7,7 +7,7 @@ Shows how to upload CSV data and run pandas analysis inside a sandbox.
 import asyncio
 import os
 
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 样本 CSV 数据
 SAMPLE_CSV = """\

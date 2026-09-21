@@ -36,7 +36,7 @@ RUN pip install --no-cache-dir --upgrade pip \
 # @openai/codex: OpenAI Codex CLI (https://www.npmjs.com/package/@openai/codex)
 RUN npm install -g @openai/codex
 
-RUN pip install --no-cache-dir serverless-sandbox
+RUN pip install --no-cache-dir easy-sandbox
 
 # Set environment variables
 ENV OPENAI_API_KEY=""

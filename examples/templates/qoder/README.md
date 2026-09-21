@@ -20,13 +20,13 @@ Qoder AI 编程助手的沙箱运行环境，集成 Python 3.11 与 Node.js 22 �
 **从本地安装：**
 
 ```bash
-sbox install ./examples/templates/qoder --registry-type local
+ebx install ./examples/templates/qoder --registry-type local
 ```
 
 **从 GitHub 安装：**
 
 ```bash
-sbox install Serverless-Sandbox/awesome-templates//qoder
+ebx install Easy-Sandbox/awesome-templates//qoder
 ```
 
 ## 使用示例
@@ -34,20 +34,20 @@ sbox install Serverless-Sandbox/awesome-templates//qoder
 创建沙箱实例并传入 API Key：
 
 ```bash
-sbox create --template qoder --env E2B_API_KEY=your-api-key
+ebx create --template qoder --env E2B_API_KEY=your-api-key
 ```
 
 在沙箱中执行开发任务：
 
 ```bash
-sbox exec <sandbox-id> -- python3 -c "print('Hello from Qoder sandbox')"
-sbox exec <sandbox-id> -- node -e "console.log('Node.js ready')"
+ebx exec <sandbox-id> -- python3 -c "print('Hello from Qoder sandbox')"
+ebx exec <sandbox-id> -- node -e "console.log('Node.js ready')"
 ```
 
 使用 Python SDK：
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 sandbox = Sandbox.create(
     template="qoder",
@@ -72,8 +72,8 @@ print(result.stdout)
 如需在模板基础上安装额外依赖，可在创建沙箱后执行：
 
 ```bash
-sbox exec <sandbox-id> -- pip install <package-name>
-sbox exec <sandbox-id> -- npm install -g <package-name>
+ebx exec <sandbox-id> -- pip install <package-name>
+ebx exec <sandbox-id> -- npm install -g <package-name>
 ```
 
 ## 注意事项

@@ -1,14 +1,14 @@
-# Serverless Sandbox
+# Easy Sandbox
 
 <!-- badges — these light up once CI is enabled and the package is published to PyPI -->
-[![CI](https://github.com/Serverless-Sandbox/serverless-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/Serverless-Sandbox/serverless-sandbox/actions/workflows/ci.yml)
-[![PyPI version](https://img.shields.io/pypi/v/serverless-sandbox)](https://pypi.org/project/serverless-sandbox/)
-[![Python 3.10+](https://img.shields.io/pypi/pyversions/serverless-sandbox)](https://pypi.org/project/serverless-sandbox/)
-[![License](https://img.shields.io/github/license/Serverless-Sandbox/serverless-sandbox)](LICENSE)
+[![CI](https://github.com/Easy-Sandbox/easy-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/Easy-Sandbox/easy-sandbox/actions/workflows/ci.yml)
+[![PyPI version](https://img.shields.io/pypi/v/easy-sandbox)](https://pypi.org/project/easy-sandbox/)
+[![Python 3.10+](https://img.shields.io/pypi/pyversions/easy-sandbox)](https://pypi.org/project/easy-sandbox/)
+[![License](https://img.shields.io/github/license/Easy-Sandbox/easy-sandbox)](LICENSE)
 
 > Create, manage, and interact with cloud sandboxes for AI agents.
 
-**Serverless Sandbox** is a Python SDK and CLI (`sbox`) for the Alibaba Cloud FC Agent Sandbox service.
+**Easy Sandbox** is a Python SDK and CLI (`ebx`) for the Alibaba Cloud FC Agent Sandbox service.
 It is **E2B-protocol compatible** with extensions for the Alibaba Cloud ecosystem (OSS, VPC, custom domains).
 
 ---
@@ -17,7 +17,7 @@ It is **E2B-protocol compatible** with extensions for the Alibaba Cloud ecosyste
 
 - **Async-first SDK** — `Sandbox.create()`, code execution, file I/O, port forwarding, and WebSocket streaming.
 - **Declarative decorator** — `@sandbox` turns a plain function into a remote sandbox execution with automatic serialisation.
-- **CLI (`sbox`)** — create, inspect, exec, upload/download, and manage sandboxes from the terminal.
+- **CLI (`ebx`)** — create, inspect, exec, upload/download, and manage sandboxes from the terminal.
 - **Template system** — reusable sandbox images (Python, Node, browser automation, AI agents, …).
 - **MCP server** — expose sandbox operations as an MCP tool server for LLM agents.
 - **Session persistence** — save and restore sandbox state across runs (local or OSS-backed).
@@ -28,13 +28,13 @@ It is **E2B-protocol compatible** with extensions for the Alibaba Cloud ecosyste
 
 ```bash
 # Core SDK only
-pip install serverless-sandbox
+pip install easy-sandbox
 
 # With the CLI
-pip install "serverless-sandbox[cli]"
+pip install "easy-sandbox[cli]"
 
 # Everything (CLI + MCP + fast JSON + sessions + declarative)
-pip install "serverless-sandbox[all]"
+pip install "easy-sandbox[all]"
 
 # Development (includes test & lint tooling)
 pip install -e ".[dev]"
@@ -43,7 +43,7 @@ pip install -e ".[dev]"
 ## Quick Start — SDK
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 async def main():
     async with await Sandbox.create(template="python-base") as sb:
@@ -64,31 +64,31 @@ async def main():
 
 ```bash
 # Configure credentials
-sbox config set api_key <YOUR_API_KEY>
+ebx config set api_key <YOUR_API_KEY>
 
 # Sandbox lifecycle
-sbox create --template python-base       # create a sandbox
-sbox list                                 # list running sandboxes
-sbox info <sandbox-id>                    # inspect a sandbox
-sbox exec <sandbox-id> "echo hello"       # run a command
-sbox connect <sandbox-id>                 # interactive shell
+ebx create --template python-base       # create a sandbox
+ebx list                                 # list running sandboxes
+ebx info <sandbox-id>                    # inspect a sandbox
+ebx exec <sandbox-id> "echo hello"       # run a command
+ebx connect <sandbox-id>                 # interactive shell
 
 # File transfer
-sbox upload <sandbox-id> ./local.txt /remote/path.txt
-sbox download <sandbox-id> /remote/path.txt ./local.txt
+ebx upload <sandbox-id> ./local.txt /remote/path.txt
+ebx download <sandbox-id> /remote/path.txt ./local.txt
 
 # Install community templates
-sbox install owner/repo                   # install from GitHub
+ebx install owner/repo                   # install from GitHub
 
 # Manage templates
-sbox template list
-sbox template info python-base
+ebx template list
+ebx template info python-base
 
 # MCP server
-sbox mcp start                            # start MCP tool server
+ebx mcp start                            # start MCP tool server
 
 # Cleanup
-sbox kill <sandbox-id>
+ebx kill <sandbox-id>
 ```
 
 ## Templates

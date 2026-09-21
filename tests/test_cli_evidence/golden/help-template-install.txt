@@ -7,19 +7,19 @@ Usage: cli template install [OPTIONS] TEMPLATE_REF
 
   示例：
 
-    sbox template install owner/repo              # GitHub repo (latest release)
+    ebx template install owner/repo              # GitHub repo (latest release)
 
-    sbox template install owner/repo//subdir      # Subdirectory of a repo
+    ebx template install owner/repo//subdir      # Subdirectory of a repo
 
-    sbox template install owner/repo//subdir@v1.0 # Subdirectory + tag
+    ebx template install owner/repo//subdir@v1.0 # Subdirectory + tag
 
-    sbox template install owner/repo@v1.0         # Specific release tag
+    ebx template install owner/repo@v1.0         # Specific release tag
 
-    sbox template install owner/repo --token xxx  # Private repo
+    ebx template install owner/repo --token xxx  # Private repo
 
-    sbox template install ./my-template           # Local directory
+    ebx template install ./my-template           # Local directory
 
-    sbox template install /path/to/tmpl --registry-type local
+    ebx template install /path/to/tmpl --registry-type local
 
 Options:
   --registry-url TEXT             Registry URL（默认 GitHub）

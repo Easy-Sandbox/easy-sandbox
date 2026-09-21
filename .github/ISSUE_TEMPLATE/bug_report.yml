@@ -21,8 +21,8 @@ body:
       label: Steps to Reproduce
       description: Steps to reproduce the behavior
       placeholder: |
-        1. Install the SDK `pip install serverless-sandbox`
-        2. Run `sbox create base`
+        1. Install the SDK `pip install easy-sandbox`
+        2. Run `ebx create base`
         3. See error...
     validations:
       required: true

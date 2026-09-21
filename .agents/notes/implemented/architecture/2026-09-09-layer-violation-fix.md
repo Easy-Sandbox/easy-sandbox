@@ -37,8 +37,8 @@ E7010+ 段预留给 Template Build 相关错误，与已有的 E7000–E7003（T
 ## API Design
 ```python
 # session/__init__.py — 修复后
-from serverless_sandbox.session.base import SessionStore
-from serverless_sandbox.session.local import LocalSessionStore
+from easy_sandbox.session.base import SessionStore
+from easy_sandbox.session.local import LocalSessionStore
 
 __all__ = ["SessionStore", "LocalSessionStore"]
 # 不再导入 SessionManager（L3 层）
@@ -69,13 +69,13 @@ class TemplateBuildTimeoutError(SandboxError):
 - 验证 `session/__init__.py` 不包含任何 `api` 层导入（Grep 验证）。
 - 验证 `TemplateBuildError.code == "E7010"` 和 `TemplateBuildTimeoutError.code == "E7011"`。
 - 验证所有 E7xxx 错误码无冲突（E7000–E7003 + E7010–E7011 + E7020–E7022）。
-- 验证四个新增 CLI 命令组可通过 `sbox <group> --help` 正常加载。
+- 验证四个新增 CLI 命令组可通过 `ebx <group> --help` 正常加载。
 
 ## Acceptance criteria
 - `session/__init__` 仅暴露 `SessionStore` 和 `LocalSessionStore`，无 L3 层导入。
 - `TemplateBuildError`/`TemplateBuildTimeoutError` 定义在 `models/errors.py`，错误码分别为 E7010/E7011。
 - `cli/commands/` 包含 `auth.py`、`session.py`、`secret.py`、`skill.py` 四个完整命令模块。
-- Grep `from serverless_sandbox.api` 在 `session/`、`models/`、`protocol/` 目录下 = 0 匹配。
+- Grep `from easy_sandbox.api` 在 `session/`、`models/`、`protocol/` 目录下 = 0 匹配。
 
 ## Files changed
 - `session/__init__.py` — 移除 `SessionManager` 导入

@@ -15,15 +15,15 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from serverless_sandbox.cli.main import cli
-from serverless_sandbox.models.errors import (
+from easy_sandbox.cli.main import cli
+from easy_sandbox.models.errors import (
     AuthenticationError,
     QuotaExceededError,
     TemplateNotFoundError,
 )
-from serverless_sandbox.models.process import ProcessResult
-from serverless_sandbox.models.sandbox import SandboxInfo, SandboxStatus
-from serverless_sandbox.transport.config import reset_config
+from easy_sandbox.models.process import ProcessResult
+from easy_sandbox.models.sandbox import SandboxInfo, SandboxStatus
+from easy_sandbox.transport.config import reset_config
 
 
 # ---------------------------------------------------------------------------
@@ -35,11 +35,11 @@ ENVD_URL = "https://sbx-cli-test-001.envd.fc.aliyuncs.com"
 ENVD_TOKEN = "test-envd-token-cli"
 
 # Patch targets — CLI commands do lazy imports from these modules
-_SANDBOX_CLS = "serverless_sandbox.api.sandbox.Sandbox"
-_LOAD_CONFIG = "serverless_sandbox.transport.config.load_config"
-_CREATE_AUTH = "serverless_sandbox.transport.auth.create_auth_provider"
-_HTTP_CLIENT = "serverless_sandbox.transport.http.HttpClient"
-_SANDBOX_PROTO = "serverless_sandbox.protocol.sandbox.SandboxProtocol"
+_SANDBOX_CLS = "easy_sandbox.api.sandbox.Sandbox"
+_LOAD_CONFIG = "easy_sandbox.transport.config.load_config"
+_CREATE_AUTH = "easy_sandbox.transport.auth.create_auth_provider"
+_HTTP_CLIENT = "easy_sandbox.transport.http.HttpClient"
+_SANDBOX_PROTO = "easy_sandbox.protocol.sandbox.SandboxProtocol"
 
 
 def _safe_stderr(result) -> str:
@@ -104,24 +104,24 @@ def runner() -> CliRunner:
 
 @pytest.mark.integration
 def test_cli_create_exec_kill(runner: CliRunner):
-    """Exercise: sbox create → sbox exec → sbox kill."""
+    """Exercise: ebx create → ebx exec → ebx kill."""
     mock_sb = _make_mock_sandbox()
 
     with patch(_SANDBOX_CLS) as MockSandbox:
         MockSandbox.create = AsyncMock(return_value=mock_sb)
         MockSandbox.connect = AsyncMock(return_value=mock_sb)
 
-        # --- sbox create ---
+        # --- ebx create ---
         result = runner.invoke(cli, ["create", "--template", "python-base"])
         assert result.exit_code == 0, f"create failed: {result.output}\n{_safe_stderr(result)}"
         assert SANDBOX_ID in result.output
 
-        # --- sbox exec ---
+        # --- ebx exec ---
         result = runner.invoke(cli, ["exec", SANDBOX_ID, "echo hello"])
         assert result.exit_code == 0, f"exec failed: {result.output}\n{_safe_stderr(result)}"
         assert "hello" in result.output
 
-        # --- sbox kill ---
+        # --- ebx kill ---
         result = runner.invoke(cli, ["kill", SANDBOX_ID, "--yes"])
         assert result.exit_code == 0, f"kill failed: {result.output}\n{_safe_stderr(result)}"
         mock_sb.kill.assert_called()
@@ -227,7 +227,7 @@ def test_cli_error_auth(runner: CliRunner):
 
 @pytest.mark.integration
 def test_cli_list_sandboxes(runner: CliRunner):
-    """sbox list shows sandboxes in table format."""
+    """ebx list shows sandboxes in table format."""
     sb1_info = SandboxInfo.model_validate({
         "sandboxID": "sbx-list-001", "templateID": "python-base",
         "status": "running", "region": "cn-hangzhou",
@@ -262,7 +262,7 @@ def test_cli_list_sandboxes(runner: CliRunner):
 
 @pytest.mark.integration
 def test_cli_info_command(runner: CliRunner):
-    """sbox info <id> shows sandbox details."""
+    """ebx info <id> shows sandbox details."""
     mock_sb = _make_mock_sandbox()
 
     with patch(_SANDBOX_CLS) as MockSandbox:
@@ -281,7 +281,7 @@ def test_cli_info_command(runner: CliRunner):
 
 @pytest.mark.integration
 def test_cli_quiet_mode(runner: CliRunner):
-    """sbox --quiet suppresses non-essential output."""
+    """ebx --quiet suppresses non-essential output."""
     mock_sb = _make_mock_sandbox()
 
     with patch(_SANDBOX_CLS) as MockSandbox:
@@ -299,7 +299,7 @@ def test_cli_quiet_mode(runner: CliRunner):
 
 @pytest.mark.integration
 def test_cli_exec_nonzero_exit(runner: CliRunner):
-    """sbox exec propagates non-zero exit code."""
+    """ebx exec propagates non-zero exit code."""
     mock_sb = _make_mock_sandbox()
     mock_sb.commands.run = AsyncMock(return_value=ProcessResult(
         stdout="", stderr="command not found\n", exit_code=127, execution_time=0.05,

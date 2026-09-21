@@ -18,7 +18,7 @@ import json
 import time
 from typing import Any
 
-from serverless_sandbox.server import (
+from easy_sandbox.server import (
     CapabilityGroup,
     CommandRegistry,
     SandboxServer,

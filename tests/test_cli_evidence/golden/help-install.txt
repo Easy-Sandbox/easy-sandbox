@@ -1,6 +1,6 @@
 Usage: cli install [OPTIONS] TEMPLATE_REF
 
-  Install a template (shortcut for 'sbox template install').
+  Install a template (shortcut for 'ebx template install').
 
   Templates are fetched from GitHub repos — there is no central registry. Use
   TEMPLATE_REF in the form owner/repo, owner/repo//subdir, or a local directory

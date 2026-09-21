@@ -4,19 +4,19 @@ Usage: cli run [OPTIONS] SANDBOX_ID COMMAND_NAME
 
   Supports two argument styles:
 
-  Legacy:  sbox run <id> <cmd> --arg key=value
-  New:     sbox run <id> <cmd> --key value
+  Legacy:  ebx run <id> <cmd> --arg key=value
+  New:     ebx run <id> <cmd> --key value
 
   When the command comes from @sandbox.register, typed options (--x, --y, ...)
   are derived automatically from the function signature.
 
   Examples:
 
-      sbox run abc123 dev
+      ebx run abc123 dev
 
-      sbox run abc123 test --arg file=tests/
+      ebx run abc123 test --arg file=tests/
 
-      sbox run abc123 demo --x 1 --y hello
+      ebx run abc123 demo --x 1 --y hello
 
 Options:
   -a, --arg TEXT  Command argument as key=value (repeatable, legacy style)

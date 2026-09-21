@@ -7,11 +7,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 async def bench_create():
     """测试沙箱创建时间。"""
-    from serverless_sandbox.transport.config import TransportConfig
-    from serverless_sandbox.transport.auth import ApiKeyAuth
-    from serverless_sandbox.transport.http import HttpClient
-    from serverless_sandbox.protocol.sandbox import SandboxProtocol
-    from serverless_sandbox.models.sandbox import SandboxConfig
+    from easy_sandbox.transport.config import TransportConfig
+    from easy_sandbox.transport.auth import ApiKeyAuth
+    from easy_sandbox.transport.http import HttpClient
+    from easy_sandbox.protocol.sandbox import SandboxProtocol
+    from easy_sandbox.models.sandbox import SandboxConfig
 
     api_key = os.environ.get("E2B_API_KEY", "")
     if not api_key:

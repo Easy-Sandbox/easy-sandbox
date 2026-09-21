@@ -8,34 +8,34 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from pydantic import ValidationError
 
-import serverless_sandbox.api.capability as capability_mod
-from serverless_sandbox.api.capability import (
+import easy_sandbox.api.capability as capability_mod
+from easy_sandbox.api.capability import (
     ResolvedCapabilities,
     check_capability,
     resolve_capabilities,
 )
-from serverless_sandbox.api.code import CodeContextModule
-from serverless_sandbox.api.commands import CommandsModule
-from serverless_sandbox.api.files import FilesModule
-from serverless_sandbox.api.network import NetworkModule
-from serverless_sandbox.api.sandbox import Sandbox
-from serverless_sandbox.models.errors import (
+from easy_sandbox.api.code import CodeContextModule
+from easy_sandbox.api.commands import CommandsModule
+from easy_sandbox.api.files import FilesModule
+from easy_sandbox.api.network import NetworkModule
+from easy_sandbox.api.sandbox import Sandbox
+from easy_sandbox.models.errors import (
     CapabilityNotSupportedError,
     TemplateParseError,
 )
-from serverless_sandbox.models.process import (
+from easy_sandbox.models.process import (
     ProcessChunk,
     ProcessChunkType,
     ProcessResult,
 )
-from serverless_sandbox.models.template import (
+from easy_sandbox.models.template import (
     DEFAULT_CAPABILITIES,
     STANDARD_CAPABILITIES,
     CustomCommand,
     CustomCommandArg,
     SandboxTemplate,
 )
-from serverless_sandbox.transport.auth import EnvdTokenManager
+from easy_sandbox.transport.auth import EnvdTokenManager
 from tests.test_api.conftest import (
     ALL_CAPABILITIES,
     TEST_ENVD_TOKEN,
@@ -454,7 +454,7 @@ class TestSandboxListCommands:
 
     def test_requires_shell_capability(self) -> None:
         """list_commands() raises when shell capability is missing."""
-        from serverless_sandbox.models.errors import CapabilityNotSupportedError
+        from easy_sandbox.models.errors import CapabilityNotSupportedError
 
         info = make_sandbox_info()
         # No shell capability
@@ -472,7 +472,7 @@ class TestSandboxListCommands:
 
     def test_requires_auth(self) -> None:
         """list_commands() raises when envd token is not set."""
-        from serverless_sandbox.models.errors import TokenExpiredError
+        from easy_sandbox.models.errors import TokenExpiredError
 
         info = make_sandbox_info()
         resolved = ResolvedCapabilities(capabilities=ALL_CAPABILITIES)
@@ -777,7 +777,7 @@ class TestResolveCapabilities:
     async def test_malformed_scanned_template_fails_closed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Scanning ~/.sbox/templates: a matched-but-malformed template
+        """Scanning ~/.ebx/templates: a matched-but-malformed template
         raises instead of falling back to defaults."""
         cache = tmp_path / "templates"
         (cache / "broken-tmpl").mkdir(parents=True)

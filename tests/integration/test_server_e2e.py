@@ -22,8 +22,8 @@ from typing import Any
 
 import pytest
 
-from serverless_sandbox.server import SandboxServer, CommandRegistry, CommandArg
-from serverless_sandbox.server.routes import (
+from easy_sandbox.server import SandboxServer, CommandRegistry, CommandArg
+from easy_sandbox.server.routes import (
     disable_builtin,
     enable_builtin,
     _enabled_builtins,
@@ -119,7 +119,7 @@ def server_with_commands(_reset_builtins, tmp_path):
         enable_builtin(name)
 
     # Set base dir for upload / download path safety
-    os.environ["SBOX_SERVER_BASE_DIR"] = str(tmp_path)
+    os.environ["EBX_SERVER_BASE_DIR"] = str(tmp_path)
 
     t = threading.Thread(target=server.serve, kwargs={"port": port}, daemon=True)
     t.start()
@@ -138,7 +138,7 @@ def server_with_commands(_reset_builtins, tmp_path):
     yield base_url, registry, tmp_path
 
     server.shutdown()
-    os.environ.pop("SBOX_SERVER_BASE_DIR", None)
+    os.environ.pop("EBX_SERVER_BASE_DIR", None)
 
 
 # ---------------------------------------------------------------------------
@@ -352,13 +352,13 @@ class TestFileUploadDownload:
 
 
 class TestAuthentication:
-    """Token-based auth via SBOX_SERVER_TOKEN."""
+    """Token-based auth via EBX_SERVER_TOKEN."""
 
     def test_auth_required_when_token_set(self, _reset_builtins, tmp_path):
-        """Requests without a token return 401 when SBOX_SERVER_TOKEN is set."""
+        """Requests without a token return 401 when EBX_SERVER_TOKEN is set."""
         token = "test-secret-token-12345"
-        os.environ["SBOX_SERVER_TOKEN"] = token
-        os.environ["SBOX_SERVER_BASE_DIR"] = str(tmp_path)
+        os.environ["EBX_SERVER_TOKEN"] = token
+        os.environ["EBX_SERVER_BASE_DIR"] = str(tmp_path)
 
         registry = CommandRegistry()
         registry.register("ping", lambda: "pong")
@@ -412,8 +412,8 @@ class TestAuthentication:
             assert body["result"] == "pong"
         finally:
             server.shutdown()
-            os.environ.pop("SBOX_SERVER_TOKEN", None)
-            os.environ.pop("SBOX_SERVER_BASE_DIR", None)
+            os.environ.pop("EBX_SERVER_TOKEN", None)
+            os.environ.pop("EBX_SERVER_BASE_DIR", None)
 
 
 # ---------------------------------------------------------------------------

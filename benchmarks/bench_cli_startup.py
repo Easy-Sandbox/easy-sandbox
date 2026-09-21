@@ -3,12 +3,12 @@ import time
 import subprocess
 
 def bench_cli_help():
-    """测试 sbox --help 启动时间。"""
+    """测试 ebx --help 启动时间。"""
     times = []
     for _ in range(5):
         start = time.perf_counter()
         subprocess.run(
-            ["python3", "-m", "serverless_sandbox.cli.main", "--help"],
+            ["python3", "-m", "easy_sandbox.cli.main", "--help"],
             capture_output=True, cwd="/Users/anycodes/Documents/Qoder/2026-09-01/chat-1"
         )
         elapsed = time.perf_counter() - start
@@ -31,11 +31,11 @@ def bench_cli_subcommand():
     for cmd in commands:
         start = time.perf_counter()
         subprocess.run(
-            ["python3", "-m", "serverless_sandbox.cli.main"] + cmd,
+            ["python3", "-m", "easy_sandbox.cli.main"] + cmd,
             capture_output=True, cwd="/Users/anycodes/Documents/Qoder/2026-09-01/chat-1"
         )
         elapsed = time.perf_counter() - start
-        print(f"  sbox {' '.join(cmd)}: {elapsed:.3f}s")
+        print(f"  ebx {' '.join(cmd)}: {elapsed:.3f}s")
 
 if __name__ == "__main__":
     print("=== CLI Startup Benchmark ===")

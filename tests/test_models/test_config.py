@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from serverless_sandbox.models.config import GlobalConfig
+from easy_sandbox.models.config import GlobalConfig
 
 
 class TestGlobalConfig:

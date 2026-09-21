@@ -1,4 +1,4 @@
-# Decision: CLI Tool (sbox)
+# Decision: CLI Tool (ebx)
 
 Status: proposed
 
@@ -12,7 +12,7 @@ Users need command-line access to sandbox management for scripting, CI/CD, and i
 - Output formats: `--format table|json|quiet` (table default for TTY, json for pipes)
 - Exit codes: 0 (success), 1 (general error), 2 (auth error), 3 (not found), 4 (timeout), 5 (connection error), 6 (user interrupt)
 
-CLI entry point: `sbox` (configured in pyproject.toml `[project.scripts]`).
+CLI entry point: `ebx` (configured in pyproject.toml `[project.scripts]`).
 
 ## Alternatives considered
 - **argparse** — Less ergonomic, no built-in rich output
@@ -30,6 +30,6 @@ CLI entry point: `sbox` (configured in pyproject.toml `[project.scripts]`).
 - Exit code verification for error scenarios
 
 ## Acceptance criteria
-- `sbox create → exec → kill` flow works end-to-end
+- `ebx create → exec → kill` flow works end-to-end
 - Startup time < 200ms (lazy imports)
 - All output formats work correctly

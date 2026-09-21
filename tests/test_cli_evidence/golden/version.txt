@@ -1,2 +1,2 @@
-cli, version 0.1.0.dev0
+cli, version 0.1.0-dev
 [exit_code:0]

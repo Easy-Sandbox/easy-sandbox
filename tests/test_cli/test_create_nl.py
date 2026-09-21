@@ -1,4 +1,4 @@
-"""Tests for CLI `sbox create` with natural-language description inference."""
+"""Tests for CLI `ebx create` with natural-language description inference."""
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from serverless_sandbox.cli.main import cli
-from serverless_sandbox.models.sandbox import SandboxInfo, SandboxStatus
+from easy_sandbox.cli.main import cli
+from easy_sandbox.models.sandbox import SandboxInfo, SandboxStatus
 
 
 def _make_sandbox(
@@ -36,14 +36,14 @@ def _make_sandbox(
 
 
 # ---------------------------------------------------------------------------
-# NL inference via `sbox create "<description>"`
+# NL inference via `ebx create "<description>"`
 # ---------------------------------------------------------------------------
 
 class TestCreateNLInference:
-    """Tests for `sbox create` with a natural-language description."""
+    """Tests for `ebx create` with a natural-language description."""
 
     def test_create_with_python_description(self, runner: CliRunner) -> None:
-        """sbox create "运行 python" → should infer and show result."""
+        """ebx create "运行 python" → should infer and show result."""
         mock_sb = _make_sandbox(template="code-interpreter")
 
         call_count = [0]
@@ -52,7 +52,7 @@ class TestCreateNLInference:
             call_count[0] += 1
             if call_count[0] == 1:
                 # infer_template call
-                from serverless_sandbox.agent.infer import InferResult
+                from easy_sandbox.agent.infer import InferResult
                 return InferResult(
                     template="code-interpreter",
                     display_name="Code Interpreter",
@@ -65,7 +65,7 @@ class TestCreateNLInference:
             return mock_sb
 
         with patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=_run_sync_side_effect,
         ):
             result = runner.invoke(cli, ["create", "运行 python"])
@@ -76,7 +76,7 @@ class TestCreateNLInference:
         assert "sbx-nl-001" in result.output
 
     def test_create_with_nodejs_description(self, runner: CliRunner) -> None:
-        """sbox create "启动 Node.js 服务" → infer node-web."""
+        """ebx create "启动 Node.js 服务" → infer node-web."""
         mock_sb = _make_sandbox(template="node-web")
 
         call_count = [0]
@@ -84,7 +84,7 @@ class TestCreateNLInference:
         def _run_sync_side_effect(coro):
             call_count[0] += 1
             if call_count[0] == 1:
-                from serverless_sandbox.agent.infer import InferResult
+                from easy_sandbox.agent.infer import InferResult
                 return InferResult(
                     template="node-web",
                     display_name="Node.js Web",
@@ -97,7 +97,7 @@ class TestCreateNLInference:
             return mock_sb
 
         with patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=_run_sync_side_effect,
         ):
             result = runner.invoke(cli, ["create", "启动 Node.js 服务"])
@@ -106,11 +106,11 @@ class TestCreateNLInference:
         assert "node-web" in result.output
 
     def test_create_explicit_template_skips_inference(self, runner: CliRunner) -> None:
-        """sbox create --template base → traditional behavior, no inference."""
+        """ebx create --template base → traditional behavior, no inference."""
         mock_sb = _make_sandbox(template="base")
 
         with patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             return_value=mock_sb,
         ):
             result = runner.invoke(cli, ["create", "--template", "base"])
@@ -123,11 +123,11 @@ class TestCreateNLInference:
     def test_create_description_with_explicit_template_prefers_template(
         self, runner: CliRunner
     ) -> None:
-        """sbox create "python" --template custom → --template takes priority."""
+        """ebx create "python" --template custom → --template takes priority."""
         mock_sb = _make_sandbox(template="custom")
 
         with patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             return_value=mock_sb,
         ):
             result = runner.invoke(
@@ -139,7 +139,7 @@ class TestCreateNLInference:
         assert "推断结果" not in result.output
 
     def test_create_with_upload(self, runner: CliRunner, tmp_path) -> None:
-        """sbox create "分析 CSV" --upload <file> → show upload info."""
+        """ebx create "分析 CSV" --upload <file> → show upload info."""
         csv_file = tmp_path / "test.csv"
         csv_file.write_text("a,b,c\n1,2,3\n")
 
@@ -150,7 +150,7 @@ class TestCreateNLInference:
         def _run_sync_side_effect(coro):
             call_count[0] += 1
             if call_count[0] == 1:
-                from serverless_sandbox.agent.infer import InferResult
+                from easy_sandbox.agent.infer import InferResult
                 return InferResult(
                     template="python-data-science",
                     display_name="Python Data Science",
@@ -164,11 +164,11 @@ class TestCreateNLInference:
             return _aio.run(coro)
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.create",
+            "easy_sandbox.api.sandbox.Sandbox.create",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ), patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=_run_sync_side_effect,
         ):
             result = runner.invoke(
@@ -182,11 +182,11 @@ class TestCreateNLInference:
     def test_create_no_description_no_template_uses_base(
         self, runner: CliRunner
     ) -> None:
-        """sbox create (no args) → uses default 'base' template."""
+        """ebx create (no args) → uses default 'base' template."""
         mock_sb = _make_sandbox(template="base")
 
         with patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             return_value=mock_sb,
         ):
             result = runner.invoke(cli, ["create"])
@@ -196,7 +196,7 @@ class TestCreateNLInference:
         assert "推断结果" not in result.output
 
     def test_create_json_output_with_description(self, runner: CliRunner) -> None:
-        """sbox --json create "运行 python" → JSON output, no inference text."""
+        """ebx --json create "运行 python" → JSON output, no inference text."""
         mock_sb = _make_sandbox(template="code-interpreter")
 
         call_count = [0]
@@ -204,7 +204,7 @@ class TestCreateNLInference:
         def _run_sync_side_effect(coro):
             call_count[0] += 1
             if call_count[0] == 1:
-                from serverless_sandbox.agent.infer import InferResult
+                from easy_sandbox.agent.infer import InferResult
                 return InferResult(
                     template="code-interpreter",
                     display_name="Code Interpreter",
@@ -216,7 +216,7 @@ class TestCreateNLInference:
             return mock_sb
 
         with patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=_run_sync_side_effect,
         ):
             result = runner.invoke(cli, ["--json", "create", "运行 python"])
@@ -234,7 +234,7 @@ class TestCreateNLInference:
         def _run_sync_side_effect(coro):
             call_count[0] += 1
             if call_count[0] == 1:
-                from serverless_sandbox.agent.infer import InferResult
+                from easy_sandbox.agent.infer import InferResult
                 return InferResult(
                     template="browser-automation",
                     display_name="Browser Automation",
@@ -246,7 +246,7 @@ class TestCreateNLInference:
             return mock_sb
 
         with patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=_run_sync_side_effect,
         ):
             result = runner.invoke(

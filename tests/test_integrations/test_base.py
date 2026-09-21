@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from serverless_sandbox.integrations.base import (
+from easy_sandbox.integrations.base import (
     ToolSchema,
     get_sandbox_tools,
     get_tool_schema,

@@ -8,7 +8,7 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from serverless_sandbox.cli.main import cli
+from easy_sandbox.cli.main import cli
 
 
 class TestConfigLLMApiKey:
@@ -17,8 +17,8 @@ class TestConfigLLMApiKey:
     def test_set_llm_api_key(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(
                 cli, ["config", "set", "llm_api_key", "sk-test123"]
             )
@@ -37,8 +37,8 @@ class TestConfigLLMApiKey:
         config_file = tmp_path / "config.toml"
         config_file.write_text('[transport]\nllm_api_key = "sk-test123abcdef"\n')
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["config", "get", "llm_api_key"])
 
         assert result.exit_code == 0
@@ -50,8 +50,8 @@ class TestConfigLLMApiKey:
     def test_get_llm_api_key_not_set(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["config", "get", "llm_api_key"])
 
         assert result.exit_code == 0
@@ -63,8 +63,8 @@ class TestConfigLLMModel:
     def test_set_llm_model(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(
                 cli, ["config", "set", "llm_model", "qwen-plus"]
             )
@@ -78,8 +78,8 @@ class TestConfigLLMModel:
         config_file = tmp_path / "config.toml"
         config_file.write_text('[transport]\nllm_model = "qwen-plus"\n')
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["config", "get", "llm_model"])
 
         assert result.exit_code == 0
@@ -92,8 +92,8 @@ class TestConfigLLMBaseURL:
     def test_set_llm_base_url(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(
                 cli,
                 ["config", "set", "llm_base_url", "https://example.com/v1"],
@@ -108,8 +108,8 @@ class TestConfigLLMBaseURL:
         config_file = tmp_path / "config.toml"
         config_file.write_text('[transport]\nllm_base_url = "https://example.com/v1"\n')
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["config", "get", "llm_base_url"])
 
         assert result.exit_code == 0
@@ -122,8 +122,8 @@ class TestConfigListLLM:
     def test_list_includes_llm_keys(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["config", "list"])
 
         assert result.exit_code == 0
@@ -142,8 +142,8 @@ class TestConfigListLLM:
             'llm_base_url = "https://example.com/v1"\n'
         )
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["config", "list"])
 
         assert result.exit_code == 0

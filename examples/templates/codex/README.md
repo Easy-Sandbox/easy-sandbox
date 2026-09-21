@@ -21,13 +21,13 @@ OpenAI Codex CLI Agent 的沙箱运行环境，支持 AI 驱动的代码生成�
 **从本地安装：**
 
 ```bash
-sbox install ./examples/templates/codex --registry-type local
+ebx install ./examples/templates/codex --registry-type local
 ```
 
 **从 GitHub 安装：**
 
 ```bash
-sbox install Serverless-Sandbox/awesome-templates//codex
+ebx install Easy-Sandbox/awesome-templates//codex
 ```
 
 ## 使用示例
@@ -35,19 +35,19 @@ sbox install Serverless-Sandbox/awesome-templates//codex
 创建沙箱实例并传入 API Key：
 
 ```bash
-sbox create --template codex --env OPENAI_API_KEY=sk-xxx
+ebx create --template codex --env OPENAI_API_KEY=sk-xxx
 ```
 
 在沙箱中执行代码生成任务：
 
 ```bash
-sbox exec <sandbox-id> -- codex "编写一个快速排序算法"
+ebx exec <sandbox-id> -- codex "编写一个快速排序算法"
 ```
 
 使用 Python SDK：
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 sandbox = Sandbox.create(
     template="codex",
@@ -73,8 +73,8 @@ print(result.stdout)
 如需在模板基础上安装额外依赖，可在创建沙箱后执行：
 
 ```bash
-sbox exec <sandbox-id> -- pip install <package-name>
-sbox exec <sandbox-id> -- npm install -g <package-name>
+ebx exec <sandbox-id> -- pip install <package-name>
+ebx exec <sandbox-id> -- npm install -g <package-name>
 ```
 
 ## 注意事项

@@ -2,7 +2,7 @@
     模板: node-web
     CPU: 1 核  |  内存: 2048 MB
     置信度: 0.88
-→ 创建中...
+... 创建中...
 ID        sbx-XXXXX
 Status    running
 Template  node-web

@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir --upgrade pip \
     lxml \
     httpx \
     Pillow
-RUN pip install --no-cache-dir serverless-sandbox
+RUN pip install --no-cache-dir easy-sandbox
 
 # Install Playwright browsers (Chromium only for smaller image size)
 RUN python3 -m playwright install chromium \

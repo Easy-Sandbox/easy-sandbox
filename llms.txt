@@ -1,11 +1,11 @@
-# Serverless Sandbox
+# Easy Sandbox
 
-> Python SDK and CLI (`sbox`) for the Alibaba Cloud FC Agent Sandbox service.
+> Python SDK and CLI (`ebx`) for the Alibaba Cloud FC Agent Sandbox service.
 > E2B-protocol compatible with Alibaba Cloud extensions (OSS, VPC, custom domains).
 
 ## Purpose
 
-Serverless Sandbox lets AI agents and developers create, manage, and interact
+Easy Sandbox lets AI agents and developers create, manage, and interact
 with secure cloud sandboxes. It provides isolated execution environments for
 running untrusted code, file operations, and shell commands — designed for
 LLM tool-use and agentic workflows.
@@ -26,7 +26,7 @@ Six-layer architecture (lower layers never import upper layers):
 ### SDK (Python, async-first)
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 async with await Sandbox.create(template="python-base") as sb:
     result = await sb.run_code("print('hello')")     # code execution
@@ -37,25 +37,25 @@ async with await Sandbox.create(template="python-base") as sb:
 ### CLI
 
 ```
-sbox create --template python-base   # create sandbox
-sbox exec <id> "echo hello"          # run command
-sbox upload <id> ./local /remote     # file transfer
-sbox mcp serve                       # start MCP server
-sbox kill <id>                       # destroy sandbox
+ebx create --template python-base   # create sandbox
+ebx exec <id> "echo hello"          # run command
+ebx upload <id> ./local /remote     # file transfer
+ebx mcp serve                       # start MCP server
+ebx kill <id>                       # destroy sandbox
 ```
 
 ## Source Layout
 
-- src/serverless_sandbox/transport/ — HTTP, WebSocket, auth, codec
-- src/serverless_sandbox/protocol/ — sandbox lifecycle, filesystem, process, terminal
-- src/serverless_sandbox/models/ — Pydantic data models, error hierarchy
-- src/serverless_sandbox/api/ — Sandbox class, file/code/command/network/pool APIs
-- src/serverless_sandbox/cli/ — Click-based CLI commands and formatters
-- src/serverless_sandbox/agent/ — MCP server, built-in agents, tool definitions
-- src/serverless_sandbox/compat/ — E2B drop-in compatibility layer
-- src/serverless_sandbox/declarative/ — @sandbox decorator
-- src/serverless_sandbox/extensions/ — OSS, VPC, domain extensions
-- src/serverless_sandbox/integrations/ — LangChain, CrewAI, AutoGen adapters
+- src/easy_sandbox/transport/ — HTTP, WebSocket, auth, codec
+- src/easy_sandbox/protocol/ — sandbox lifecycle, filesystem, process, terminal
+- src/easy_sandbox/models/ — Pydantic data models, error hierarchy
+- src/easy_sandbox/api/ — Sandbox class, file/code/command/network/pool APIs
+- src/easy_sandbox/cli/ — Click-based CLI commands and formatters
+- src/easy_sandbox/agent/ — MCP server, built-in agents, tool definitions
+- src/easy_sandbox/compat/ — E2B drop-in compatibility layer
+- src/easy_sandbox/declarative/ — @sandbox decorator
+- src/easy_sandbox/extensions/ — OSS, VPC, domain extensions
+- src/easy_sandbox/integrations/ — LangChain, CrewAI, AutoGen adapters
 
 ## Links
 

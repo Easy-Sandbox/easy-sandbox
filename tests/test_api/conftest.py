@@ -9,33 +9,33 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from serverless_sandbox.models.sandbox import SandboxInfo, SandboxStatus
-from serverless_sandbox.models.process import (
+from easy_sandbox.models.sandbox import SandboxInfo, SandboxStatus
+from easy_sandbox.models.process import (
     ProcessResult,
     ProcessChunk,
     ProcessChunkType,
     ProcessInfo,
     CodeResult,
 )
-from serverless_sandbox.models.filesystem import FileInfo, FileType, WatchEvent, WatchEventType
-from serverless_sandbox.transport.config import TransportConfig
-from serverless_sandbox.transport.http import HttpClient
-from serverless_sandbox.transport.auth import (
+from easy_sandbox.models.filesystem import FileInfo, FileType, WatchEvent, WatchEventType
+from easy_sandbox.transport.config import TransportConfig
+from easy_sandbox.transport.http import HttpClient
+from easy_sandbox.transport.auth import (
     AuthProvider,
     EnvdTokenManager,
     ApiKeyAuth,
 )
-from serverless_sandbox.protocol.sandbox import SandboxProtocol
-from serverless_sandbox.protocol.process import ProcessProtocol
-from serverless_sandbox.protocol.filesystem import FilesystemProtocol
-from serverless_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
-from serverless_sandbox.api.sandbox import Sandbox
-from serverless_sandbox.api.commands import CommandsModule
-from serverless_sandbox.api.files import FilesModule
-from serverless_sandbox.api.network import NetworkModule
-from serverless_sandbox.api.code import CodeContextModule
-from serverless_sandbox.api.capability import ResolvedCapabilities
-from serverless_sandbox.models.template import DEFAULT_CAPABILITIES, STANDARD_CAPABILITIES
+from easy_sandbox.protocol.sandbox import SandboxProtocol
+from easy_sandbox.protocol.process import ProcessProtocol
+from easy_sandbox.protocol.filesystem import FilesystemProtocol
+from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
+from easy_sandbox.api.sandbox import Sandbox
+from easy_sandbox.api.commands import CommandsModule
+from easy_sandbox.api.files import FilesModule
+from easy_sandbox.api.network import NetworkModule
+from easy_sandbox.api.code import CodeContextModule
+from easy_sandbox.api.capability import ResolvedCapabilities
+from easy_sandbox.models.template import DEFAULT_CAPABILITIES, STANDARD_CAPABILITIES
 
 
 # ---- Constants ----

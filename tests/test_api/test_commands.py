@@ -5,15 +5,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from serverless_sandbox.api.commands import CommandsModule
-from serverless_sandbox.models.process import (
+from easy_sandbox.api.commands import CommandsModule
+from easy_sandbox.models.process import (
     ProcessChunk,
     ProcessChunkType,
     ProcessInfo,
     ProcessResult,
 )
 
-from serverless_sandbox.transport.streaming import StreamReader
+from easy_sandbox.transport.streaming import StreamReader
 
 from tests.test_api.conftest import TEST_ENVD_URL, TEST_ENVD_TOKEN, _MockStreamReader
 

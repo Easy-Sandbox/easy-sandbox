@@ -7,7 +7,7 @@ Session data (sandbox mapping, state) needs persistence across CLI invocations. 
 
 ## Decision
 Define `SessionStore` abstract base class with pluggable backends:
-1. **LocalSessionStore** (default) — filelock-based, `~/.sbox/sessions/`
+1. **LocalSessionStore** (default) — filelock-based, `~/.ebx/sessions/`
 2. **OSSSessionStore** (Phase 2) — Alibaba Cloud OSS for team sharing
 3. **DatabaseSessionStore** (Phase 2) — SQL database for enterprise
 

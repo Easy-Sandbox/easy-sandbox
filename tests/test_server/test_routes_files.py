@@ -1,4 +1,4 @@
-"""Tests for serverless_sandbox.server.routes_files — file operation endpoints.
+"""Tests for easy_sandbox.server.routes_files — file operation endpoints.
 
 Each test spins up a real ``ThreadingHTTPServer`` on a random free port in a
 background thread and uses ``http.client.HTTPConnection`` to hit it directly.
@@ -18,10 +18,10 @@ from typing import Any
 
 import pytest
 
-import serverless_sandbox.server.routes_files  # noqa: F401  (trigger route registration)
-from serverless_sandbox.server.app import SandboxRequestHandler
-from serverless_sandbox.server.registry import CommandRegistry
-from serverless_sandbox.server.router import CapabilityGroup, default_table
+import easy_sandbox.server.routes_files  # noqa: F401  (trigger route registration)
+from easy_sandbox.server.app import SandboxRequestHandler
+from easy_sandbox.server.registry import CommandRegistry
+from easy_sandbox.server.router import CapabilityGroup, default_table
 
 # ---------------------------------------------------------------------------
 # Helpers (same pattern as test_app.py)
@@ -87,7 +87,7 @@ def _reset_groups() -> Any:
 @pytest.fixture()
 def server_port(tmp_path: Any, monkeypatch: Any) -> Any:
     """Spin up a no-auth server with base_dir set to tmp_path."""
-    monkeypatch.setenv("SBOX_SERVER_BASE_DIR", str(tmp_path))
+    monkeypatch.setenv("EBX_SERVER_BASE_DIR", str(tmp_path))
     port = _find_free_port()
     httpd = _start_server(port)
     yield port
@@ -476,7 +476,7 @@ class TestFilesUploadStream:
     def test_upload_size_limit(
         self, server_port: int, base: str, monkeypatch: Any
     ) -> None:
-        monkeypatch.setenv("SBOX_MAX_UPLOAD_SIZE", "10")
+        monkeypatch.setenv("EBX_MAX_UPLOAD_SIZE", "10")
         fp = os.path.join(base, "big.bin")
         content = b"x" * 100
         encoded = base64.b64encode(content).decode()

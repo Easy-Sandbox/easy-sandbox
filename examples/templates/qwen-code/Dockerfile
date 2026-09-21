@@ -42,7 +42,7 @@ RUN pip install --no-cache-dir --upgrade pip \
     "openai>=1.0" \
     httpx \
     rich
-RUN pip install --no-cache-dir serverless-sandbox
+RUN pip install --no-cache-dir easy-sandbox
 
 # Pre-configure qwen-code for non-interactive / env-based auth
 RUN mkdir -p /root/.qwen && \

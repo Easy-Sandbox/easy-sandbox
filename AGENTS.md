@@ -5,25 +5,25 @@
 
 ## Project Overview
 
-**Serverless Sandbox** (`serverless-sandbox` on PyPI, CLI command `sbox`) is a Python SDK + CLI for the Alibaba Cloud FC Agent Sandbox service. It is **E2B-protocol compatible** with extensions for the Alibaba Cloud ecosystem (OSS, VPC, custom domains).
+**Easy Sandbox** (`easy-sandbox` on PyPI, CLI command `ebx`) is a Python SDK + CLI for the Alibaba Cloud FC Agent Sandbox service. It is **E2B-protocol compatible** with extensions for the Alibaba Cloud ecosystem (OSS, VPC, custom domains).
 
 - **Language:** Python 3.10+
 - **Build system:** Hatchling
-- **Package:** `src/serverless_sandbox/`
-- **Entry point:** `sbox` → `serverless_sandbox.cli.main:cli`
+- **Package:** `src/easy_sandbox/`
+- **Entry point:** `ebx` → `easy_sandbox.cli.main:cli`
 
 ---
 
 ## Directory Structure
 
 ```
-serverless-sandbox/
-├── src/serverless_sandbox/    # SDK source
+easy-sandbox/
+├── src/easy_sandbox/    # SDK source
 │   ├── models/                # Data models: config, errors, sandbox, template, session, filesystem, process
 │   ├── transport/             # HTTP/WS transport, auth, codec, retry, streaming
 │   ├── protocol/              # Protocol abstractions: sandbox, filesystem, process, terminal, port, code_interpreter
 │   ├── api/                   # High-level API: Sandbox, files, code, commands, network, image, capability, session_manager, template
-│   ├── cli/                   # Click-based CLI (`sbox`), formatters, command modules
+│   ├── cli/                   # Click-based CLI (`ebx`), formatters, command modules
 │   │   └── commands/          # Subcommands: auth, config_cmd, deploy, mcp, sandbox, secret, session, skill, template
 │   ├── agent/                 # AI agent tooling: builtin agents, MCP server, tool definitions, inference
 │   ├── compat/                # E2B compatibility layer (drop-in replacement)
@@ -35,10 +35,14 @@ serverless-sandbox/
 ├── tests/                     # Mirrors src/ structure (test_api/, test_cli/, test_models/, …)
 ├── docs/
 │   ├── design/                # Architecture & feature design documents
-│   └── evidence/              # Golden-file CLI evidence (auto-generated, see below)
+│   ├── guide/                 # User tutorials & how-to guides (planned)
+│   ├── reference/             # CLI/API/error-code/config reference (planned)
+│   └── explanation/           # Conceptual explanations (planned)
 ├── examples/
 │   └── templates/             # Sandbox template examples (python-hello, codex, qoder, …)
 ├── .agents/notes/             # Architecture Decision Records (ADR) — see below
+├── .agents/evidence/          # Golden-file CLI evidence (auto-generated, gitignored)
+├── .agents/research/          # Research & competitor analysis notes (gitignored)
 ├── scripts/                   # Utility scripts (evidence capture, etc.)
 ├── benchmarks/                # Performance benchmarks
 ├── Makefile                   # Dev commands
@@ -89,7 +93,7 @@ pip install -e ".[cli]"
 | `make test-cov`      | Tests with coverage report             |
 | `make lint`          | `ruff check src/ tests/`               |
 | `make format`        | `ruff format src/ tests/`              |
-| `make typecheck`     | `mypy src/serverless_sandbox/`         |
+| `make typecheck`     | `mypy src/easy_sandbox/`         |
 | `make clean`         | Remove build artifacts and caches      |
 
 ### Running a Specific Test
@@ -105,7 +109,7 @@ pytest -k "test_capability" -v
 
 ### Error Code System
 
-All SDK errors live in [`models/errors.py`](src/serverless_sandbox/models/errors.py). Error codes follow `E{category}{sequence}`:
+All SDK errors live in [`models/errors.py`](src/easy_sandbox/models/errors.py). Error codes follow `E{category}{sequence}`:
 
 | Range   | Category       | Base Class               |
 |---------|----------------|--------------------------|
@@ -120,7 +124,7 @@ Every exception carries: `code`, `message`, `suggestion`, `docs_url`.
 
 ### Capability Model
 
-Defined in [`models/template.py`](src/serverless_sandbox/models/template.py), resolved by [`api/capability.py`](src/serverless_sandbox/api/capability.py).
+Defined in [`models/template.py`](src/easy_sandbox/models/template.py), resolved by [`api/capability.py`](src/easy_sandbox/api/capability.py).
 
 - **`STANDARD_CAPABILITIES`** = `{shell, files, code, terminal, ports}` — all recognised tokens
 - **`DEFAULT_CAPABILITIES`** = `{shell, files, code}` — applied when a template declares nothing
@@ -131,13 +135,13 @@ Defined in [`models/template.py`](src/serverless_sandbox/models/template.py), re
 ### Capability Resolution Priority
 
 1. Explicit `local_yaml_path` (programmatic override)
-2. Local template cache scan (`~/.sbox/templates/`)
+2. Local template cache scan (`~/.ebx/templates/`)
 3. *(Phase 2, TODO)* Online fallback — `GET /templates/{id}`
 4. Fall back to `DEFAULT_CAPABILITIES` + warning
 
 ### CLI Command Resolution Priority
 
-When `sbox create` resolves a template:
+When `ebx create` resolves a template:
 - Programmatic specification → local project `template.yaml` → installed template cache → *(Phase 2)* online registry → `DEFAULT`
 
 ### Template Definition
@@ -157,7 +161,7 @@ Templates use `template.yaml` (not `manifest.yaml` for capability purposes). Key
 
 ### Golden-File CLI Evidence
 
-The `docs/evidence/cli/` directory contains auto-generated golden-file snapshots of every CLI command's input→output behaviour.
+The `.agents/evidence/cli/` directory contains auto-generated golden-file snapshots of every CLI command's input→output behaviour.
 
 **Regenerate:**
 ```bash
@@ -173,7 +177,7 @@ python scripts/capture_cli_evidence.py --command create
 
 To update golden files when tests use snapshot comparison:
 ```bash
-SBOX_UPDATE_EVIDENCE=1 pytest tests/
+EBX_UPDATE_EVIDENCE=1 pytest tests/
 ```
 
 ---
@@ -187,7 +191,7 @@ SBOX_UPDATE_EVIDENCE=1 pytest tests/
 | Security policy         | [`.github/SECURITY.md`](.github/SECURITY.md)                        |
 | Architecture decisions  | [`.agents/notes/`](.agents/notes/README.md) (ADR system)            |
 | Design documents        | [`docs/design/`](docs/design/)                                      |
-| CLI evidence            | [`docs/evidence/`](docs/evidence/README.md)                         |
+| CLI evidence            | [`.agents/evidence/`](.agents/evidence/README.md)                   |
 | Changelog               | [`CHANGELOG.md`](CHANGELOG.md)                                      |
 
 ### ADR System (`.agents/notes/`)
@@ -218,7 +222,7 @@ See [`.agents/notes/README.md`](.agents/notes/README.md) for the full template a
 **MUST follow:**
 
 1. **Never auto-commit.** Make changes; let the human review and commit.
-2. **Never delete golden files** in `docs/evidence/cli/`. If CLI output changes, regenerate them via `python scripts/capture_cli_evidence.py`.
+2. **Never delete golden files** in `.agents/evidence/cli/`. If CLI output changes, regenerate them via `python scripts/capture_cli_evidence.py`.
 3. **After modifying any CLI command**, regenerate the affected evidence files and verify they look correct.
 4. **Never bypass capability gates.** If `check_capability()` blocks an operation, the fix is to declare the capability in the template — not to remove the gate.
 5. **Never fabricate FC/envd API endpoints.** If you're unsure about a real backend API, flag it as a TODO rather than inventing a placeholder.

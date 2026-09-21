@@ -3,7 +3,7 @@
 Status: proposed
 
 ## Problem
-当前模板分发模式仅支持：(1) 本地 `examples/templates/` 目录下的内置模板；(2) 通过 `sbox template build-local` 手动构建推送。缺少一个社区驱动的模板发现和分发机制，用户无法：
+当前模板分发模式仅支持：(1) 本地 `examples/templates/` 目录下的内置模板；(2) 通过 `ebx template build-local` 手动构建推送。缺少一个社区驱动的模板发现和分发机制，用户无法：
 
 1. 搜索和发现其他人创建的沙箱模板
 2. 一键安装社区模板到本地
@@ -31,15 +31,15 @@ templates:
 ```
 
 3. **CLI 命令扩展**：
-   - `sbox template search <keyword>` — 搜索社区模板索引
-   - `sbox template install <name>` — 克隆模板到本地 `~/.sbox/templates/`
-   - `sbox template publish` — 引导用户提交 PR 到索引文件
+   - `ebx template search <keyword>` — 搜索社区模板索引
+   - `ebx template install <name>` — 克隆模板到本地 `~/.ebx/templates/`
+   - `ebx template publish` — 引导用户提交 PR 到索引文件
 
 4. **分发机制**：
    - 索引文件托管在主仓库（或独立 awesome-sbox-templates 仓库）
    - 模板本身托管在作者的 Git 仓库中
    - `install` 命令执行 `git clone` 到本地缓存目录
-   - 本地缓存目录与现有的 `~/.sbox/templates/` 模板解析目录一致
+   - 本地缓存目录与现有的 `~/.ebx/templates/` 模板解析目录一致
 
 ### 参考模式
 
@@ -59,18 +59,18 @@ templates:
     ref: "main"                    # Git ref（branch/tag）
     tags: ["python", "data-science", "jupyter"]
     capabilities: ["shell", "files", "code", "ports"]
-    min_sbox_version: "0.1.0"     # 最低兼容 sbox 版本
+    min_sbox_version: "0.1.0"     # 最低兼容 ebx 版本
 ```
 
 ```bash
 # CLI 命令
-sbox template search jupyter
+ebx template search jupyter
 # → data-science-notebook  Jupyter notebook with data science stack  [python, jupyter]
 
-sbox template install data-science-notebook
-# → Cloning https://github.com/user/sbox-data-science to ~/.sbox/templates/data-science-notebook
+ebx template install data-science-notebook
+# → Cloning https://github.com/user/sbox-data-science to ~/.ebx/templates/data-science-notebook
 
-sbox template publish
+ebx template publish
 # → 交互式引导：收集模板信息 → 生成 YAML 片段 → 提示用户提交 PR
 ```
 
@@ -101,8 +101,8 @@ class TemplateManager:
 
 ## Acceptance criteria
 - `awesome-templates.yaml` 索引文件格式确定且有 JSON Schema 校验。
-- `sbox template search/install/publish` 三个命令可用。
-- 社区模板安装后可通过 `sbox create <template-name>` 直接使用。
+- `ebx template search/install/publish` 三个命令可用。
+- 社区模板安装后可通过 `ebx create <template-name>` 直接使用。
 - 贡献流程有清晰文档（如何提交 PR 添加模板）。
 - 实现后，此 ADR 从 `proposed/` 移至 `implemented/`。
 

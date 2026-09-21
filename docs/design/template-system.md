@@ -1,6 +1,6 @@
 # 模板体系设计
 
-> 模板（Template）是 Serverless Sandbox 的运行环境蓝图，定义了沙箱的基础镜像、预装软件、默认配置和启动行为。模板体系分为官方核心模板、社区模板和自定义模板三个层次。模板的核心分发机制基于 **GitHub Release**，采用类似 Go modules / GitHub Actions 的引用方式。
+> 模板（Template）是 Easy Sandbox 的运行环境蓝图，定义了沙箱的基础镜像、预装软件、默认配置和启动行为。模板体系分为官方核心模板、社区模板和自定义模板三个层次。模板的核心分发机制基于 **GitHub tarball API（按 tag/branch/sha 拉取，无需发布 Release）**，采用类似 Go modules / GitHub Actions 的引用方式。
 
 ---
 
@@ -141,12 +141,12 @@ GPU:      默认 A10（可配置 V100/A100）
 
 ## 2. 模板来源与分发机制
 
-模板的核心分发机制基于 **GitHub Release**，类似 Go modules / GitHub Actions 的引用方式。SDK 按优先级依次解析模板来源：
+模板的核心分发机制基于 **GitHub tarball API（按 tag/branch/sha 拉取，无需发布 Release）**，类似 Go modules / GitHub Actions 的引用方式。SDK 按优先级依次解析模板来源：
 
 ```
 模板来源优先级：
 1. 内置模板（SDK 自带的 5 个 Tier 1 模板）
-2. GitHub Release 模板（owner/repo 格式）
+2. GitHub 模板（owner/repo 格式，按 tag/branch/sha 拉取）
 3. 本地模板（文件路径）
 4. 阿里云 ACR 镜像（registry URL）
 ```
@@ -159,8 +159,8 @@ GPU:      默认 A10（可配置 V100/A100）
 "code-interpreter"     → 内置 code-interpreter 模板
 
 # GitHub 模板（含 /）
-"hello/world"          → github.com/hello/world latest release
-"hello/world@v1.0"     → github.com/hello/world tag v1.0
+"hello/world"          → github.com/hello/world 默认分支
+"hello/world@v1.0"     → github.com/hello/world ref v1.0（tag/branch/sha）
 "myorg/templates/node"  → github.com/myorg/templates 仓库下 node 子目录（monorepo）
 
 # 本地路径
@@ -175,9 +175,9 @@ GPU:      默认 A10（可配置 V100/A100）
 
 ```bash
 # CLI 使用
-sbox create hello/world                    # → github.com/hello/world 最新 release
-sbox create hello/world --tag v1.2.0       # → 指定 tag
-sbox create myorg/python-ml --tag latest   # → 显式指定 latest
+ebx create hello/world                    # → github.com/hello/world 默认分支
+# ebx create hello/world --tag v1.2.0       # → 指定 ref（tag/branch/sha）
+ebx create myorg/python-ml --tag latest   # → 显式指定 latest
 ```
 
 ```python
@@ -190,25 +190,25 @@ sb = await Sandbox.create(template="hello/world@v1.2.0")
 def my_func(): ...
 ```
 
-### 2.3 GitHub Release 解析流程
+### 2.3 GitHub tarball 解析流程
 
 ```
-1. 解析模板名 "hello/world[@tag]"
-2. 检查本地缓存 ~/.sandbox/templates/hello/world/v1.2.0/
-3. 缓存未命中 → 调用 GitHub API:
-   - 无 tag: GET https://api.github.com/repos/hello/world/releases/latest
-   - 有 tag: GET https://api.github.com/repos/hello/world/releases/tags/v1.2.0
-4. 从 release assets 下载模板包（tar.gz/zip）
-5. 解压到本地缓存
-6. 验证模板结构（必须包含 template.yaml 或 Dockerfile）
+1. 解析模板名 "hello/world[@ref]"
+2. 检查本地缓存 ~/.ebx/templates/hello/world/<ref|default>/
+3. 缓存未命中 → 调用 GitHub tarball API（follow_redirects，302 到 codeload 的 .tar.gz）:
+   - 无 ref: GET https://api.github.com/repos/hello/world/tarball（默认分支）
+   - 有 ref: GET https://api.github.com/repos/hello/world/tarball/v1.2.0（tag/branch/sha）
+4. 下载 tarball（.tar.gz）
+5. 剥除顶层目录（{owner}-{repo}-{sha}/）后解压到本地缓存（防路径穿越）
+6. 定位 //subdir（如有），验证模板结构（必须包含 template.yaml 或 Dockerfile）
 7. 构建/使用模板
 ```
 
-如果 release 没有打包好的 asset，SDK 会 fallback 到直接 clone 仓库的指定 tag。
+GitHub 会自动把 `ref` 解析为 tag/branch/sha，无需区分。公开仓库匿名可用，私有仓库带 `Authorization: Bearer <token>` 即可。
 
-### 2.4 模板包结构（GitHub Release Asset）
+### 2.4 模板包结构（仓库/subdir 内容）
 
-模板仓库的 release 中需要包含一个模板包，结构如下：
+模板仓库的 tarball（按 ref 拉取）中需要包含一个模板包，结构如下：
 
 ```
 my-template/
@@ -228,18 +228,18 @@ my-template/
 
 ```bash
 # 官方模板可以用简写
-sbox create python-data-science     # 内置 Tier 1
-sbox create alicloud/sandbox-templates/browser-automation  # 官方 Tier 2
+ebx create python-data-science     # 内置 Tier 1
+ebx create alicloud/sandbox-templates/browser-automation  # 官方 Tier 2
 
 # 或者直接用简写别名
-sbox create browser-automation      # 自动解析为官方模板
+ebx create browser-automation      # 自动解析为官方模板
 ```
 
 ### 2.6 GitHub Token 配置（私有仓库）
 
 ```bash
 # 配置 GitHub Token 以访问私有模板仓库
-sbox config set github_token ghp_xxxxxxxxxxxx
+ebx config set github_token ghp_xxxxxxxxxxxx
 
 # 或通过环境变量
 export SANDBOX_GITHUB_TOKEN=ghp_xxxxxxxxxxxx
@@ -247,7 +247,7 @@ export SANDBOX_GITHUB_TOKEN=ghp_xxxxxxxxxxxx
 
 ### 2.7 本地缓存管理
 
-从 GitHub Release 下载的模板会缓存到本地，避免重复下载。
+从 GitHub tarball API 下载的模板会缓存到本地，避免重复下载。
 
 缓存目录结构：
 
@@ -271,16 +271,16 @@ CLI 缓存管理命令：
 
 ```bash
 # 查看缓存的模板
-sbox template cache list
+ebx template cache list
 
 # 清理所有缓存
-sbox template cache clean
+ebx template cache clean
 
 # 清理指定模板的缓存
-sbox template cache clean hello/world
+ebx template cache clean hello/world
 
 # 强制重新下载（创建时跳过缓存）
-sbox create hello/world --no-cache
+ebx create hello/world --no-cache
 ```
 
 ---
@@ -290,7 +290,7 @@ sbox create hello/world --no-cache
 ### 方式一：SDK 编程式
 
 ```python
-from serverless_sandbox import Image
+from easy_sandbox import Image
 
 # 链式构建
 image = (
@@ -336,10 +336,10 @@ CMD ["python", "main.py"]
 
 ```bash
 # 构建
-sbox template build . --name my-flask-app --tag v1.0
+ebx template build . --name my-flask-app --tag v1.0
 
 # 推送
-sbox template push my-flask-app:v1.0
+ebx template push my-flask-app:v1.0
 ```
 
 ### 方式三：sandbox.yaml 声明式
@@ -382,25 +382,25 @@ entrypoint: python /app/main.py
 workdir: /app
 ```
 
-### 方式四：发布到 GitHub Release
+### 方式四：发布到 GitHub（按 tag/branch/sha 拉取）
 
-将模板发布为 GitHub Release，供其他用户通过 `owner/repo` 格式引用：
+将模板推送到 GitHub，供其他用户通过 `owner/repo[//subdir][@ref]` 格式引用（无需发布 Release）：
 
 ```bash
 # 1. 初始化模板项目（生成 template.yaml, Dockerfile, SKILL.md 等脚手架）
-sbox template init my-template
+ebx template init my-template
 
 # 2. 本地开发和测试
-sbox create ./my-template
+ebx create ./my-template
 
-# 3. 发布到 GitHub
+# 3. 发布到 GitHub（推 git tag / 分支即可，无需发 Release）
 cd my-template
 git init && git add . && git commit -m "init"
-git tag v1.0.0
-gh release create v1.0.0 --generate-notes
+git tag v1.0.0 && git push origin v1.0.0
 
-# 4. 其他人即可使用
-sbox create yourname/my-template
+# 4. 其他人即可使用（默认分支或指定 ref）
+ebx create yourname/my-template
+ebx create yourname/my-template@v1.0.0
 ```
 
 ---
@@ -493,7 +493,7 @@ capabilities:
   - ports                             # 显式加入默认基线之外的能力
 
 # === 自定义命令（custom_commands）===
-# 模板可声明命名命令，供 `sbox run <id> <name> --arg k=v` 与 SDK `sandbox.run("name", **args)` 调用。
+# 模板可声明命名命令，供 `ebx run <id> <name> --arg k=v` 与 SDK `sandbox.run("name", **args)` 调用。
 # 用户传入的参数经 shlex.quote() 转义后填充 {占位符}，防注入。
 custom_commands:
   serve:
@@ -592,13 +592,13 @@ healthcheck:
 
 ### 关键设计要点
 
-1. **`base` 双模式**：`image` 直接指定 Docker 镜像，`from` 继承另一个模板（支持 GitHub Release 引用），形成模板继承链
+1. **`base` 双模式**：`image` 直接指定 Docker 镜像，`from` 继承另一个模板（支持 GitHub owner/repo 引用），形成模板继承链
 2. **`agent` 字段是 AI-Friendly 的关键**：让 AI Agent 通过 `triggers` 和 `description` 理解模板适用场景，通过 `instructions` 获取使用指南
 3. **`resources` 默认值语义**：模板声明的是推荐默认值，用户创建沙箱时可通过 SDK 参数或 CLI 选项覆盖
 4. **`skills.bundled` + `skills.recommended`**：让模板和 Skills 系统联动 — `bundled` 随模板自动加载，`recommended` 仅作推荐提示
 5. **`readiness_probe`**：支持 `tcp`（端口探测）和 `exec`（命令执行）两种就绪检测方式，确保沙箱真正可用后才返回
 6. **`capabilities` 能力模型**：命令能力由模板声明，不再假设所有沙箱都具备 shell/upload/download。标准能力词汇表为 `shell` / `files` / `code` / `terminal` / `ports`（可扩展）。系统默认基线为单一常量 `DEFAULT_CAPABILITIES = {shell, files, code}`；模板可显式声明子集或加入 `terminal`/`ports`，省略 `capabilities` 时继承默认基线。调用不在有效能力集内的标准能力会抛出 `CapabilityNotSupportedError`（E3xxx），明确报错、不静默降级，错误信息含 `suggestion`。详见 ADR `2026-09-03-capability-model.md`
-7. **`custom_commands` 自定义命令**：模板可声明命名命令，用户参数经 `shlex.quote()` 转义后填充 `{占位符}` 防注入；通过 CLI `sbox run` 与 SDK `sandbox.run("name", **args)` 分发。详见 ADR `2026-09-03-custom-commands-schema.md`
+7. **`custom_commands` 自定义命令**：模板可声明命名命令，用户参数经 `shlex.quote()` 转义后填充 `{占位符}` 防注入；通过 CLI `ebx run` 与 SDK `sandbox.run("name", **args)` 分发。详见 ADR `2026-09-03-custom-commands-schema.md`
 
 ### 示例：基于 GitHub 模板的扩展
 
@@ -679,13 +679,13 @@ sb = await Sandbox.create(template="python-data-science:^1")    # >=1.0.0, <2.0.
 sb = await Sandbox.create(template="python-data-science")       # latest
 
 # GitHub 模板指定版本
-sb = await Sandbox.create(template="hello/world@v1.2.0")        # GitHub Release tag
+sb = await Sandbox.create(template="hello/world@v1.2.0")        # GitHub ref（tag/branch/sha）
 ```
 
 ### 版本列表
 
 ```bash
-$ sbox template info python-data-science
+$ ebx template info python-data-science
 
 Template: python-data-science
 Description: 数据科学全套环境
@@ -707,7 +707,7 @@ Versions:
 graph TD
     subgraph TM["模板市场 Template Market"]
         A["官方模板 alicloud/<br/>AliCloud 团队维护，质量保证，安全审核"]
-        B["GitHub 社区模板 owner/repo<br/>GitHub Release 分发，自动安全扫描"]
+        B["GitHub 社区模板 owner/repo<br/>GitHub tarball API 按 ref 分发，自动安全扫描"]
         C["私有模板 enterprise/<br/>企业内部使用，ACL 权限控制，合规审计"]
         D["搜索 and 发现<br/>关键词搜索 / 分类浏览 / 标签筛选 / 排行推荐"]
     end
@@ -717,37 +717,37 @@ graph TD
 
 ```bash
 # ── 创建沙箱 ─────────────────────────────
-sbox create python-base                       # 内置模板
-sbox create hello/world                       # GitHub Release 最新版
-sbox create hello/world --tag v1.2.0          # GitHub Release 指定版本
-sbox create ./my-template                     # 本地模板
-sbox create hello/world --no-cache            # 跳过缓存，强制重新下载
+ebx create python-base                       # 内置模板
+ebx create hello/world                       # GitHub 默认分支
+ebx create hello/world --tag v1.2.0          # GitHub 指定 ref（tag/branch/sha）
+ebx create ./my-template                     # 本地模板
+ebx create hello/world --no-cache            # 跳过缓存，强制重新下载
 
 # ── 模板构建与推送 ────────────────────────
-sbox template build . --name my-app --tag v1.0
-sbox template push my-app:v1.0
-sbox template init my-template                # 初始化模板脚手架
+ebx template build . --name my-app --tag v1.0
+ebx template push my-app:v1.0
+ebx template init my-template                # 初始化模板脚手架
 
 # ── 模板信息与搜索 ────────────────────────
-sbox template info python-data-science
-sbox template list --market
-sbox template list --market --category data-science --sort stars
-sbox template search "machine learning gpu"
+ebx template info python-data-science
+ebx template list --market
+ebx template list --market --category data-science --sort stars
+ebx template search "machine learning gpu"
 
 # ── 模板拉取 ──────────────────────────────
-sbox template pull community/awesome-ml-env:latest
-sbox template pull hello/world@v1.0.0
+ebx template pull community/awesome-ml-env:latest
+ebx template pull hello/world@v1.0.0
 
 # ── 模板发布 ──────────────────────────────
-sbox template push my-template --publish --category web-development
+ebx template push my-template --publish --category web-development
 
 # ── 本地缓存管理 ──────────────────────────
-sbox template cache list                      # 查看缓存的 GitHub Release 模板
-sbox template cache clean                     # 清理所有缓存
-sbox template cache clean hello/world         # 清理指定模板缓存
+ebx template cache list                      # 查看缓存的 GitHub tarball 模板（按 tag/branch/sha 拉取，无需 Release）
+ebx template cache clean                     # 清理所有缓存
+ebx template cache clean hello/world         # 清理指定模板缓存
 
 # ── 配置管理 ──────────────────────────────
-sbox config set github_token ghp_xxxxxxxxxxxx # 配置 GitHub Token（私有仓库）
+ebx config set github_token ghp_xxxxxxxxxxxx # 配置 GitHub Token（私有仓库）
 ```
 
 ### 模板安全

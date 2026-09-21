@@ -8,9 +8,10 @@ Options:
 Commands:
   build        从 Dockerfile 构建模板（旧 API，已知后端不再支持实际构建）。
   build-local  Build Docker image locally, push to ACR, and create a...
-  cache        Manage the local template cache (~/.sbox/templates/).
+  cache        Manage the local template cache (~/.ebx/templates/).
   delete       Delete a custom template from the platform.
   info         查看模板详情。
   install      Install a template from GitHub or a local directory.
   list         List your custom templates on the platform.
+  search       Search community templates by name, tag, or description.
 [exit_code:0]

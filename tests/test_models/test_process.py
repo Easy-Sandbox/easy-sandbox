@@ -1,7 +1,7 @@
 """Tests for process data models."""
 from __future__ import annotations
 
-from serverless_sandbox.models.process import (
+from easy_sandbox.models.process import (
     ProcessChunkType,
     ProcessChunk,
     ProcessResult,

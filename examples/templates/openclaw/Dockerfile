@@ -19,10 +19,10 @@ RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - \
 # Install OpenClaw globally
 RUN npm install -g openclaw
 
-# Install Python and serverless-sandbox for command server
+# Install Python and easy-sandbox for command server
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip \
     && rm -rf /var/lib/apt/lists/*
-RUN pip3 install --no-cache-dir --break-system-packages serverless-sandbox
+RUN pip3 install --no-cache-dir --break-system-packages easy-sandbox
 
 # Set environment variables
 ENV ANTHROPIC_API_KEY=""

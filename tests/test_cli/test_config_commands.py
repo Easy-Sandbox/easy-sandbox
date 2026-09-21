@@ -8,15 +8,15 @@ from unittest.mock import patch
 import pytest
 from click.testing import CliRunner
 
-from serverless_sandbox.cli.main import cli
+from easy_sandbox.cli.main import cli
 
 
 class TestConfigGet:
     def test_get_default_region(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["config", "get", "region"])
 
         assert result.exit_code == 0
@@ -25,8 +25,8 @@ class TestConfigGet:
     def test_get_unknown_key(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["config", "get", "nonexistent"])
 
         assert result.exit_code == 2
@@ -34,8 +34,8 @@ class TestConfigGet:
     def test_get_json_mode(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["--json", "config", "get", "region"])
 
         assert result.exit_code == 0
@@ -47,8 +47,8 @@ class TestConfigSet:
     def test_set_region(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["config", "set", "region", "cn-shanghai"])
 
         assert result.exit_code == 0
@@ -60,8 +60,8 @@ class TestConfigSet:
     def test_set_unknown_key(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["config", "set", "badkey", "value"])
 
         assert result.exit_code == 2
@@ -69,8 +69,8 @@ class TestConfigSet:
     def test_set_numeric_value(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["config", "set", "http_timeout", "60.0"])
 
         assert result.exit_code == 0
@@ -80,8 +80,8 @@ class TestConfigSet:
     def test_set_invalid_numeric(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["config", "set", "http_timeout", "not_a_number"])
 
         assert result.exit_code == 2
@@ -91,8 +91,8 @@ class TestConfigList:
     def test_list_defaults(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["config", "list"])
 
         assert result.exit_code == 0
@@ -102,8 +102,8 @@ class TestConfigList:
     def test_list_json_mode(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["--json", "config", "list"])
 
         assert result.exit_code == 0
@@ -118,9 +118,9 @@ class TestConfigApiKey:
         config_file = tmp_path / "config.toml"
         env_file = tmp_path / ".env"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path), \
-             patch("serverless_sandbox.cli.commands.config_cmd._ENV_FILE", env_file):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path), \
+             patch("easy_sandbox.cli.commands.config_cmd._ENV_FILE", env_file):
             result = runner.invoke(cli, ["config", "set", "api_key", "e2b_test1234abcdc1"])
 
         assert result.exit_code == 0
@@ -138,9 +138,9 @@ class TestConfigApiKey:
         env_file = tmp_path / ".env"
         env_file.write_text("E2B_API_KEY=e2b_mykey12345dc1\n")
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path), \
-             patch("serverless_sandbox.cli.commands.config_cmd._ENV_FILE", env_file):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path), \
+             patch("easy_sandbox.cli.commands.config_cmd._ENV_FILE", env_file):
             result = runner.invoke(cli, ["config", "get", "api_key"])
 
         assert result.exit_code == 0
@@ -153,9 +153,9 @@ class TestConfigApiKey:
         config_file = tmp_path / "config.toml"
         env_file = tmp_path / ".env"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path), \
-             patch("serverless_sandbox.cli.commands.config_cmd._ENV_FILE", env_file), \
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path), \
+             patch("easy_sandbox.cli.commands.config_cmd._ENV_FILE", env_file), \
              patch.dict("os.environ", {}, clear=False):
             import os
             env = os.environ.copy()
@@ -171,9 +171,9 @@ class TestConfigApiKey:
         env_file = tmp_path / ".env"
         env_file.write_text("E2B_API_KEY=e2b_testkey123dc1\n")
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path), \
-             patch("serverless_sandbox.cli.commands.config_cmd._ENV_FILE", env_file):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path), \
+             patch("easy_sandbox.cli.commands.config_cmd._ENV_FILE", env_file):
             result = runner.invoke(cli, ["config", "list"])
 
         assert result.exit_code == 0
@@ -187,8 +187,8 @@ class TestConfigReset:
         config_file = tmp_path / "config.toml"
         config_file.write_text("[transport]\nregion = \"cn-shanghai\"\n")
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["config", "reset", "--yes"])
 
         assert result.exit_code == 0
@@ -198,8 +198,8 @@ class TestConfigReset:
     def test_reset_no_file(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["config", "reset", "--yes"])
 
         assert result.exit_code == 0
@@ -209,8 +209,8 @@ class TestConfigReset:
         config_file = tmp_path / "config.toml"
         config_file.write_text("[transport]\nregion = \"x\"\n")
 
-        with patch("serverless_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("serverless_sandbox.cli.commands.config_cmd._SBOX_DIR", tmp_path):
+        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
+             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
             result = runner.invoke(cli, ["config", "reset"], input="n\n")
 
         assert result.exit_code != 0

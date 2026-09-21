@@ -1,6 +1,6 @@
 # 内置 Agent 高级 API 设计
 
-> Serverless Sandbox 内置 Agent 采用极简架构：沙箱模板内预装 AI CLI 工具（Codex、Qwen CLI 等），SDK Agent API 只是 `commands.run()` 的语法糖封装。SDK 零 LLM 依赖，保持轻量。
+> Easy Sandbox 内置 Agent 采用极简架构：沙箱模板内预装 AI CLI 工具（Codex、Qwen CLI 等），SDK Agent API 只是 `commands.run()` 的语法糖封装。SDK 零 LLM 依赖，保持轻量。
 
 ---
 
@@ -24,10 +24,10 @@
 
 传统 Sandbox SDK 定位为「基础设施工具」— 提供沙箱创建、文件操作、命令执行等底层能力。用户需要自己编写复杂的编排逻辑。
 
-Serverless Sandbox 的定位是**「AI 能力平台」**— 底层能力 + 预装 AI CLI 工具的沙箱模板，让用户一行代码完成复杂任务：
+Easy Sandbox 的定位是**「AI 能力平台」**— 底层能力 + 预装 AI CLI 工具的沙箱模板，让用户一行代码完成复杂任务：
 
 ```
-传统 SDK:                          Serverless Sandbox:
+传统 SDK:                          Easy Sandbox:
                                    
 创建沙箱                            sb = await Sandbox.create(template="codex")
 安装工具                            result = await sb.agent.code("fix bug in main.py")
@@ -260,7 +260,7 @@ class AgentResult:
 ### 代码 Agent
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 使用 Codex 模板
 sb = await Sandbox.create(template="codex")
@@ -315,7 +315,7 @@ async with await Sandbox.create(template="codex") as sb:
 
 ```python
 import asyncio
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # === 串行编排 ===
 async def serial_pipeline():
@@ -371,7 +371,7 @@ graph TD
 ### SDK API
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 自然语言创建
 sb = await Sandbox.create("运行 python 数据分析环境，需要 GPU")
@@ -395,7 +395,7 @@ sb = await Sandbox.create(plan, memory=32768)
 沙箱操作工具遵循 OpenAI function calling 格式，可直接导出为 LangChain / CrewAI / AutoGen 等框架的 Tool Schema：
 
 ```python
-from serverless_sandbox.agent import get_tool_schema
+from easy_sandbox.agent import get_tool_schema
 
 # 导出为 OpenAI 格式
 tools = get_tool_schema(format="openai")
@@ -407,7 +407,7 @@ tools = get_tool_schema(format="langchain")
 ### LangChain 适配器
 
 ```python
-from serverless_sandbox.integrations import LangChainToolkit
+from easy_sandbox.integrations import LangChainToolkit
 
 toolkit = LangChainToolkit(sandbox_config={"template": "code-interpreter"})
 tools = toolkit.get_tools()
@@ -420,7 +420,7 @@ agent = AgentExecutor(tools=tools, llm=llm)
 ### CrewAI 适配器
 
 ```python
-from serverless_sandbox.integrations import CrewAIToolkit
+from easy_sandbox.integrations import CrewAIToolkit
 
 toolkit = CrewAIToolkit()
 tools = toolkit.get_tools()
@@ -463,7 +463,7 @@ sb = await Sandbox.create(template="codex")
 
 ```bash
 # CLI 查看模板版本
-sbox template info codex
+ebx template info codex
 # 模板: codex
 # 版本: 1.3.0
 # Codex CLI: v0.1.2

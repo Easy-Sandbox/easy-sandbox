@@ -18,13 +18,13 @@ Node.js 20 Web 服务沙箱环境，适用于 Express、Fastify、Koa 等框架�
 **从本地安装：**
 
 ```bash
-sbox install ./examples/templates/node-web --registry-type local
+ebx install ./examples/templates/node-web --registry-type local
 ```
 
 **从 GitHub 安装：**
 
 ```bash
-sbox install Serverless-Sandbox/awesome-templates//node-web
+ebx install Easy-Sandbox/awesome-templates//node-web
 ```
 
 ## 使用示例
@@ -32,13 +32,13 @@ sbox install Serverless-Sandbox/awesome-templates//node-web
 创建沙箱实例：
 
 ```bash
-sbox create --template node-web
+ebx create --template node-web
 ```
 
 在沙箱中初始化 Express 项目并启动：
 
 ```bash
-sbox exec <sandbox-id> -- bash -c "
+ebx exec <sandbox-id> -- bash -c "
 cd /workspace && \
 npm init -y && \
 npm install express && \
@@ -48,7 +48,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
-  res.json({ message: 'Hello from Serverless Sandbox!' });
+  res.json({ message: 'Hello from Easy Sandbox!' });
 });
 
 app.listen(port, () => {
@@ -62,7 +62,7 @@ node index.js
 使用 Python SDK：
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 sandbox = Sandbox.create(template="node-web")
 

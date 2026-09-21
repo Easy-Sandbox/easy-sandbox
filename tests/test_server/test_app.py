@@ -1,4 +1,4 @@
-"""Tests for serverless_sandbox.server — HTTP server + route handlers.
+"""Tests for easy_sandbox.server — HTTP server + route handlers.
 
 Each test spins up a real ``ThreadingHTTPServer`` on a random free port in a
 background thread and uses ``http.client.HTTPConnection`` to hit it directly.
@@ -17,10 +17,10 @@ from typing import Any
 
 import pytest
 
-from serverless_sandbox.server.app import SandboxRequestHandler, SandboxServer
-from serverless_sandbox.server.registry import CommandArg, CommandRegistry
-from serverless_sandbox.server.router import CapabilityGroup, default_table
-from serverless_sandbox.server.routes import (
+from easy_sandbox.server.app import SandboxRequestHandler, SandboxServer
+from easy_sandbox.server.registry import CommandArg, CommandRegistry
+from easy_sandbox.server.router import CapabilityGroup, default_table
+from easy_sandbox.server.routes import (
     _resolve_safe_path,
     disable_builtin,
     enable_builtin,
@@ -256,7 +256,7 @@ class TestUploadDownload:
     """POST /upload and GET /download — file round-trip."""
 
     def test_round_trip(self, server_port: int, tmp_path: Any, monkeypatch: Any) -> None:
-        monkeypatch.setenv("SBOX_SERVER_BASE_DIR", str(tmp_path))
+        monkeypatch.setenv("EBX_SERVER_BASE_DIR", str(tmp_path))
         file_path = str(tmp_path / "hello.txt")
         original = b"Hello, sandbox world!"
         encoded = base64.b64encode(original).decode()
@@ -282,7 +282,7 @@ class TestUploadDownload:
     def test_download_missing_file_404(
         self, server_port: int, tmp_path: Any, monkeypatch: Any
     ) -> None:
-        monkeypatch.setenv("SBOX_SERVER_BASE_DIR", str(tmp_path))
+        monkeypatch.setenv("EBX_SERVER_BASE_DIR", str(tmp_path))
         status, body = _request(
             server_port, "GET", f"/download?path={tmp_path}/nonexistent/file.xyz"
         )
@@ -421,17 +421,17 @@ class TestSandboxServerClass:
     """SandboxServer initialisation and env-var token reading."""
 
     def test_default_no_token(self, monkeypatch: Any) -> None:
-        monkeypatch.delenv("SBOX_SERVER_TOKEN", raising=False)
+        monkeypatch.delenv("EBX_SERVER_TOKEN", raising=False)
         srv = SandboxServer()
         assert srv.auth_token is None
 
     def test_token_from_env(self, monkeypatch: Any) -> None:
-        monkeypatch.setenv("SBOX_SERVER_TOKEN", "env-secret")
+        monkeypatch.setenv("EBX_SERVER_TOKEN", "env-secret")
         srv = SandboxServer()
         assert srv.auth_token == "env-secret"
 
     def test_empty_token_treated_as_none(self, monkeypatch: Any) -> None:
-        monkeypatch.setenv("SBOX_SERVER_TOKEN", "")
+        monkeypatch.setenv("EBX_SERVER_TOKEN", "")
         srv = SandboxServer()
         assert srv.auth_token is None
 
@@ -455,7 +455,7 @@ class TestEdgeCases:
         assert status == 404
 
     def test_upload_bad_base64(self, server_port: int, tmp_path: Any, monkeypatch: Any) -> None:
-        monkeypatch.setenv("SBOX_SERVER_BASE_DIR", str(tmp_path))
+        monkeypatch.setenv("EBX_SERVER_BASE_DIR", str(tmp_path))
         status, body = _request(
             server_port,
             "POST",
@@ -508,7 +508,7 @@ class TestPathTraversal:
     ) -> None:
         base = str(tmp_path / "sandbox")
         os.makedirs(base, exist_ok=True)
-        monkeypatch.setenv("SBOX_SERVER_BASE_DIR", base)
+        monkeypatch.setenv("EBX_SERVER_BASE_DIR", base)
         payload = base64.b64encode(b"evil").decode()
         status, body = _request(
             server_port,
@@ -524,7 +524,7 @@ class TestPathTraversal:
     ) -> None:
         base = str(tmp_path / "sandbox")
         os.makedirs(base, exist_ok=True)
-        monkeypatch.setenv("SBOX_SERVER_BASE_DIR", base)
+        monkeypatch.setenv("EBX_SERVER_BASE_DIR", base)
         status, body = _request(
             server_port, "GET", f"/download?path={base}/../../etc/passwd"
         )
@@ -534,7 +534,7 @@ class TestPathTraversal:
     def test_upload_within_base_ok(
         self, server_port: int, tmp_path: Any, monkeypatch: Any
     ) -> None:
-        monkeypatch.setenv("SBOX_SERVER_BASE_DIR", str(tmp_path))
+        monkeypatch.setenv("EBX_SERVER_BASE_DIR", str(tmp_path))
         file_path = str(tmp_path / "project" / "file.py")
         payload = base64.b64encode(b"print('hello')").decode()
         status, body = _request(
@@ -551,7 +551,7 @@ class TestPathTraversal:
     ) -> None:
         custom_base = str(tmp_path / "custom")
         os.makedirs(custom_base, exist_ok=True)
-        monkeypatch.setenv("SBOX_SERVER_BASE_DIR", custom_base)
+        monkeypatch.setenv("EBX_SERVER_BASE_DIR", custom_base)
         safe = _resolve_safe_path(custom_base + "/sub/file.txt")
         assert safe.startswith(custom_base)
 

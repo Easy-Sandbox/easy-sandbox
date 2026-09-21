@@ -13,10 +13,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install global Node.js packages
 RUN npm install -g yarn nodemon pm2
 
-# Install Python and serverless-sandbox for command server
+# Install Python and easy-sandbox for command server
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip \
     && rm -rf /var/lib/apt/lists/*
-RUN pip3 install --no-cache-dir --break-system-packages serverless-sandbox
+RUN pip3 install --no-cache-dir --break-system-packages easy-sandbox
 
 # Set environment variables
 ENV NODE_ENV=production

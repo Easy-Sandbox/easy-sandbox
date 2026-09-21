@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from pydantic import ValidationError
 
-from serverless_sandbox.transport.config import (
+from easy_sandbox.transport.config import (
     TransportConfig,
     load_config,
     reset_config,

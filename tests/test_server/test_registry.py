@@ -1,4 +1,4 @@
-"""Tests for serverless_sandbox.server.registry — stdlib-only command registry.
+"""Tests for easy_sandbox.server.registry — stdlib-only command registry.
 
 Covers registration, decorator syntax, freezing, lookup helpers, dunder
 methods, and :class:`CommandArg` type validation.
@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from serverless_sandbox.server.registry import (
+from easy_sandbox.server.registry import (
     CommandArg,
     CommandRegistry,
     RegisteredCommand,

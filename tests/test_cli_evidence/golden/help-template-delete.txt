@@ -3,7 +3,7 @@ Usage: cli template delete [OPTIONS] TEMPLATE_ID
   Delete a custom template from the platform.
 
   Removes the template identified by TEMPLATE_ID from the remote platform.  This
-  does NOT affect the local cache — use 'sbox template cache --clear' to clean
+  does NOT affect the local cache — use 'ebx template cache --clear' to clean
   local copies.
 
 Options:

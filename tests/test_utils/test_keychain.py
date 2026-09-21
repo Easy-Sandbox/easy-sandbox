@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 import pytest
 
-from serverless_sandbox.utils.keychain import SecretStore
+from easy_sandbox.utils.keychain import SecretStore
 
 
 @pytest.fixture

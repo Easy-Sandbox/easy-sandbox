@@ -7,7 +7,7 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from serverless_sandbox.cli.main import LazyGroup, cli
+from easy_sandbox.cli.main import LazyGroup, cli
 
 
 class TestLazyGroup:
@@ -25,7 +25,7 @@ class TestLazyGroup:
         group = LazyGroup(
             name="test",
             lazy_subcommands={
-                "create": "serverless_sandbox.cli.commands.sandbox:create",
+                "create": "easy_sandbox.cli.commands.sandbox:create",
             },
         )
         ctx = click.Context(group)
@@ -45,8 +45,8 @@ class TestLazyGroup:
         group = LazyGroup(
             name="test",
             lazy_subcommands={
-                "beta": "serverless_sandbox.cli.commands.sandbox:create",
-                "alpha": "serverless_sandbox.cli.commands.sandbox:create",
+                "beta": "easy_sandbox.cli.commands.sandbox:create",
+                "alpha": "easy_sandbox.cli.commands.sandbox:create",
             },
         )
         ctx = click.Context(group)
@@ -60,8 +60,8 @@ class TestCLIRoot:
     def test_help(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
-        assert "sbox" in result.output
-        assert "Serverless Sandbox CLI" in result.output
+        assert "ebx" in result.output
+        assert "Easy Sandbox CLI" in result.output
 
     def test_version(self, runner: CliRunner) -> None:
         result = runner.invoke(cli, ["--version"])
@@ -89,4 +89,4 @@ class TestCLIRoot:
         result = runner.invoke(cli, [])
         assert result.exit_code == 0
         # Should show usage/help when no command
-        assert "Usage" in result.output or "sbox" in result.output
+        assert "Usage" in result.output or "ebx" in result.output

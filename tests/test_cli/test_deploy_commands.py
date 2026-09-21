@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from serverless_sandbox.cli.main import cli
+from easy_sandbox.cli.main import cli
 
 
 @pytest.fixture
@@ -73,7 +73,7 @@ class TestDeployShortcutNL:
 
         # Patch at the actual import location used inside _run_nl_deploy
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.deploy",
+            "easy_sandbox.api.sandbox.Sandbox.deploy",
             new_callable=AsyncMock,
             return_value=mock_sandbox,
         ):
@@ -90,7 +90,7 @@ class TestDeployShortcutNL:
         mock_sandbox = _make_mock_sandbox(sandbox_id="sbx-deploy-002")
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.deploy",
+            "easy_sandbox.api.sandbox.Sandbox.deploy",
             new_callable=AsyncMock,
             return_value=mock_sandbox,
         ):
@@ -107,10 +107,10 @@ class TestDeployShortcutNL:
         monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-        from serverless_sandbox.models.errors import DeployLLMKeyMissingError
+        from easy_sandbox.models.errors import DeployLLMKeyMissingError
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.deploy",
+            "easy_sandbox.api.sandbox.Sandbox.deploy",
             new_callable=AsyncMock,
             side_effect=DeployLLMKeyMissingError(
                 "No LLM API key found for qwen-code agent."
@@ -129,7 +129,7 @@ class TestDeployShortcutNL:
         mock_sandbox = _make_mock_sandbox()
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.deploy",
+            "easy_sandbox.api.sandbox.Sandbox.deploy",
             new_callable=AsyncMock,
             return_value=mock_sandbox,
         ) as mock_deploy:
@@ -162,7 +162,7 @@ class TestDeployOptions:
         mock_sandbox = _make_mock_sandbox()
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.deploy",
+            "easy_sandbox.api.sandbox.Sandbox.deploy",
             new_callable=AsyncMock,
             return_value=mock_sandbox,
         ) as mock_deploy:
@@ -181,7 +181,7 @@ class TestDeployOptions:
         mock_sandbox = _make_mock_sandbox()
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.deploy",
+            "easy_sandbox.api.sandbox.Sandbox.deploy",
             new_callable=AsyncMock,
             return_value=mock_sandbox,
         ) as mock_deploy:

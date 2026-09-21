@@ -4,16 +4,16 @@ Status: proposed
 Task: #98, #105, #118
 
 ## Problem
-用户需要把 Python 函数注册为可通过 `sbox run` 调用的具名命令。当前 custom commands 只能通过 YAML 声明（`template.yaml` 的 `custom_commands:` 段），缺少从 Python 代码直接注册的途径。需要一个装饰器 API，使函数名映射为命令名、函数签名映射为 CLI 选项。
+用户需要把 Python 函数注册为可通过 `ebx run` 调用的具名命令。当前 custom commands 只能通过 YAML 声明（`template.yaml` 的 `custom_commands:` 段），缺少从 Python 代码直接注册的途径。需要一个装饰器 API，使函数名映射为命令名、函数签名映射为 CLI 选项。
 
 ## Decision
 新增 `@sandbox.register` 装饰器，命令注册到容器内常驻 HTTP server 的端点，客户端经 HTTP 调用。
 
-> **⚠ 关键变更（2026-09-05）**：原 ADR 采用"源码投递执行"机制（`files.write` 投递脚本 + `commands.run` 执行），并明确不引入新容器内 server。此决策已推翻。原因：(1) 每次调用都需完整 files.write + commands.run 链路，延迟高；(2) 无法支持常驻状态；(3) 已新增 `serverless_sandbox.server` 模块（见 `2026-09-05-sandbox-server-module.md`），提供常驻 HTTP server 承载注册命令。
+> **⚠ 关键变更（2026-09-05）**：原 ADR 采用"源码投递执行"机制（`files.write` 投递脚本 + `commands.run` 执行），并明确不引入新容器内 server。此决策已推翻。原因：(1) 每次调用都需完整 files.write + commands.run 链路，延迟高；(2) 无法支持常驻状态；(3) 已新增 `easy_sandbox.server` 模块（见 `2026-09-05-sandbox-server-module.md`），提供常驻 HTTP server 承载注册命令。
 
 ### 核心设计
 
-1. **命令注册到常驻 HTTP server 端点**：`@sandbox.register` 装饰的函数，被注册为 `serverless_sandbox.server` 模块的 HTTP 端点。客户端通过 `POST /commands/{name}` 调用，body 为 JSON kwargs，响应为 `{"result": ...}` 或 `{"error": ..., "type": ...}`。
+1. **命令注册到常驻 HTTP server 端点**：`@sandbox.register` 装饰的函数，被注册为 `easy_sandbox.server` 模块的 HTTP 端点。客户端通过 `POST /commands/{name}` 调用，body 为 JSON kwargs，响应为 `{"result": ...}` 或 `{"error": ..., "type": ...}`。
 
 2. **函数名→命令名**：`@sandbox.register` 装饰的函数，其 `func.__name__` 即为命令名，与 YAML `custom_commands:` 的 key 同构。最终产出一个 `CustomCommand` 对象，与 YAML 解析产出的完全一致，下游（`Sandbox.run` 占位符替换、`list_commands` 发现输出、CLI `--arg` 解析）**全部零改动即可复用**。
 
@@ -52,7 +52,7 @@ result = await sandbox.server.call("demo", x=42, y="world")
 # ← Response: {"result": "42: world"}
 
 # CLI 调用
-# sbox run <sandbox_id> demo -a x=42 -a y="world"
+# ebx run <sandbox_id> demo -a x=42 -a y="world"
 
 # 发现端点
 # GET /commands → [{"name": "demo", "args": [...], "description": "Run a demo command."}]
@@ -112,5 +112,5 @@ sandbox = _SandboxFactory()
 - 实现后，此 ADR 从 `proposed/` 移至 `implemented/`。
 
 ## Evidence
-- `docs/evidence/research/2026-09-04-container-serve-boundary.md` §5, §6.1–§6.3, §7 O7
-- `docs/evidence/research/2026-09-04-fc-claude-code-image-inspection.md`（确认容器内 Gateway 支持 routeDynamic 端口路由）
+- `.agents/evidence/research/2026-09-04-container-serve-boundary.md` §5, §6.1–§6.3, §7 O7
+- `.agents/evidence/research/2026-09-04-fc-claude-code-image-inspection.md`（确认容器内 Gateway 支持 routeDynamic 端口路由）

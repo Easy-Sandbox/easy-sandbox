@@ -1,6 +1,6 @@
 # 项目路线图
 
-> Serverless Sandbox SDK 分四个阶段交付，从 MVP 到完整生态，每阶段可独立发布、独立使用。
+> Easy Sandbox SDK 分四个阶段交付，从 MVP 到完整生态，每阶段可独立发布、独立使用。
 
 ---
 
@@ -46,18 +46,18 @@ graph LR
 
 | 交付物 | 说明 |
 |--------|------|
-| CLI `sbox create` | 创建沙箱（template 模式） |
-| CLI `sbox exec/list/kill` | 基础命令 |
-| CLI `sbox shell` | 交互式 Shell |
+| CLI `ebx create` | 创建沙箱（template 模式） |
+| CLI `ebx exec/list/kill` | 基础命令 |
+| CLI `ebx shell` | 交互式 Shell |
 | Tier 1 模板 × 5 | base, python-base, python-data-science, node-web, code-interpreter |
-| PyPI 发布 | `pip install serverless-sandbox` |
+| PyPI 发布 | `pip install easy-sandbox` |
 | 文档站点 | 快速开始 + API 参考 |
 
 ### Phase 1 里程碑
 
 ```python
 # 用户可以做到：
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 async with await Sandbox.create(template="code-interpreter") as sb:
     result = await sb.run_code("import pandas as pd; print(pd.__version__)")
@@ -99,8 +99,8 @@ async with await Sandbox.create(template="code-interpreter") as sb:
 |--------|------|
 | MCP Server（P0 Tools） | 7 个核心工具 |
 | STDIO 传输 | Cursor/Claude Desktop 集成 |
-| `sbox mcp install` | 一键安装到 IDE |
-| 自然语言创建 | `Sandbox.create("描述")` + CLI `sbox create "描述"` |
+| `ebx mcp install` | 一键安装到 IDE |
+| 自然语言创建 | `Sandbox.create("描述")` + CLI `ebx create "描述"` |
 | 配置推断 Agent | InferAgent 实现 |
 | Tier 2 模板 × 3 | browser-automation, full-stack, go-dev |
 
@@ -108,8 +108,8 @@ async with await Sandbox.create(template="code-interpreter") as sb:
 
 ```bash
 # 用户可以做到：
-sbox create "运行 Python 数据分析，需要 pandas"
-sbox mcp install --target cursor
+ebx create "运行 Python 数据分析，需要 pandas"
+ebx mcp install --target cursor
 
 # SDK:
 sb = await Sandbox.create("Python 数据分析环境")
@@ -127,7 +127,7 @@ pool = SandboxPool(template="code-interpreter", min_ready=3)
 | 交付物 | 说明 |
 |--------|------|
 | Skill 规范 | SKILL.md + sandbox.yaml + mcp-tools.json |
-| `sbox skill` CLI | search, install, list, create, publish |
+| `ebx skill` CLI | search, install, list, create, publish |
 | 官方 Skills × 10 | 语言运行时、数据科学、浏览器自动化 |
 | 安装目标 | project, global, cursor, claude, vscode |
 | Skill Registry | 官方 + 社区 + 私有 |
@@ -148,9 +148,9 @@ pool = SandboxPool(template="code-interpreter", min_ready=3)
 |--------|------|
 | 模板市场 | Web UI + API |
 | 社区贡献流程 | 提交 → 审核 → 发布 |
-| `sbox build .` | 从项目目录构建镜像 |
-| `sbox deploy .` | 项目直接部署到沙箱 |
-| 热重载 | `sbox deploy . --watch` |
+| `ebx build .` | 从项目目录构建镜像 |
+| `ebx deploy .` | 项目直接部署到沙箱 |
+| 热重载 | `ebx deploy . --watch` |
 | 项目类型检测 | package.json / requirements.txt / go.mod 等 |
 | MCP P1 Tools | 8 个扩展工具 |
 | HTTP+SSE 传输 | 远程多客户端支持 |
@@ -160,9 +160,9 @@ pool = SandboxPool(template="code-interpreter", min_ready=3)
 
 ```bash
 # 用户可以做到：
-sbox skill install data-analysis --target cursor
-sbox deploy ./my-project --watch
-sbox create "部署这个 Flask 项目" --upload .
+ebx skill install data-analysis --target cursor
+ebx deploy ./my-project --watch
+ebx create "部署这个 Flask 项目" --upload .
 
 # SDK:
 @sandbox(template="python-data-science")

@@ -3,7 +3,7 @@
 演示使用 @sandbox 装饰器将普通函数声明式地在远程沙箱中执行。
 Shows how to use the @sandbox decorator for declarative remote execution.
 
-需要安装: pip install serverless-sandbox[declarative]
+需要安装: pip install easy-sandbox[declarative]
 
 工作流程:
   1. 创建远程沙箱
@@ -21,7 +21,7 @@ import os
 API_KEY = os.environ.get("E2B_API_KEY", "")
 
 # ── 从正确的路径导入装饰器 ────────────────────────────────────────────
-from serverless_sandbox.declarative import sandbox
+from easy_sandbox.declarative import sandbox
 
 
 # ── 示例 1: 基础用法 — 蒙特卡洛法计算 π ──────────────────────────────

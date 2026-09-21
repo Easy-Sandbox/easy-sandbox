@@ -1,4 +1,4 @@
-"""End-to-end ``sbox install`` tests for the template catalog.
+"""End-to-end ``ebx install`` tests for the template catalog.
 
 This module is the **hard gate before publishing**: it drives the real CLI,
 the real reference resolver, the real fetch/cache logic and the real
@@ -18,7 +18,8 @@ from __future__ import annotations
 import io
 import json
 import socket
-import zipfile
+import tarfile
+import time
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -26,8 +27,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from serverless_sandbox.cli.main import cli
-from serverless_sandbox.utils.registry import load_template_from_yaml
+from easy_sandbox.cli.main import cli
+from easy_sandbox.utils.registry import load_template_from_yaml
 
 from .conftest import TEMPLATES_DIR, discover_template_dirs
 
@@ -41,13 +42,13 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 GITHUB_OWNER = "anycodes"
-GITHUB_REPO = "awesome-serverless-sandbox-templates"
+GITHUB_REPO = "awesome-easy-sandbox-templates"
 GITHUB_TAG = "v1.0.0"
 GITHUB_REF = f"{GITHUB_OWNER}/{GITHUB_REPO}"
 GITHUB_URL = "https://github.com"
 
-#: GitHub zipballs always wrap everything in a single ``owner-repo-sha/`` folder.
-_ZIP_PREFIX = f"{GITHUB_OWNER}-{GITHUB_REPO}-9f8e7d6"
+#: GitHub tarballs always wrap everything in a single ``owner-repo-sha/`` folder.
+_ARCHIVE_PREFIX = f"{GITHUB_OWNER}-{GITHUB_REPO}-9f8e7d6"
 
 
 # ---------------------------------------------------------------------------
@@ -120,11 +121,11 @@ def _mocked_platform_build(
     config.access_key_secret = None
 
     with patch(
-        "serverless_sandbox.transport.config.load_config", return_value=config
+        "easy_sandbox.transport.config.load_config", return_value=config
     ), patch(
-        "serverless_sandbox.transport.auth.create_auth_provider"
+        "easy_sandbox.transport.auth.create_auth_provider"
     ), patch(
-        "serverless_sandbox.transport.http.HttpClient", return_value=http_client
+        "easy_sandbox.transport.http.HttpClient", return_value=http_client
     ):
         yield http_client
 
@@ -197,7 +198,7 @@ def _build_payload(output: str) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 class TestLocalInstall:
-    """``sbox install <path> --registry-type local`` for every catalog template."""
+    """``ebx install <path> --registry-type local`` for every catalog template."""
 
     def test_local_install_succeeds(self, runner: CliRunner, template_dir: Path) -> None:
         expected = load_template_from_yaml(template_dir / "template.yaml")
@@ -283,7 +284,7 @@ class TestLocalInstall:
     def test_local_install_long_form_equivalent(
         self, runner: CliRunner, template_dir: Path
     ) -> None:
-        """``sbox template install`` and ``sbox install`` behave identically."""
+        """``ebx template install`` and ``ebx install`` behave identically."""
         with _mocked_platform_build() as shortcut_client:
             shortcut = runner.invoke(
                 cli, ["install", str(template_dir), "--registry-type", "local"]
@@ -387,80 +388,90 @@ def _under_cwd(path: Path) -> bool:
 # Mocked GitHub install — real ref parsing, real zip extraction, real cache
 # ---------------------------------------------------------------------------
 
-def build_repo_zipball(templates_dir: Path) -> bytes:
-    """Build an in-memory GitHub-style release zipball of the whole catalog.
+def build_repo_tarball(templates_dir: Path) -> bytes:
+    """Build an in-memory GitHub-style tarball (.tar.gz) of the whole catalog.
 
-    Layout mirrors what ``codeload.github.com`` returns for a tag::
+    Layout mirrors what ``codeload.github.com`` returns for a ref::
 
-        anycodes-awesome-serverless-sandbox-templates-9f8e7d6/
+        anycodes-awesome-easy-sandbox-templates-9f8e7d6/
         ├── README.md
         ├── browser-automation/{template.yaml,Dockerfile,README.md}
         └── ...
 
     This is the "fixture pointing at a local copy" that replaces the download.
+    Local dev artifacts (``__pycache__`` / ``*.pyc`` / dotfiles) are excluded,
+    matching what GitHub archives actually contain (``.gitignore`` d files).
     """
+
+    def _add(tf: tarfile.TarFile, arcname: str, data: bytes) -> None:
+        info = tarfile.TarInfo(name=arcname)
+        info.size = len(data)
+        info.mtime = int(time.time())
+        tf.addfile(info, io.BytesIO(data))
+
+    def _skip(path: Path) -> bool:
+        return any(
+            part == "__pycache__" or part.startswith(".")
+            for part in path.parts
+        ) or path.suffix == ".pyc"
+
     buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+    with tarfile.open(fileobj=buffer, mode="w:gz") as tf:
         readme = templates_dir / "README.md"
         if readme.is_file():
-            zf.writestr(f"{_ZIP_PREFIX}/README.md", readme.read_bytes())
+            _add(tf, f"{_ARCHIVE_PREFIX}/README.md", readme.read_bytes())
         for folder in sorted(templates_dir.iterdir()):
             if not folder.is_dir() or folder.name.startswith("."):
                 continue
             for path in sorted(folder.rglob("*")):
-                if not path.is_file():
+                if not path.is_file() or _skip(path.relative_to(folder)):
                     continue
                 arcname = (
-                    f"{_ZIP_PREFIX}/{folder.name}/"
+                    f"{_ARCHIVE_PREFIX}/{folder.name}/"
                     f"{path.relative_to(folder).as_posix()}"
                 )
-                zf.writestr(arcname, path.read_bytes())
+                _add(tf, arcname, path.read_bytes())
     return buffer.getvalue()
 
 
-def _fake_download(zipball: bytes) -> MagicMock:
+def _fake_download(tarball: bytes) -> MagicMock:
     response = MagicMock()
-    response.content = zipball
+    response.content = tarball
     response.raise_for_status = MagicMock()
     return response
 
 
 @contextmanager
 def _mocked_github(
-    zipball: bytes, cache_dir: Path, tag: str = GITHUB_TAG
+    tarball: bytes, cache_dir: Path, tag: str = GITHUB_TAG
 ) -> Iterator[MagicMock]:
-    """Patch the GitHub boundary: release lookup + archive bytes.
+    """Patch the GitHub boundary: only the tarball archive bytes.
 
     ``_download_and_extract`` itself stays real, so prefix stripping and
-    ``//subdir`` extraction are genuinely exercised.
+    ``//subdir`` extraction are genuinely exercised.  There is no Release
+    lookup anymore — the tarball endpoint is the single network call.
     """
-    release = {
-        "tag_name": tag,
-        "zipball_url": f"https://codeload.github.com/{GITHUB_REF}/zip/refs/tags/{tag}",
-    }
+    downloader = AsyncMock(return_value=_fake_download(tarball))
     with patch(
-        "serverless_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir
+        "easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir
     ), patch(
-        "serverless_sandbox.utils.registry.RegistryClient._get_release",
-        new=AsyncMock(return_value=release),
-    ) as get_release, patch(
-        "httpx.AsyncClient.get", new=AsyncMock(return_value=_fake_download(zipball))
+        "httpx.AsyncClient.get", new=downloader
     ):
-        yield get_release
+        yield downloader
 
 
 class TestMockedGithubInstall:
-    """``sbox install owner/repo//<template> --registry-type github`` offline."""
+    """``ebx install owner/repo//<template> --registry-type github`` offline."""
 
     def test_github_install_subdir(
         self, runner: CliRunner, template_dir: Path, tmp_path: Path
     ) -> None:
-        zipball = build_repo_zipball(TEMPLATES_DIR)
-        cache_dir = tmp_path / "sbox-cache"
+        tarball = build_repo_tarball(TEMPLATES_DIR)
+        cache_dir = tmp_path / "ebx-cache"
         ref = f"{GITHUB_REF}//{template_dir.name}@{GITHUB_TAG}"
         expected = load_template_from_yaml(template_dir / "template.yaml")
 
-        with _mocked_github(zipball, cache_dir) as get_release, \
+        with _mocked_github(tarball, cache_dir) as downloader, \
                 _mocked_platform_build() as http_client:
             result = runner.invoke(
                 cli,
@@ -476,9 +487,9 @@ class TestMockedGithubInstall:
 
         assert result.exit_code == 0, _combined_output(result)
         assert f"Fetching template from {GITHUB_REF}" in result.output
-        get_release.assert_awaited_once()
+        downloader.assert_awaited_once()
 
-        # real cache layout: ~/.sbox/templates/<owner>/<repo>/<tag>/<subdir>
+        # real cache layout: ~/.ebx/templates/<owner>/<repo>/<ref>/<subdir>
         cached = cache_dir / GITHUB_OWNER / GITHUB_REPO / GITHUB_TAG / template_dir.name
         assert (cached / "template.yaml").is_file(), (
             f"template was not cached at {cached}"
@@ -498,11 +509,11 @@ class TestMockedGithubInstall:
     def test_github_install_uses_cache_on_second_run(
         self, runner: CliRunner, template_dir: Path, tmp_path: Path
     ) -> None:
-        zipball = build_repo_zipball(TEMPLATES_DIR)
-        cache_dir = tmp_path / "sbox-cache"
+        tarball = build_repo_tarball(TEMPLATES_DIR)
+        cache_dir = tmp_path / "ebx-cache"
         ref = f"{GITHUB_REF}//{template_dir.name}@{GITHUB_TAG}"
 
-        with _mocked_github(zipball, cache_dir) as get_release, \
+        with _mocked_github(tarball, cache_dir) as downloader, \
                 _mocked_platform_build():
             first = runner.invoke(
                 cli, ["install", ref, "--registry-type", "github"]
@@ -513,40 +524,40 @@ class TestMockedGithubInstall:
 
         assert first.exit_code == 0, _combined_output(first)
         assert second.exit_code == 0, _combined_output(second)
-        # second run is served from cache → no extra release lookup / download
-        get_release.assert_awaited_once()
+        # second run is served from cache → no extra tarball download
+        downloader.assert_awaited_once()
 
-    def test_github_install_latest_resolves_release_tag(
+    def test_github_install_default_branch_no_ref(
         self, runner: CliRunner, template_dir: Path, tmp_path: Path
     ) -> None:
-        """A ref without ``@tag`` asks GitHub for ``latest`` and caches under it."""
-        zipball = build_repo_zipball(TEMPLATES_DIR)
-        cache_dir = tmp_path / "sbox-cache"
+        """A ref without ``@ref`` fetches the default-branch tarball, cached as 'default'."""
+        tarball = build_repo_tarball(TEMPLATES_DIR)
+        cache_dir = tmp_path / "ebx-cache"
         ref = f"{GITHUB_REF}//{template_dir.name}"
 
-        with _mocked_github(zipball, cache_dir, tag=GITHUB_TAG) as get_release, \
+        with _mocked_github(tarball, cache_dir) as downloader, \
                 _mocked_platform_build():
             result = runner.invoke(
                 cli, ["install", ref, "--registry-type", "github"]
             )
 
         assert result.exit_code == 0, _combined_output(result)
-        # resolve() must have produced a GitHub ref, not a builtin/local one
-        get_release.assert_awaited_once()
-        assert get_release.await_args.args[2] is None, (
-            "latest release should be queried without an explicit tag"
-        )
-        cached = cache_dir / GITHUB_OWNER / GITHUB_REPO / GITHUB_TAG / template_dir.name
+        # no ref → tarball endpoint without a ref segment
+        downloader.assert_awaited_once()
+        called_url = downloader.await_args.args[0]
+        assert called_url.endswith(f"/repos/{GITHUB_REF}/tarball"), called_url
+        # cached under the stable 'default' placeholder
+        cached = cache_dir / GITHUB_OWNER / GITHUB_REPO / "default" / template_dir.name
         assert (cached / "template.yaml").is_file()
 
     def test_github_install_alias_override(
         self, runner: CliRunner, template_dir: Path, tmp_path: Path
     ) -> None:
-        zipball = build_repo_zipball(TEMPLATES_DIR)
-        cache_dir = tmp_path / "sbox-cache"
+        tarball = build_repo_tarball(TEMPLATES_DIR)
+        cache_dir = tmp_path / "ebx-cache"
         ref = f"{GITHUB_REF}//{template_dir.name}@{GITHUB_TAG}"
 
-        with _mocked_github(zipball, cache_dir), _mocked_platform_build() as http_client:
+        with _mocked_github(tarball, cache_dir), _mocked_platform_build() as http_client:
             result = runner.invoke(
                 cli,
                 ["install", ref, "--registry-type", "github", "--alias", "gh-alias"],
@@ -559,10 +570,10 @@ class TestMockedGithubInstall:
         self, runner: CliRunner, tmp_path: Path
     ) -> None:
         """This catalog is multi-template: the repo root has no YAML of its own."""
-        zipball = build_repo_zipball(TEMPLATES_DIR)
-        cache_dir = tmp_path / "sbox-cache"
+        tarball = build_repo_tarball(TEMPLATES_DIR)
+        cache_dir = tmp_path / "ebx-cache"
 
-        with _mocked_github(zipball, cache_dir), _mocked_platform_build() as http_client:
+        with _mocked_github(tarball, cache_dir), _mocked_platform_build() as http_client:
             result = runner.invoke(
                 cli,
                 [
@@ -661,10 +672,10 @@ class TestMockedGithubInstallFailures:
     def test_github_install_missing_subdir_fails(
         self, runner: CliRunner, tmp_path: Path
     ) -> None:
-        zipball = build_repo_zipball(TEMPLATES_DIR)
-        cache_dir = tmp_path / "sbox-cache"
+        tarball = build_repo_tarball(TEMPLATES_DIR)
+        cache_dir = tmp_path / "ebx-cache"
 
-        with _mocked_github(zipball, cache_dir), _mocked_platform_build() as http_client:
+        with _mocked_github(tarball, cache_dir), _mocked_platform_build() as http_client:
             result = runner.invoke(
                 cli,
                 [
@@ -679,29 +690,29 @@ class TestMockedGithubInstallFailures:
         http_client.platform_request.assert_not_awaited()
 
 
-class TestZipballFixture:
+class TestTarballFixture:
     """The offline GitHub fixture must faithfully represent the catalog."""
 
-    def test_zipball_contains_every_template(self) -> None:
-        zipball = build_repo_zipball(TEMPLATES_DIR)
-        with zipfile.ZipFile(io.BytesIO(zipball)) as zf:
-            names = zf.namelist()
+    def test_tarball_contains_every_template(self) -> None:
+        tarball = build_repo_tarball(TEMPLATES_DIR)
+        with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as tf:
+            names = tf.getnames()
 
-        assert names, "zipball fixture is empty"
-        assert all(n.startswith(f"{_ZIP_PREFIX}/") for n in names)
+        assert names, "tarball fixture is empty"
+        assert all(n.startswith(f"{_ARCHIVE_PREFIX}/") for n in names)
 
         for folder in discover_template_dirs():
             for filename in ("template.yaml", "Dockerfile", "README.md"):
-                expected = f"{_ZIP_PREFIX}/{folder.name}/{filename}"
-                assert expected in names, f"zipball fixture is missing {expected}"
+                expected = f"{_ARCHIVE_PREFIX}/{folder.name}/{filename}"
+                assert expected in names, f"tarball fixture is missing {expected}"
 
-    def test_zipball_extracts_to_loadable_templates(self, tmp_path: Path) -> None:
+    def test_tarball_extracts_to_loadable_templates(self, tmp_path: Path) -> None:
         """Round-trip: extract the fixture and load every template from it."""
-        zipball = build_repo_zipball(TEMPLATES_DIR)
-        with zipfile.ZipFile(io.BytesIO(zipball)) as zf:
-            zf.extractall(tmp_path)
+        tarball = build_repo_tarball(TEMPLATES_DIR)
+        with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as tf:
+            tf.extractall(tmp_path)
 
-        root = tmp_path / _ZIP_PREFIX
+        root = tmp_path / _ARCHIVE_PREFIX
         for folder in discover_template_dirs():
             extracted = root / folder.name / "template.yaml"
             assert extracted.is_file()

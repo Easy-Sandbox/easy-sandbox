@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from serverless_sandbox.utils.retry import retry
+from easy_sandbox.utils.retry import retry
 
 
 class TestRetry:

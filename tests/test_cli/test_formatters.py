@@ -7,7 +7,7 @@ import click
 import pytest
 from click.testing import CliRunner
 
-from serverless_sandbox.cli.formatters import OutputFormatter, get_formatter
+from easy_sandbox.cli.formatters import OutputFormatter, get_formatter
 
 
 class TestOutputFormatterSuccess:

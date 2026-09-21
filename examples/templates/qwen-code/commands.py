@@ -1,7 +1,7 @@
 """qwen-code — 通义千问编码 Agent 沙箱命令。"""
 from __future__ import annotations
 
-from serverless_sandbox.server import (
+from easy_sandbox.server import (
     CapabilityGroup,
     CommandRegistry,
     SandboxServer,

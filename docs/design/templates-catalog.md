@@ -1,12 +1,12 @@
 # 模板目录（Templates Catalog）设计
 
-> `examples/templates/` 是 Serverless Sandbox 的**官方模板集合**，被刻意设计成
+> `examples/templates/` 是 Easy Sandbox 的**官方模板集合**，被刻意设计成
 > 「一个 README + 一堆模板文件夹」的极简形态，以便**整份原样**抽出为独立仓库
-> `awesome-serverless-sandbox-templates`。本文档定义该目录的形态契约、发布流程、
+> `awesome-easy-sandbox-templates`。本文档定义该目录的形态契约、发布流程、
 > 主仓库与独立仓库之间的链接方式，以及让两侧都能跑的离线校验方法。
 >
 > 相关文档：[模板体系设计](./template-system.md)（模板分层与分发机制）、
-> [CLI 设计](./cli-design.md)（`sbox install` / `sbox run` / `sbox exec`）、
+> [CLI 设计](./cli-design.md)（`ebx install` / `ebx run` / `ebx exec`）、
 > [能力模型](./template-system.md#关键设计要点)（capabilities 门控，见「关键设计要点」的能力模型条目；权威定义见 ADR `2026-09-03-capability-model.md`）。
 
 ---
@@ -54,7 +54,7 @@ examples/templates/                 ← 抽出后即独立仓库根
 
 - **文件夹名 == `template.yaml` 的 `name` == 安装后的默认 `alias`**。
   三者一致，`api/capability.py::resolve_capabilities()` 才能在
-  `~/.sbox/templates/` 里按名字反查到模板；否则 capabilities 会静默回落到
+  `~/.ebx/templates/` 里按名字反查到模板；否则 capabilities 会静默回落到
   `DEFAULT_CAPABILITIES`（只打 warning，不报错），是最难排查的一类故障。
 - 命名 kebab-case，无空格、无下划线、无大写。
 - 三个必需文件缺一不可，且不能为空。
@@ -87,11 +87,11 @@ examples/templates/                 ← 抽出后即独立仓库根
 ①  离线校验 + 本地 install E2E 全绿
         │   python -m pytest tests/test_templates/ -q
         ▼
-②  用户 push 到 GitHub 并发 Release
-        │   （人工步骤，Agent 不代为执行 git push / 不发 release）
+②  用户 push 到 GitHub（推 git tag / 分支即可，无需发 Release）
+        │   （人工步骤，Agent 不代为执行 git push）
         ▼
-③  真实 sbox install <owner>/<repo>//<template> --registry-type github 端到端通过
-        │   （真网络、真 GitHub API、真 ~/.sbox/templates 缓存）
+③  真实 ebx install <owner>/<repo>//<template> --registry-type github 端到端通过
+        │   （真网络、真 GitHub API、真 ~/.ebx/templates 缓存）
         ▼
 ④  才算完成
 ```
@@ -111,12 +111,12 @@ python -m pytest tests/test_templates/ -q
 | 被打桩的边界 | 原因 |
 |--------------|------|
 | `transport.config.load_config` / `transport.auth.create_auth_provider` / `transport.http.HttpClient` | 需要真实后端与凭据 |
-| `RegistryClient._get_release` + `httpx.AsyncClient.get` | 需要真实网络（GitHub 风味测试） |
+| `httpx.AsyncClient.get` | 需要真实网络（GitHub tarball 字节） |
 
-注意 `_download_and_extract()` **没有**被打桩——zipball 前缀剥离与 `//subdir`
-子目录抽取逻辑是被真实执行的，喂给它的是内存里现造的 GitHub 风格 zip 副本
-（`build_repo_zipball()`）。因此「ref 解析 → 下载 → 解压 → 缓存 → 加载 → 生成
-Dockerfile → 提交构建」整条链路除了 HTTP 字节本身，全部走过真实代码。
+注意 `_download_and_extract()` **没有**被打桩——tarball 顶层目录剥离与 `//subdir`
+子目录抽取、路径穿越防护都是被真实执行的，喂给它的是内存里现造的
+GitHub 风格 .tar.gz 副本（`build_repo_tarball()`）。因此「ref 解析 → 下载 → 解压
+→ 缓存 → 加载 → 生成 Dockerfile → 提交构建」整条链路除了 HTTP 字节本身，全部走过真实代码。
 
 整个模块还挂了一个 `socket.getaddrinfo` / `socket.create_connection` 绊线
 （autouse fixture），任何意外的域名解析都会让测试直接失败——「全离线」是**可执行**的
@@ -126,56 +126,57 @@ Dockerfile → 提交构建」整条链路除了 HTTP 字节本身，全部走�
 > 依赖它，patch 掉会让 `run_sync()` 里的 `asyncio.run()` 直接崩。
 > `getaddrinfo` 与 `create_connection` 才是所有出站 HTTP 的必经收口。
 
-### 2.2 阶段②：人工 push + Release
+### 2.2 阶段②：人工 push（tag / 分支即可）
 
 由用户执行，Agent 不碰：
 
 ```bash
 # 独立仓库形态
-git remote add templates git@github.com:<owner>/awesome-serverless-sandbox-templates.git
+git remote add templates git@github.com:<owner>/awesome-easy-sandbox-templates.git
 git subtree push --prefix=examples/templates templates main
-git tag v1.0.0 && git push origin v1.0.0     # 或用 gh release create
+git tag v1.0.0 && git push origin v1.0.0     # 推一个 git tag 即可
 ```
 
-**必须发 GitHub Release**，不能只有默认分支：`RegistryClient._get_release()`
-查的是 `/repos/{owner}/{repo}/releases/latest` 或 `/releases/tags/{tag}`，
-没有 Release 时 `latest` 无法解析，`sbox install` 会 404。
+**无需发 GitHub Release**：`RegistryClient` 走 GitHub tarball API
+（`/repos/{owner}/{repo}/tarball[/{ref}]`）按 tag/branch/sha 拉取，GitHub 会
+自动把 ref 解析为 tag/branch/sha；不带 `@ref` 时拉取默认分支。只有默认分支、
+只推 git tag、甚至仅用 commit sha 都能 `ebx install`。
 
 ### 2.3 阶段③：真实 GitHub 端到端
 
 发布后必须用**真网络**验证一次，覆盖阶段①无法覆盖的部分
-（真实 API 响应结构、真实 zipball 顶层前缀、真实鉴权、真实缓存目录）：
+（真实 API 响应结构、真实 tarball 顶层前缀、真实鉴权、真实缓存目录）：
 
 ```bash
 # 清掉缓存，确保不是命中阶段①留下的东西
-sbox template cache --clear
+ebx template cache --clear
 
 # 单模板（本集合的标准用法）
-sbox install <owner>/awesome-serverless-sandbox-templates//node-web \
+ebx install <owner>/awesome-easy-sandbox-templates//node-web \
   --registry-type github --registry-url https://github.com
 
 # 锁版本
-sbox install <owner>/awesome-serverless-sandbox-templates//node-web@v1.0.0 \
+ebx install <owner>/awesome-easy-sandbox-templates//node-web@v1.0.0 \
   --registry-type github
 
 # 验证缓存落地
-sbox template cache
-ls ~/.sbox/templates/<owner>/awesome-serverless-sandbox-templates/v1.0.0/node-web
+ebx template cache
+ls ~/.ebx/templates/<owner>/awesome-easy-sandbox-templates/v1.0.0/node-web
 
 # 验证 capabilities / custom_commands 真的被解析到（不是回落到默认值）
-sbox create --template node-web
-sbox run <sandbox_id> start
-sbox exec <sandbox_id> "node -v"
-sbox kill <sandbox_id> -y
+ebx create --template node-web
+ebx run <sandbox_id> start
+ebx exec <sandbox_id> "node -v"
+ebx kill <sandbox_id> -y
 ```
 
-`sbox run <sandbox_id> start` 能成功，就证明 `custom_commands` 从缓存里的
+`ebx run <sandbox_id> start` 能成功，就证明 `custom_commands` 从缓存里的
 YAML 正确解析出来了——这是整条链路最有信息量的一次断言。
 
 ### 2.4 为什么整仓库 ref（不带 `//`）不适用
 
 ```bash
-sbox install <owner>/awesome-serverless-sandbox-templates --registry-type github
+ebx install <owner>/awesome-easy-sandbox-templates --registry-type github
 ```
 
 会把**仓库根**解到缓存目录，而仓库根只有 `README.md` 与各模板文件夹，
@@ -196,7 +197,7 @@ sbox install <owner>/awesome-serverless-sandbox-templates --registry-type github
 ### 3.1 留在主仓库内（当前状态）
 
 ```bash
-sbox install ./examples/templates/node-web --registry-type local
+ebx install ./examples/templates/node-web --registry-type local
 ```
 
 主仓库的关联点：
@@ -205,13 +206,13 @@ sbox install ./examples/templates/node-web --registry-type local
 |------|----------|------------------|
 | `README.md`（根）→ `examples/templates/` | 相对链接 | 抽出后需改指向独立仓库 URL |
 | `examples/README.md` 目录树 | 相对路径说明 | 抽出后需删该段 |
-| `src/serverless_sandbox/agent/infer.py::TEMPLATE_CATALOG` | **按模板名**引用，不含路径 | ❌ 不失效 |
+| `src/easy_sandbox/agent/infer.py::TEMPLATE_CATALOG` | **按模板名**引用，不含路径 | ❌ 不失效 |
 | `examples/templates/README.md` 内的 schema 链接 | `../../src/...` 相对链接 | 抽出后需改为主仓库 blob URL |
 | `tests/test_templates/` | `parents[2] / "examples" / "templates"` | 抽出后按 §5.3 调整 |
 
 关键设计：**`TEMPLATE_CATALOG` 只按名字引用模板，不引用路径**。
-所以模板目录被抽走后，自然语言推断（`sbox create "……"`）依然工作——
-它推荐的是模板名，用户拿到名字后自行 `sbox install <owner>/<repo>//<name>`。
+所以模板目录被抽走后，自然语言推断（`ebx create "……"`）依然工作——
+它推荐的是模板名，用户拿到名字后自行 `ebx install <owner>/<repo>//<name>`。
 
 ### 3.2 抽出为独立仓库后
 
@@ -222,10 +223,10 @@ sbox install ./examples/templates/node-web --registry-type local
 ## Templates
 
 开箱即用的沙箱模板见独立仓库
-[awesome-serverless-sandbox-templates](https://github.com/<owner>/awesome-serverless-sandbox-templates)：
+[awesome-easy-sandbox-templates](https://github.com/<owner>/awesome-easy-sandbox-templates)：
 
 ```bash
-sbox install <owner>/awesome-serverless-sandbox-templates//node-web --registry-type github
+ebx install <owner>/awesome-easy-sandbox-templates//node-web --registry-type github
 ```
 ````
 
@@ -237,27 +238,27 @@ sbox install <owner>/awesome-serverless-sandbox-templates//node-web --registry-t
 | `git submodule` / 直接删除主仓库副本 | 独立仓库是唯一入口，主仓库只留链接 | 想接受社区 PR、模板生态外溢 |
 
 **当前推荐 subtree push**：`tests/test_templates/` 依赖主仓库的
-`serverless_sandbox` 包（真实加载器、真实 CLI），submodule 化后离线校验会分裂成两套。
+`easy_sandbox` 包（真实加载器、真实 CLI），submodule 化后离线校验会分裂成两套。
 
 ### 3.3 版本对齐
 
-独立仓库的 Release tag 与每个模板 `template.yaml` 的 `version` 字段
+独立仓库的 git tag/ref 与每个模板 `template.yaml` 的 `version` 字段
 是**两个独立维度**：
 
-- Release tag（`v1.0.0`）= 整个集合的快照版本，用于 `@tag` 锁定与缓存分目录。
+- git tag/ref（`v1.0.0`）= 整个集合的快照版本，用于 `@ref` 锁定与缓存分目录。
 - 模板 `version` = 单个模板的语义版本，用于展示与兼容性判断。
 
-约定：集合发新 Release 时，若有模板内容变更则同步 bump 该模板的 `version`。
-缓存路径按 Release tag 分目录（`~/.sbox/templates/<owner>/<repo>/<tag>/`），
+约定：集合推新 git tag 时，若有模板内容变更则同步 bump 该模板的 `version`。
+缓存路径按 ref 分目录（`~/.ebx/templates/<owner>/<repo>/<ref|default>/`），
 所以两个维度的不一致不会造成缓存串味。
 
 ---
 
-## 4. `sbox run` vs `sbox exec` 的边界
+## 4. `ebx run` vs `ebx exec` 的边界
 
 模板集合的存在让这条边界变得有意义，因此写进设计文档而非只写在 README：
 
-| | `sbox run <id> <command_name>` | `sbox exec <id> "<shell>"` |
+| | `ebx run <id> <command_name>` | `ebx exec <id> "<shell>"` |
 |---|---|---|
 | 命令来源 | 模板 `custom_commands` 声明 | 调用方临时拼写 |
 | 参数模型 | `--arg k=v` 填充 `{placeholder}`，`shlex.quote` 自动转义 | 无，全靠自己 |
@@ -268,7 +269,7 @@ sbox install <owner>/awesome-serverless-sandbox-templates//node-web --registry-t
 
 设计意图：`custom_commands` 是模板作者对「这个环境应该怎么用」的**声明式封装**，
 把 `cwd`/`env`/`timeout`/转义这些易错细节从每个调用点收敛到模板里一次。
-`sbox exec` 保留给一次性探索与调试。两者不是替代关系。
+`ebx exec` 保留给一次性探索与调试。两者不是替代关系。
 
 ---
 
@@ -291,7 +292,7 @@ sbox install <owner>/awesome-serverless-sandbox-templates//node-web --registry-t
 
 ### 5.2 对账规则（契约 d）
 
-`TEMPLATE_CATALOG`（`src/serverless_sandbox/agent/infer.py`）与磁盘文件夹
+`TEMPLATE_CATALOG`（`src/easy_sandbox/agent/infer.py`）与磁盘文件夹
 不是 1:1，因此用两张显式白名单把「有意为之的不对称」写死，
 剩下任何偏差都是 bug：
 
@@ -320,7 +321,7 @@ EXAMPLE_ONLY_TEMPLATES = {"python-hello"}
 ### 5.3 在独立仓库里跑同一套检查
 
 `tests/test_templates/` 只依赖 `pydantic` + `pyyaml` + `click` + `pytest` +
-`serverless_sandbox` 包本身，不依赖主仓库任何其它资产。抽出时：
+`easy_sandbox` 包本身，不依赖主仓库任何其它资产。抽出时：
 
 **步骤 1 — 复制测试**
 
@@ -349,7 +350,7 @@ TEMPLATES_DIR = REPO_ROOT                      # ← 只改这一行
 
 **步骤 3 — 装 SDK**
 
-独立仓库 CI 需要装 `serverless-sandbox[cli]`（测试要用真实加载器与真实 CLI）：
+独立仓库 CI 需要装 `easy-sandbox[cli]`（测试要用真实加载器与真实 CLI）：
 
 ```yaml
 # .github/workflows/validate.yml
@@ -362,13 +363,13 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
-      - run: pip install "serverless-sandbox[cli]>=0.1" pytest
+      - run: pip install "easy-sandbox[cli]>=0.1" pytest
       - run: python -m pytest tests/test_templates/ -q
 ```
 
 **步骤 4 — 关掉需要主仓库上下文的两条断言**
 
-契约 d（`TEMPLATE_CATALOG` 对账）依赖 `serverless_sandbox.agent.infer`，
+契约 d（`TEMPLATE_CATALOG` 对账）依赖 `easy_sandbox.agent.infer`，
 装好 SDK 就能跑，无需改动。
 契约 e 中对 `../../src/...` 相对链接的引用只出现在 README 文本里，
 测试不校验链接可达性，因此同样无需改动。
@@ -393,7 +394,7 @@ python -m pytest tests/test_templates/ -q -k node-web
 # 手动离线加载一次（不经过 CLI）
 python -c "
 from pathlib import Path
-from serverless_sandbox.utils.registry import load_template_from_yaml
+from easy_sandbox.utils.registry import load_template_from_yaml
 t = load_template_from_yaml(Path('examples/templates/node-web/template.yaml'))
 print(t.name, t.base, t.capabilities, list(t.custom_commands))
 print(t.to_dockerfile())

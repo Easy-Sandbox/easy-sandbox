@@ -7,11 +7,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from serverless_sandbox.api.session_manager import SessionManager
-from serverless_sandbox.models.errors import SessionNotFoundError, SessionAlreadyExistsError
-from serverless_sandbox.models.session import SessionInfo
-from serverless_sandbox.models.sandbox import SandboxInfo, SandboxStatus
-from serverless_sandbox.session.local import LocalSessionStore
+from easy_sandbox.api.session_manager import SessionManager
+from easy_sandbox.models.errors import SessionNotFoundError, SessionAlreadyExistsError
+from easy_sandbox.models.session import SessionInfo
+from easy_sandbox.models.sandbox import SandboxInfo, SandboxStatus
+from easy_sandbox.session.local import LocalSessionStore
 
 
 @pytest.fixture
@@ -49,7 +49,7 @@ class TestStart:
     async def test_start_creates_session(self, manager: SessionManager, store: LocalSessionStore) -> None:
         mock_sb = _mock_sandbox()
         with patch(
-            "serverless_sandbox.api.session_manager.Sandbox.create",
+            "easy_sandbox.api.session_manager.Sandbox.create",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ):
@@ -68,7 +68,7 @@ class TestStart:
     async def test_start_duplicate_raises(self, manager: SessionManager) -> None:
         mock_sb = _mock_sandbox()
         with patch(
-            "serverless_sandbox.api.session_manager.Sandbox.create",
+            "easy_sandbox.api.session_manager.Sandbox.create",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ):
@@ -76,7 +76,7 @@ class TestStart:
 
         with pytest.raises(SessionAlreadyExistsError):
             with patch(
-                "serverless_sandbox.api.session_manager.Sandbox.create",
+                "easy_sandbox.api.session_manager.Sandbox.create",
                 new_callable=AsyncMock,
                 return_value=mock_sb,
             ):
@@ -97,7 +97,7 @@ class TestConnect:
 
         mock_sb = _mock_sandbox(sandbox_id="sbx-saved-001")
         with patch(
-            "serverless_sandbox.api.session_manager.Sandbox.connect",
+            "easy_sandbox.api.session_manager.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ):
@@ -145,7 +145,7 @@ class TestStop:
         await store.save("to-stop", session)
 
         with patch(
-            "serverless_sandbox.api.session_manager.Sandbox.kill_by_id",
+            "easy_sandbox.api.session_manager.Sandbox.kill_by_id",
             new_callable=AsyncMock,
         ) as mock_kill:
             await manager.stop("to-stop", kill=True)

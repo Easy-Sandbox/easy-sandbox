@@ -1,6 +1,6 @@
 # CLI 命令体系设计
 
-> `sbox` CLI 是 Serverless Sandbox 的命令行入口，兼顾人类开发者和 AI Agent 两种使用场景。CLI 的终极目标：**用户不需要知道模板、资源规格、配置参数，只需要描述想做什么，sandbox 自动搞定一切。**
+> `ebx` CLI 是 Easy Sandbox 的命令行入口，兼顾人类开发者和 AI Agent 两种使用场景。CLI 的终极目标：**用户不需要知道模板、资源规格、配置参数，只需要描述想做什么，sandbox 自动搞定一切。**
 
 ***
 
@@ -21,7 +21,7 @@
 ## 1. 命令树
 
 ```
-sbox
+ebx
 ├── create [description]              # 创建沙箱（支持自然语言推断）
 ├── list                              # 列出所有沙箱
 ├── info <sandbox-id>                 # 查看沙箱详情
@@ -32,6 +32,7 @@ sbox
 ├── connect <sandbox-id>              # 交互式连接（REPL）
 ├── upload <sandbox-id> <local> <remote>    # 上传文件/目录
 ├── download <sandbox-id> <remote> <local>  # 下载文件
+├── deploy [path] [instruction]       # 部署项目到沙箱（NL 模式 / 传统模式）
 ├── install <template-ref>            # 安装社区模板（快捷方式）
 │
 ├── sandbox                           # 沙箱管理分组（含扩展子命令）
@@ -100,16 +101,16 @@ sbox
 
 ```bash
 # 示例：JSON 输出 + 静默
-sbox list --json --quiet
+ebx list --json --quiet
 
 # CI/CD 模式（自动 quiet + no-color + json）
-sbox list --ci
+ebx list --ci
 
 # 指定日志级别
-sbox create "python 环境" --log-level DEBUG
+ebx create "python 环境" --log-level DEBUG
 
 # 指定区域
-sbox create "python 环境" --region cn-shanghai
+ebx create "python 环境" --region cn-shanghai
 ```
 
 CLI 会自动检测 CI 环境（`CI`、`GITHUB_ACTIONS`、`GITLAB_CI`、`JENKINS_URL` 等环境变量），自动启用 CI 模式。非 TTY 环境下颜色输出自动禁用。
@@ -123,7 +124,7 @@ CLI 会自动检测 CI 环境（`CI`、`GITHUB_ACTIONS`、`GITLAB_CI`、`JENKINS
 ### 基本语法
 
 ```bash
-sbox create "<自然语言描述>"
+ebx create "<自然语言描述>"
 ```
 
 ### 三级 Fallback 推断机制
@@ -132,7 +133,7 @@ CLI 使用三级 fallback 策略推断最佳模板：
 
 ```mermaid
 graph TD
-    Input["sbox create '描述'"] --> KW{关键词匹配}
+    Input["ebx create '描述'"] --> KW{关键词匹配}
     KW -- "高置信度 ≥ 0.8" --> Done[返回推断结果]
     KW -- "无匹配 / 低置信度" --> LLM{LLM 配置可用?}
     LLM -- YES --> Call[调用 LLM 推断]
@@ -147,7 +148,7 @@ graph TD
 基于模板关键词与用户描述的重叠度打分，支持中英文关键词。高置信度结果直接返回。
 
 **Level 2 — LLM 推断**（需配置 `llm_api_key`）：
-调用 OpenAI 兼容的 LLM API，由大模型选择最合适的模板。需要预先通过 `sbox config set llm_api_key <key>` 配置。
+调用 OpenAI 兼容的 LLM API，由大模型选择最合适的模板。需要预先通过 `ebx config set llm_api_key <key>` 配置。
 
 **Level 3 — 默认回退**：
 当以上两级都无法确定时，使用 `base` 模板。
@@ -156,35 +157,35 @@ graph TD
 
 ```bash
 # 自然语言描述 → 自动推断模板和配置
-sbox create "运行 python，运行 codex"
+ebx create "运行 python，运行 codex"
 # ✓ 推断结果：
 #     模板: code-interpreter
 #     CPU: 2 核  |  内存: 4096 MB
 #     置信度: 0.95
 # → 创建中...
 
-sbox create "启动一个 Node.js Web 服务"
+ebx create "启动一个 Node.js Web 服务"
 # ✓ 推断结果：
 #     模板: node-web
 #     CPU: 1 核  |  内存: 2048 MB
 #     置信度: 0.85
 
-sbox create "用 playwright 爬取网页并截图"
+ebx create "用 playwright 爬取网页并截图"
 # ✓ 推断结果：
 #     模板: browser-automation
 #     CPU: 2 核  |  内存: 4096 MB
 #     置信度: 0.90
 
 # 带文件上传
-sbox create "分析这个 CSV 文件" --upload data.csv
+ebx create "分析这个 CSV 文件" --upload data.csv
 ```
 
 ### 传统模板模式
 
 ```bash
 # 直接指定模板 — 跳过推断
-sbox create --template codex
-sbox create -T browser-automation
+ebx create --template codex
+ebx create -T browser-automation
 ```
 
 ### 可用模板列表
@@ -208,10 +209,10 @@ sbox create -T browser-automation
 
 ## 4. 核心命令详述
 
-### sbox create
+### ebx create
 
 ```bash
-sbox create [DESCRIPTION] [选项]
+ebx create [DESCRIPTION] [选项]
 
 参数：
   DESCRIPTION               自然语言描述（可选，用于自动推断模板）
@@ -224,52 +225,52 @@ sbox create [DESCRIPTION] [选项]
   --metadata, -m <KEY=VALUE> 元数据键值对（可多次使用）
 
 示例：
-  sbox create "python 数据分析"
-  sbox create --template code-interpreter
-  sbox create "Node.js API" -e PORT=3000
-  sbox create "分析数据" --upload ./data.csv
-  sbox create -T base -e DB_HOST=localhost -m project=demo
+  ebx create "python 数据分析"
+  ebx create --template code-interpreter
+  ebx create "Node.js API" -e PORT=3000
+  ebx create "分析数据" --upload ./data.csv
+  ebx create -T base -e DB_HOST=localhost -m project=demo
 ```
 
-### sbox list
+### ebx list
 
 ```bash
-sbox list [选项]
+ebx list [选项]
 
 选项：
   --status, -s <status>     按状态过滤 (running/stopped/creating/paused/error)
   --limit, -l <n>           限制数量 (默认: 20)
 
 示例：
-  sbox list
-  sbox list --status running --json
-  sbox list -l 50
+  ebx list
+  ebx list --status running --json
+  ebx list -l 50
 ```
 
 **输出格式**：
 
 ```
-$ sbox list
+$ ebx list
   ID            Template             Status    Region
   sb-a1b2c3d4   code-interpreter     running   cn-hangzhou
   sb-e5f6g7h8   python-data-science  running   cn-hangzhou
   sb-i9j0k1l2   base                 stopped   cn-shanghai
 ```
 
-### sbox info
+### ebx info
 
 ```bash
-sbox info <sandbox-id>
+ebx info <sandbox-id>
 
 示例：
-  sbox info sb-a1b2c3d4
-  sbox info sb-a1b2c3d4 --json
+  ebx info sb-a1b2c3d4
+  ebx info sb-a1b2c3d4 --json
 ```
 
 **输出格式**：
 
 ```
-$ sbox info sb-a1b2c3d4
+$ ebx info sb-a1b2c3d4
   ID:           sb-a1b2c3d4
   Template:     code-interpreter
   Status:       running
@@ -279,44 +280,44 @@ $ sbox info sb-a1b2c3d4
   Started:      2026-09-01 14:00:00
 ```
 
-### sbox kill
+### ebx kill
 
 ```bash
-sbox kill <sandbox-id> [选项]
-sbox kill --all [选项]
+ebx kill <sandbox-id> [选项]
+ebx kill --all [选项]
 
 选项：
   --all                     销毁所有运行中的沙箱
   --yes, -y                 跳过确认提示
 
 示例：
-  sbox kill sb-abc123
-  sbox kill sb-abc123 --yes
-  sbox kill --all --yes
+  ebx kill sb-abc123
+  ebx kill sb-abc123 --yes
+  ebx kill --all --yes
 ```
 
-### sbox exec
+### ebx exec
 
 ```bash
-sbox exec <sandbox-id> <command> [选项]
+ebx exec <sandbox-id> <command> [选项]
 
 选项：
   --timeout, -t <seconds>   命令超时 (默认: 60)
   --cwd <path>              工作目录 (默认: /app)
 
 示例：
-  sbox exec sb-abc123 "python train.py"
-  sbox exec sb-abc123 "npm start" --timeout 120
-  sbox exec sb-abc123 "ls -la" --json
+  ebx exec sb-abc123 "python train.py"
+  ebx exec sb-abc123 "npm start" --timeout 120
+  ebx exec sb-abc123 "ls -la" --json
 ```
 
 **输出格式**：
 
 ```
-$ sbox exec sb-abc123 "python -c 'print(1+1)'"
+$ ebx exec sb-abc123 "python -c 'print(1+1)'"
 2
 
-$ sbox exec sb-abc123 "python -c 'print(1+1)'" --json
+$ ebx exec sb-abc123 "python -c 'print(1+1)'" --json
 {
   "stdout": "2\n",
   "stderr": "",
@@ -327,10 +328,10 @@ $ sbox exec sb-abc123 "python -c 'print(1+1)'" --json
 
 `exec` 命令会将沙箱中命令的退出码作为自身的退出码传播。
 
-### sbox run
+### ebx run
 
 ```bash
-sbox run <sandbox-id> <command-name> [选项]
+ebx run <sandbox-id> <command-name> [选项]
 
 参数：
   command-name              模板 `custom_commands` 中声明的命名命令
@@ -340,16 +341,16 @@ sbox run <sandbox-id> <command-name> [选项]
   --timeout, -t <seconds>   覆盖命令声明的超时
 
 示例：
-  sbox run sb-abc123 serve --arg port=9000
-  sbox run sb-abc123 migrate --arg target=head --json
+  ebx run sb-abc123 serve --arg port=9000
+  ebx run sb-abc123 migrate --arg target=head --json
 ```
 
 `run` 是**模板感知**的命名命令分发：根据沙箱模板的 `custom_commands` 声明解析 `command-name`，将 `--arg` 传入的参数按 `args` schema 校验并经 `shlex.quote()` 转义后填充命令模板，再在沙箱内执行。
 
 **`run` 与 `exec` 的语义分工**：
 
-- `sbox exec` = 裸 shell 命令（任意字符串，需 `shell` 能力）。
-- `sbox run` = 模板声明的命名命令（结构化参数 + 防注入）。
+- `ebx exec` = 裸 shell 命令（任意字符串，需 `shell` 能力）。
+- `ebx run` = 模板声明的命名命令（结构化参数 + 防注入）。
 
 错误处理：
 
@@ -359,13 +360,49 @@ sbox run <sandbox-id> <command-name> [选项]
 
 详见 ADR `2026-09-03-cli-run-vs-exec.md`。
 
-### sbox connect
+### ebx deploy
+
+`ebx deploy` 支持两种模式：**NL 模式**（默认，基于 qwen-code agent 自动分析、安装依赖、构建并启动服务）和**传统模式**（手动 build + run）。
 
 ```bash
-sbox connect <sandbox-id>
+ebx deploy [PATH] [INSTRUCTION] [选项]
+
+参数：
+  PATH                            项目目录（默认: .）
+  INSTRUCTION                     自然语言部署指令（可选）
+
+选项：
+  --instruction, -i <text>        NL 部署指令（与位置参数二选一）
+  --max-wall-time <duration>      qwen-code 最大执行时间 (如 '10m', '600s')
+  --max-tool-calls <n>            qwen-code 最大工具调用次数 (默认: 100)
+  --alias, -a <name>              模板别名（传统模式）
+  --watch                         监听文件变化自动重新部署（传统模式）
+  --traditional                   使用传统 build+run 模式而非 AI 部署
 
 示例：
-  sbox connect sb-abc123
+  # NL 模式（默认）
+  ebx deploy ./my-project "这是一个 FastAPI 项目，需要 Redis"
+  ebx deploy ./my-project -i "部署到端口 8080"
+
+  # 传统模式
+  ebx deploy ./my-project --traditional
+```
+
+NL 模式工作流程：
+1. 创建 `qwen-code` 模板沙箱
+2. 上传项目文件到 `/workspace`
+3. qwen-code agent 自动分析项目类型、安装依赖、构建并启动服务
+4. 解析部署结果（状态、URL、端口、日志）
+
+传统模式支持自动检测项目类型（Python / Node.js / Go / Java / Docker），并提供 `ebx deploy build` 和 `ebx deploy run` 子命令进行细粒度控制。
+
+### ebx connect
+
+```bash
+ebx connect <sandbox-id>
+
+示例：
+  ebx connect sb-abc123
 ```
 
 连接到沙箱的交互式 REPL。每条命令在独立进程中执行，输入 `exit`、`quit` 或 `Ctrl+D` 断开连接。
@@ -373,7 +410,7 @@ sbox connect <sandbox-id>
 **交互示例**：
 
 ```
-$ sbox connect sb-abc123
+$ ebx connect sb-abc123
 ✓ Connected to sandbox sb-abc123
 Type 'exit' or Ctrl+D to disconnect
 Note: each command runs in an independent process
@@ -388,70 +425,70 @@ sbox:sb-abc1> exit
 Disconnected.
 ```
 
-### sbox upload
+### ebx upload
 
 ```bash
-sbox upload <sandbox-id> <local-path> <remote-path>
+ebx upload <sandbox-id> <local-path> <remote-path>
 
 示例：
-  sbox upload sb-abc123 ./script.py /app/script.py
-  sbox upload sb-abc123 ./data/ /app/data/
+  ebx upload sb-abc123 ./script.py /app/script.py
+  ebx upload sb-abc123 ./data/ /app/data/
 ```
 
 支持上传单个文件或整个目录。上传目录时会递归上传所有文件。
 
-### sbox download
+### ebx download
 
 ```bash
-sbox download <sandbox-id> <remote-path> <local-path>
+ebx download <sandbox-id> <remote-path> <local-path>
 
 示例：
-  sbox download sb-abc123 /app/result.csv ./result.csv
-  sbox download sb-abc123 /app/output.log .
+  ebx download sb-abc123 /app/result.csv ./result.csv
+  ebx download sb-abc123 /app/output.log .
 ```
 
 下载沙箱中的文件到本地。`local-path` 如果是目录，文件名取自远程路径。
 
-### sbox sandbox files
+### ebx sandbox files
 
 沙箱文件操作子命令组，提供 6 个命令。
 
 #### files list
 
 ```bash
-sbox sandbox files list <sandbox-id> [选项]
+ebx sandbox files list <sandbox-id> [选项]
 
 选项：
   --path, -p <path>       目录路径 (默认: /home/user)
   --recursive, -r         递归列出 (最大深度 5)
 
 示例：
-  sbox sandbox files list abc123
-  sbox sandbox files list abc123 --path /app --recursive
+  ebx sandbox files list abc123
+  ebx sandbox files list abc123 --path /app --recursive
 ```
 
 #### files stat
 
 ```bash
-sbox sandbox files stat <sandbox-id> [选项]
+ebx sandbox files stat <sandbox-id> [选项]
 
 选项：
   --path, -p <path>       文件或目录路径 (必填)
 
 示例：
-  sbox sandbox files stat abc123 --path /home/user/app.py
+  ebx sandbox files stat abc123 --path /home/user/app.py
 ```
 
 #### files mkdir
 
 ```bash
-sbox sandbox files mkdir <sandbox-id> [选项]
+ebx sandbox files mkdir <sandbox-id> [选项]
 
 选项：
   --path, -p <path>       要创建的目录路径 (必填)
 
 示例：
-  sbox sandbox files mkdir abc123 --path /home/user/myproject/src
+  ebx sandbox files mkdir abc123 --path /home/user/myproject/src
 ```
 
 自动创建父目录。
@@ -459,34 +496,34 @@ sbox sandbox files mkdir <sandbox-id> [选项]
 #### files rm
 
 ```bash
-sbox sandbox files rm <sandbox-id> [选项]
+ebx sandbox files rm <sandbox-id> [选项]
 
 选项：
   --path, -p <path>       要删除的文件或目录路径 (必填)
   --yes, -y               跳过确认
 
 示例：
-  sbox sandbox files rm abc123 --path /home/user/temp.txt
-  sbox sandbox files rm abc123 --path /home/user/old_dir -y
+  ebx sandbox files rm abc123 --path /home/user/temp.txt
+  ebx sandbox files rm abc123 --path /home/user/old_dir -y
 ```
 
 #### files mv
 
 ```bash
-sbox sandbox files mv <sandbox-id> [选项]
+ebx sandbox files mv <sandbox-id> [选项]
 
 选项：
   --source, -s <path>     源路径 (必填)
   --dest, -d <path>       目标路径 (必填)
 
 示例：
-  sbox sandbox files mv abc123 --source /home/user/old.py --dest /home/user/new.py
+  ebx sandbox files mv abc123 --source /home/user/old.py --dest /home/user/new.py
 ```
 
 #### files search
 
 ```bash
-sbox sandbox files search <sandbox-id> [选项]
+ebx sandbox files search <sandbox-id> [选项]
 
 选项：
   --path, -p <path>       搜索目录 (必填)
@@ -494,21 +531,21 @@ sbox sandbox files search <sandbox-id> [选项]
   --max-depth <n>         最大搜索深度 (默认: 5)
 
 示例：
-  sbox sandbox files search abc123 --path /home/user --pattern "*.py"
-  sbox sandbox files search abc123 --path /app --pattern "*.log" --max-depth 3
+  ebx sandbox files search abc123 --path /home/user --pattern "*.py"
+  ebx sandbox files search abc123 --path /app --pattern "*.log" --max-depth 3
 ```
 
-### sbox sandbox process
+### ebx sandbox process
 
 沙箱进程管理子命令组，提供 4 个命令。
 
 #### process list
 
 ```bash
-sbox sandbox process list <sandbox-id>
+ebx sandbox process list <sandbox-id>
 
 示例：
-  sbox sandbox process list abc123
+  ebx sandbox process list abc123
 ```
 
 列出沙箱中运行的进程，输出包含 PID、命令和状态。
@@ -516,7 +553,7 @@ sbox sandbox process list <sandbox-id>
 #### process start
 
 ```bash
-sbox sandbox process start <sandbox-id> [选项]
+ebx sandbox process start <sandbox-id> [选项]
 
 选项：
   --command, -c <cmd>     要运行的命令 (必填)
@@ -524,8 +561,8 @@ sbox sandbox process start <sandbox-id> [选项]
   --cwd <path>            工作目录
 
 示例：
-  sbox sandbox process start abc123 --command "python app.py"
-  sbox sandbox process start abc123 -c "node server.js" --cwd /app
+  ebx sandbox process start abc123 --command "python app.py"
+  ebx sandbox process start abc123 -c "node server.js" --cwd /app
 ```
 
 进程完成后输出 stdout/stderr，退出码传播为 CLI 退出码。
@@ -533,10 +570,10 @@ sbox sandbox process start <sandbox-id> [选项]
 #### process info
 
 ```bash
-sbox sandbox process info <sandbox-id> <pid>
+ebx sandbox process info <sandbox-id> <pid>
 
 示例：
-  sbox sandbox process info abc123 1234
+  ebx sandbox process info abc123 1234
 ```
 
 使用 `ps` 查询进程信息，输出 PPID、User、State、RSS、Elapsed 等。
@@ -544,29 +581,29 @@ sbox sandbox process info <sandbox-id> <pid>
 #### process signal
 
 ```bash
-sbox sandbox process signal <sandbox-id> <pid> [选项]
+ebx sandbox process signal <sandbox-id> <pid> [选项]
 
 选项：
   --signal, -s <number>   信号编号 (默认: 15/SIGTERM)
 
 示例：
-  sbox sandbox process signal abc123 1234
-  sbox sandbox process signal abc123 1234 --signal 9
+  ebx sandbox process signal abc123 1234
+  ebx sandbox process signal abc123 1234 --signal 9
 ```
 
 常用信号：15 (SIGTERM)、9 (SIGKILL)、2 (SIGINT)。
 
-### sbox sandbox system
+### ebx sandbox system
 
 沙箱系统信息子命令组，提供 5 个命令。
 
 #### system info
 
 ```bash
-sbox sandbox system info <sandbox-id>
+ebx sandbox system info <sandbox-id>
 
 示例：
-  sbox sandbox system info abc123
+  ebx sandbox system info abc123
 ```
 
 显示操作系统、架构、CPU 数、Python 版本、磁盘空间等。
@@ -574,14 +611,14 @@ sbox sandbox system info <sandbox-id>
 #### system env
 
 ```bash
-sbox sandbox system env <sandbox-id> [选项]
+ebx sandbox system env <sandbox-id> [选项]
 
 选项：
   --filter, -f <names>    逗号分隔的变量名白名单
 
 示例：
-  sbox sandbox system env abc123
-  sbox sandbox system env abc123 --filter PATH,HOME,LANG
+  ebx sandbox system env abc123
+  ebx sandbox system env abc123 --filter PATH,HOME,LANG
 ```
 
 包含 TOKEN、SECRET、KEY、PASSWORD 的敏感变量自动排除。
@@ -589,10 +626,10 @@ sbox sandbox system env <sandbox-id> [选项]
 #### system ports
 
 ```bash
-sbox sandbox system ports <sandbox-id>
+ebx sandbox system ports <sandbox-id>
 
 示例：
-  sbox sandbox system ports abc123
+  ebx sandbox system ports abc123
 ```
 
 使用 `ss -tlnp` 或 `netstat -tlnp` 查询监听中的 TCP 端口。
@@ -600,42 +637,42 @@ sbox sandbox system ports <sandbox-id>
 #### system packages
 
 ```bash
-sbox sandbox system packages <sandbox-id> [选项]
+ebx sandbox system packages <sandbox-id> [选项]
 
 选项：
   --manager, -m <pip|npm> 包管理器 (默认: pip)
 
 示例：
-  sbox sandbox system packages abc123
-  sbox sandbox system packages abc123 --manager npm
+  ebx sandbox system packages abc123
+  ebx sandbox system packages abc123 --manager npm
 ```
 
 #### system metrics
 
 ```bash
-sbox sandbox system metrics <sandbox-id>
+ebx sandbox system metrics <sandbox-id>
 
 示例：
-  sbox sandbox system metrics abc123
+  ebx sandbox system metrics abc123
 ```
 
 显示 CPU 负载（1/5/15 分钟）、磁盘使用率等实时指标。
 
-### sbox sandbox capabilities
+### ebx sandbox capabilities
 
 ```bash
-sbox sandbox capabilities <sandbox-id>
+ebx sandbox capabilities <sandbox-id>
 
 示例：
-  sbox sandbox capabilities abc123
+  ebx sandbox capabilities abc123
 ```
 
 列出沙箱支持的能力组（如 shell、files、code、terminal、ports 等）。
 
-### sbox sandbox shell-stream
+### ebx sandbox shell-stream
 
 ```bash
-sbox sandbox shell-stream <sandbox-id> [选项]
+ebx sandbox shell-stream <sandbox-id> [选项]
 
 选项：
   --command, -c <cmd>     要执行的命令 (必填)
@@ -643,16 +680,16 @@ sbox sandbox shell-stream <sandbox-id> [选项]
   --cwd <path>            工作目录
 
 示例：
-  sbox sandbox shell-stream abc123 --command "pip install numpy"
-  sbox sandbox shell-stream abc123 -c "make build" --cwd /app
+  ebx sandbox shell-stream abc123 --command "pip install numpy"
+  ebx sandbox shell-stream abc123 -c "make build" --cwd /app
 ```
 
 与 `exec` 不同，`shell-stream` 逐行实时打印输出（使用 SSE 流式传输），适合长时间运行的命令。退出码传播为 CLI 退出码。
 
-### sbox install
+### ebx install
 
 ```bash
-sbox install <template-ref> [选项]
+ebx install <template-ref> [选项]
 
 选项：
   --registry-url <url>      Registry URL（默认 GitHub）
@@ -661,19 +698,19 @@ sbox install <template-ref> [选项]
   --alias, -a <name>        模板别名
 
 示例：
-  sbox install owner/repo
-  sbox install owner/repo//subdir@v1.0
-  sbox install ./my-template --registry-type local
+  ebx install owner/repo
+  ebx install owner/repo//subdir@v1.0
+  ebx install ./my-template --registry-type local
 ```
 
-这是 `sbox template install` 的顶层快捷方式。
+这是 `ebx template install` 的顶层快捷方式。
 
-### sbox template
+### ebx template
 
 #### template list
 
 ```bash
-sbox template list
+ebx template list
 ```
 
 列出所有自定义模板（通过 Platform API 查询）。
@@ -681,7 +718,7 @@ sbox template list
 #### template info
 
 ```bash
-sbox template info <template-id>
+ebx template info <template-id>
 ```
 
 查看模板详细信息。
@@ -689,7 +726,7 @@ sbox template info <template-id>
 #### template build
 
 ```bash
-sbox template build -f <Dockerfile> [--alias <name>]
+ebx template build -f <Dockerfile> [--alias <name>]
 ```
 
 从 Dockerfile 构建自定义模板，提交到平台构建。
@@ -697,7 +734,7 @@ sbox template build -f <Dockerfile> [--alias <name>]
 #### template install
 
 ```bash
-sbox template install <template-ref> [选项]
+ebx template install <template-ref> [选项]
 
 选项：
   --registry-url <url>      Registry URL（默认 GitHub）
@@ -706,11 +743,11 @@ sbox template install <template-ref> [选项]
   --alias, -a <name>        模板别名
 
 示例：
-  sbox template install owner/repo              # 整个仓库
-  sbox template install owner/repo//subdir      # 指定子目录
-  sbox template install owner/repo@v1.0         # 指定版本
-  sbox template install owner/repo --token xxx  # 私有仓库
-  sbox template install ./my-template           # 本地目录
+  ebx template install owner/repo              # 整个仓库
+  ebx template install owner/repo//subdir      # 指定子目录
+  ebx template install owner/repo@v1.0         # 指定版本
+  ebx template install owner/repo --token xxx  # 私有仓库
+  ebx template install ./my-template           # 本地目录
 ```
 
 从 GitHub 或本地目录安装模板。模板目录须包含 `template.yaml` 文件。
@@ -718,7 +755,7 @@ sbox template install <template-ref> [选项]
 #### template delete
 
 ```bash
-sbox template delete <template-id>
+ebx template delete <template-id>
 ```
 
 删除自定义模板（需确认）。
@@ -726,17 +763,17 @@ sbox template delete <template-id>
 #### template cache
 
 ```bash
-sbox template cache [--clear]
+ebx template cache [--clear]
 ```
 
 管理本地模板缓存。`--clear` 清除所有缓存。
 
-### sbox mcp
+### ebx mcp
 
 #### mcp install
 
 ```bash
-sbox mcp install --target <cursor|claude|vscode>
+ebx mcp install --target <cursor|claude|vscode>
 ```
 
 安装 MCP Server 配置到指定 IDE。支持 Cursor、Claude Desktop 和 VS Code。安装后会列出注册的工具列表：
@@ -752,7 +789,7 @@ sbox mcp install --target <cursor|claude|vscode>
 #### mcp start
 
 ```bash
-sbox mcp start [选项]
+ebx mcp start [选项]
 
 选项：
   --template <name>         默认沙箱模板 (默认: code-interpreter-v1)
@@ -766,7 +803,7 @@ sbox mcp start [选项]
 #### mcp status
 
 ```bash
-sbox mcp status
+ebx mcp status
 ```
 
 显示 MCP Server 状态：传输模式、工具数量、认证配置、各 IDE 安装状态。
@@ -775,7 +812,7 @@ sbox mcp status
 
 ## 5. 配置管理
 
-配置文件位于 `~/.sbox/config.toml`，API Key 单独存放于 `~/.sbox/.env`。
+配置文件位于 `~/.ebx/config.toml`，API Key 单独存放于 `~/.ebx/.env`。
 
 ### 可配置项
 
@@ -797,22 +834,22 @@ sbox mcp status
 
 ```bash
 # 设置 API Key
-sbox config set api_key e2b_xxx
+ebx config set api_key e2b_xxx
 
 # 配置 LLM（启用自然语言推断的 Level 2）
-sbox config set llm_api_key sk-xxx
-sbox config set llm_model qwen-plus
-sbox config set llm_base_url https://dashscope.aliyuncs.com/compatible-mode/v1
+ebx config set llm_api_key sk-xxx
+ebx config set llm_model qwen-plus
+ebx config set llm_base_url https://dashscope.aliyuncs.com/compatible-mode/v1
 
 # 查看配置
-sbox config list
-sbox config get region
+ebx config list
+ebx config get region
 
 # 重置所有配置
-sbox config reset --yes
+ebx config reset --yes
 ```
 
-LLM 配置也支持环境变量覆盖：`SBOX_LLM_API_KEY`、`SBOX_LLM_MODEL`、`SBOX_LLM_BASE_URL`。
+LLM 配置也支持环境变量覆盖：`EBX_LLM_API_KEY`、`EBX_LLM_MODEL`、`EBX_LLM_BASE_URL`。
 
 ***
 
@@ -822,40 +859,40 @@ LLM 配置也支持环境变量覆盖：`SBOX_LLM_API_KEY`、`SBOX_LLM_MODEL`、
 
 ```bash
 # 一行命令，从描述到可用环境
-sbox create "python 数据分析，需要 pandas 和 matplotlib"
+ebx create "python 数据分析，需要 pandas 和 matplotlib"
 # → sb-abc123
 
-sbox exec sb-abc123 "python -c 'import pandas; print(pandas.__version__)'"
+ebx exec sb-abc123 "python -c 'import pandas; print(pandas.__version__)'"
 # 2.1.0
 
-sbox kill sb-abc123
+ebx kill sb-abc123
 ```
 
 ### 工作流 2：文件交互开发
 
 ```bash
 # 创建沙箱并上传项目
-sbox create -T code-interpreter --upload ./project
+ebx create -T code-interpreter --upload ./project
 
 # 查看沙箱内容
-sbox exec sb-abc123 "ls /home/user/"
+ebx exec sb-abc123 "ls /home/user/"
 
 # 执行代码
-sbox exec sb-abc123 "python /home/user/main.py"
+ebx exec sb-abc123 "python /home/user/main.py"
 
 # 下载结果
-sbox download sb-abc123 /app/result.csv ./result.csv
+ebx download sb-abc123 /app/result.csv ./result.csv
 
 # 完成后销毁
-sbox kill sb-abc123 --yes
+ebx kill sb-abc123 --yes
 ```
 
 ### 工作流 3：交互式调试
 
 ```bash
 # 创建并连接到沙箱
-sbox create -T code-interpreter
-sbox connect sb-abc123
+ebx create -T code-interpreter
+ebx connect sb-abc123
 
 # 在交互式 REPL 中操作
 sbox:sb-abc1> pip install requests
@@ -868,10 +905,10 @@ sbox:sb-abc1> exit
 
 ```bash
 # 安装 MCP Server 到 Cursor
-sbox mcp install --target cursor
+ebx mcp install --target cursor
 
 # 检查状态
-sbox mcp status
+ebx mcp status
 
 # AI Agent 通过 MCP 自动使用沙箱
 # （在 Cursor/Claude 中自然语言操作）
@@ -881,16 +918,16 @@ sbox mcp status
 
 ```bash
 # 从 GitHub 安装社区模板
-sbox install owner/my-template
+ebx install owner/my-template
 
 # 或从 Dockerfile 构建
-sbox template build -f ./Dockerfile --alias my-ml-env
+ebx template build -f ./Dockerfile --alias my-ml-env
 
 # 查看模板状态
-sbox template list
+ebx template list
 
 # 使用自定义模板
-sbox create --template my-ml-env
+ebx create --template my-ml-env
 ```
 
 ***
@@ -920,7 +957,7 @@ sbox create --template my-ml-env
 ### 使用方式
 
 ```python
-from serverless_sandbox.cli.output import get_output
+from easy_sandbox.cli.output import get_output
 
 # 在任意 Click 命令中获取 OutputManager
 out = get_output(ctx)
@@ -941,9 +978,9 @@ CLI 同时为人类和 AI 设计，以下原则确保 AI Agent 能高效使用 C
 
 ```bash
 # 所有命令支持 --json，输出结构化 JSON
-sbox list --json
-sbox info sb-abc123 --json
-sbox exec sb-abc123 "echo hello" --json
+ebx list --json
+ebx info sb-abc123 --json
+ebx exec sb-abc123 "echo hello" --json
 ```
 
 ### 原则 2：确定性退出码
@@ -962,42 +999,42 @@ sbox exec sb-abc123 "echo hello" --json
 
 ```bash
 # --yes 跳过确认（kill、reset 等命令支持）
-sbox kill --all --yes
-sbox config reset --yes
+ebx kill --all --yes
+ebx config reset --yes
 
 # --quiet 最小化输出
-sbox create "python 环境" --quiet
+ebx create "python 环境" --quiet
 ```
 
 ### 原则 4：可组合管道
 
 ```bash
 # 创建后直接获取 ID
-ID=$(sbox create "python 环境" --quiet)
+ID=$(ebx create "python 环境" --quiet)
 
 # 管道组合
-sbox list --json | jq '.[].sandbox_id'
+ebx list --json | jq '.[].sandbox_id'
 
 # 批量销毁
-sbox list --json | jq -r '.[].sandbox_id' | xargs -I{} sbox kill {} --yes
+ebx list --json | jq -r '.[].sandbox_id' | xargs -I{} ebx kill {} --yes
 ```
 
 ### 原则 5：自描述帮助
 
 ```bash
 # 每个命令的 --help 包含完整说明
-sbox create --help
-sbox template install --help
+ebx create --help
+ebx template install --help
 
 # 错误信息包含修复建议
-$ sbox config set unknown_key value
+$ ebx config set unknown_key value
 Error: Unknown config key: 'unknown_key'
 Available keys: api_key, api_url, domain, ...
 ```
 
 ### 原则 6：懒加载高性能
 
-CLI 使用 `LazyGroup` 实现懒加载，`sbox --help` 响应时间 < 200ms。只有实际执行命令时才加载对应模块和依赖。
+CLI 使用 `LazyGroup` 实现懒加载，`ebx --help` 响应时间 < 200ms。只有实际执行命令时才加载对应模块和依赖。
 
 ***
 
@@ -1005,10 +1042,9 @@ CLI 使用 `LazyGroup` 实现懒加载，`sbox --help` 响应时间 < 200ms。�
 
 以下功能尚未实现，计划在后续版本中加入：
 
-- **`sbox deploy [path]`**：一行命令部署项目到沙箱，自动检测项目类型、安装依赖、启动服务
-- **`sbox build [path]`**：从项目目录自动检测并构建沙箱镜像
-- **`sbox logs <sandbox-id>`**：查看沙箱实时日志
-- **`sbox hibernate / wake`**：沙箱休眠与唤醒
-- **`sbox snapshot`**：创建沙箱快照
+- **`ebx build [path]`**：从项目目录自动检测并构建沙箱镜像
+- **`ebx logs <sandbox-id>`**：查看沙箱实时日志
+- **`ebx hibernate / wake`**：沙箱休眠与唤醒
+- **`ebx snapshot`**：创建沙箱快照
 - **Sandbox Pool**：预热沙箱池，支持批量任务场景
 - **热重载模式**：`--watch` 标志，本地文件变更自动同步到沙箱

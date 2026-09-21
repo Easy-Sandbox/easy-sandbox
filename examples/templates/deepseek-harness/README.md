@@ -20,13 +20,13 @@ DeepSeek 模型驱动的 AI 编程 Agent 沙箱运行环境，支持代码生成
 **从本地安装：**
 
 ```bash
-sbox install ./examples/templates/deepseek-harness --registry-type local
+ebx install ./examples/templates/deepseek-harness --registry-type local
 ```
 
 **从 GitHub 安装：**
 
 ```bash
-sbox install Serverless-Sandbox/awesome-templates//deepseek-harness
+ebx install Easy-Sandbox/awesome-templates//deepseek-harness
 ```
 
 ## 使用示例
@@ -34,13 +34,13 @@ sbox install Serverless-Sandbox/awesome-templates//deepseek-harness
 创建沙箱实例并传入 API Key：
 
 ```bash
-sbox create --template deepseek-harness --env DEEPSEEK_API_KEY=sk-xxx
+ebx create --template deepseek-harness --env DEEPSEEK_API_KEY=sk-xxx
 ```
 
 在沙箱中通过 OpenAI 兼容接口调用 DeepSeek 模型：
 
 ```bash
-sbox exec <sandbox-id> -- python3 -c "
+ebx exec <sandbox-id> -- python3 -c "
 from openai import OpenAI
 client = OpenAI(
     api_key='your-deepseek-key',
@@ -57,7 +57,7 @@ print(response.choices[0].message.content)
 使用 Python SDK：
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 sandbox = Sandbox.create(
     template="deepseek-harness",
@@ -83,10 +83,10 @@ print(result.stdout)
 
 ```bash
 # 安装 Python Agent 框架
-sbox exec <sandbox-id> -- pip install langchain langgraph
+ebx exec <sandbox-id> -- pip install langchain langgraph
 
 # 安装 Node.js Agent 工具
-sbox exec <sandbox-id> -- npm install -g <agent-tool>
+ebx exec <sandbox-id> -- npm install -g <agent-tool>
 ```
 
 ## 注意事项

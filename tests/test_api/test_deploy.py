@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from serverless_sandbox.api.deploy import (
+from easy_sandbox.api.deploy import (
     DeployModule,
     DeployResult,
     _build_prompt,
@@ -17,11 +17,11 @@ from serverless_sandbox.api.deploy import (
     _parse_wall_time,
     resolve_llm_env,
 )
-from serverless_sandbox.models.errors import (
+from easy_sandbox.models.errors import (
     DeployAgentError,
     DeployLLMKeyMissingError,
 )
-from serverless_sandbox.models.process import ProcessResult
+from easy_sandbox.models.process import ProcessResult
 
 
 # ---------------------------------------------------------------------------

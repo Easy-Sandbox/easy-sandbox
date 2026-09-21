@@ -4,9 +4,9 @@ Usage: cli download [OPTIONS] SANDBOX_ID REMOTE_PATH LOCAL_PATH
 
   Examples:
 
-      sbox download abc123 /app/result.csv ./result.csv
+      ebx download abc123 /app/result.csv ./result.csv
 
-      sbox download abc123 /app/output.log .
+      ebx download abc123 /app/output.log .
 
 Options:
   --help  Show this message and exit.

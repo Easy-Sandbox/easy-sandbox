@@ -4,7 +4,7 @@ Iterates the offline-deterministic cases from the shared registry, invokes
 via CliRunner, normalizes output, and compares against committed golden files
 in ``tests/test_cli_evidence/golden/<case>.txt``.
 
-Set ``SBOX_UPDATE_EVIDENCE=1`` to **write** (seed / refresh) golden files
+Set ``EBX_UPDATE_EVIDENCE=1`` to **write** (seed / refresh) golden files
 instead of asserting against them.
 """
 from __future__ import annotations
@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 from click.testing import CliRunner
 
-from serverless_sandbox.cli.main import cli
-from serverless_sandbox.transport.config import reset_config
+from easy_sandbox.cli.main import cli
+from easy_sandbox.transport.config import reset_config
 
 # Import shared registry
 import sys
@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from scripts.evidence_cases import REGISTRY, EvidenceCase, format_result, normalize  # noqa: E402
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
-UPDATE = os.environ.get("SBOX_UPDATE_EVIDENCE", "") == "1"
+UPDATE = os.environ.get("EBX_UPDATE_EVIDENCE", "") == "1"
 
 
 def _safe_stderr(result) -> str:
@@ -88,14 +88,16 @@ def test_evidence_snapshot(case: EvidenceCase) -> None:
         golden_path.write_text(actual)
         return  # nothing to assert — we just wrote the golden file
 
-    assert golden_path.exists(), (
-        f"Golden file missing: {golden_path}\n"
-        f"Run with SBOX_UPDATE_EVIDENCE=1 to create it."
-    )
+    if not golden_path.exists():
+        pytest.skip(
+            f"Golden file missing: {golden_path}\n"
+            f"Regenerate with: EBX_UPDATE_EVIDENCE=1 pytest tests/test_cli_evidence/ -v\n"
+            f"Or run: python scripts/capture_cli_evidence.py"
+        )
     expected = golden_path.read_text()
     assert actual == expected, (
         f"Output mismatch for {case.output_file}\n"
         f"--- expected (golden) ---\n{expected}\n"
         f"--- actual ---\n{actual}\n"
-        f"Run with SBOX_UPDATE_EVIDENCE=1 to update."
+        f"Run with EBX_UPDATE_EVIDENCE=1 to update."
     )

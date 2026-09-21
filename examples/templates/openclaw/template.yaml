@@ -1,7 +1,7 @@
 name: openclaw
 version: "1.0.0"
 description: "OpenClaw AI Agent 运行环境 - 开源 AI 编程 Agent 网关与运行时"
-author: "Serverless-Sandbox"
+author: "Easy-Sandbox"
 tags:
   - openclaw
   - ai-agent

@@ -6,17 +6,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
-from serverless_sandbox.api.docker_builder import ACRConfig, _get_acr_auth_token
-from serverless_sandbox.transport.config import load_config, reset_config
-from serverless_sandbox.transport.auth import create_auth_provider
-from serverless_sandbox.transport.http import HttpClient
-from serverless_sandbox.protocol.template import TemplateProtocol
+from easy_sandbox.api.docker_builder import ACRConfig, _get_acr_auth_token
+from easy_sandbox.transport.config import load_config, reset_config
+from easy_sandbox.transport.auth import create_auth_provider
+from easy_sandbox.transport.http import HttpClient
+from easy_sandbox.protocol.template import TemplateProtocol
 
 AK = os.environ.get("AccessKey", "")
 SK = os.environ.get("AccessSecret", "")
 ACREE = os.environ.get("ACREE_INSTANCE_ID", "")
 ACR_REG = os.environ.get("ACR_REGISTRY", "registry.cn-hangzhou.aliyuncs.com")
-ACR_NS = os.environ.get("ACR_NAMESPACE", "serverless-sandbox-test")
+ACR_NS = os.environ.get("ACR_NAMESPACE", "easy-sandbox-test")
 ACR_REPO = os.environ.get("ACR_REPO", "python-hello")
 
 # Reuse the image we already pushed — set ACR_TAG env var to override

@@ -5,7 +5,7 @@ import asyncio
 
 import pytest
 
-from serverless_sandbox.utils.async_bridge import run_sync, make_sync
+from easy_sandbox.utils.async_bridge import run_sync, make_sync
 
 
 class TestRunSync:

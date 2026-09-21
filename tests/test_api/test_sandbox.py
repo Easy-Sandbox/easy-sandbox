@@ -5,14 +5,14 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from serverless_sandbox.api.capability import ResolvedCapabilities
-from serverless_sandbox.api.sandbox import Sandbox
-from serverless_sandbox.models.errors import CapabilityNotSupportedError
-from serverless_sandbox.models.process import CodeResult
-from serverless_sandbox.models.sandbox import SandboxConfig, SandboxInfo, SandboxStatus
-from serverless_sandbox.transport.auth import EnvdTokenManager
-from serverless_sandbox.transport.config import TransportConfig
-from serverless_sandbox.transport.http import HttpClient
+from easy_sandbox.api.capability import ResolvedCapabilities
+from easy_sandbox.api.sandbox import Sandbox
+from easy_sandbox.models.errors import CapabilityNotSupportedError
+from easy_sandbox.models.process import CodeResult
+from easy_sandbox.models.sandbox import SandboxConfig, SandboxInfo, SandboxStatus
+from easy_sandbox.transport.auth import EnvdTokenManager
+from easy_sandbox.transport.config import TransportConfig
+from easy_sandbox.transport.http import HttpClient
 from tests.test_api.conftest import (
     TEST_API_KEY,
     TEST_ENVD_TOKEN,
@@ -58,10 +58,10 @@ class TestSandboxCreate:
         mock_auth = AsyncMock()
         mock_auth.get_headers.return_value = {"X-API-KEY": TEST_API_KEY}
 
-        with patch("serverless_sandbox.api.sandbox.load_config") as mock_load_config, \
-             patch("serverless_sandbox.api.sandbox.create_auth_provider") as mock_create_auth, \
-             patch("serverless_sandbox.api.sandbox.HttpClient") as mock_http_cls, \
-             patch("serverless_sandbox.api.sandbox.SandboxProtocol") as mock_proto_cls:
+        with patch("easy_sandbox.api.sandbox.load_config") as mock_load_config, \
+             patch("easy_sandbox.api.sandbox.create_auth_provider") as mock_create_auth, \
+             patch("easy_sandbox.api.sandbox.HttpClient") as mock_http_cls, \
+             patch("easy_sandbox.api.sandbox.SandboxProtocol") as mock_proto_cls:
             mock_load_config.return_value = TransportConfig(api_key=TEST_API_KEY)
             mock_create_auth.return_value = mock_auth
             mock_http_cls.return_value = mock_http
@@ -81,10 +81,10 @@ class TestSandboxCreate:
         mock_sandbox_proto = AsyncMock()
         mock_sandbox_proto.create.return_value = info
 
-        with patch("serverless_sandbox.api.sandbox.load_config") as mock_load_config, \
-             patch("serverless_sandbox.api.sandbox.create_auth_provider") as mock_create_auth, \
-             patch("serverless_sandbox.api.sandbox.HttpClient"), \
-             patch("serverless_sandbox.api.sandbox.SandboxProtocol") as mock_proto_cls:
+        with patch("easy_sandbox.api.sandbox.load_config") as mock_load_config, \
+             patch("easy_sandbox.api.sandbox.create_auth_provider") as mock_create_auth, \
+             patch("easy_sandbox.api.sandbox.HttpClient"), \
+             patch("easy_sandbox.api.sandbox.SandboxProtocol") as mock_proto_cls:
             mock_load_config.return_value = TransportConfig(api_key=TEST_API_KEY)
             mock_create_auth.return_value = AsyncMock()
             mock_proto_cls.return_value = mock_sandbox_proto
@@ -113,10 +113,10 @@ class TestSandboxConnect:
         mock_sandbox_proto = AsyncMock()
         mock_sandbox_proto.connect.return_value = info
 
-        with patch("serverless_sandbox.api.sandbox.load_config") as mock_load_config, \
-             patch("serverless_sandbox.api.sandbox.create_auth_provider") as mock_create_auth, \
-             patch("serverless_sandbox.api.sandbox.HttpClient"), \
-             patch("serverless_sandbox.api.sandbox.SandboxProtocol") as mock_proto_cls:
+        with patch("easy_sandbox.api.sandbox.load_config") as mock_load_config, \
+             patch("easy_sandbox.api.sandbox.create_auth_provider") as mock_create_auth, \
+             patch("easy_sandbox.api.sandbox.HttpClient"), \
+             patch("easy_sandbox.api.sandbox.SandboxProtocol") as mock_proto_cls:
             mock_load_config.return_value = TransportConfig(api_key=TEST_API_KEY)
             mock_create_auth.return_value = AsyncMock()
             mock_proto_cls.return_value = mock_sandbox_proto
@@ -222,26 +222,26 @@ class TestSandboxSubmodules:
     """Test lazy cached property sub-modules."""
 
     def test_commands_property(self, sandbox: Sandbox) -> None:
-        from serverless_sandbox.api.commands import CommandsModule
+        from easy_sandbox.api.commands import CommandsModule
         cmds = sandbox.commands
         assert isinstance(cmds, CommandsModule)
         # Cached - same object
         assert sandbox.commands is cmds
 
     def test_files_property(self, sandbox: Sandbox) -> None:
-        from serverless_sandbox.api.files import FilesModule
+        from easy_sandbox.api.files import FilesModule
         files = sandbox.files
         assert isinstance(files, FilesModule)
         assert sandbox.files is files
 
     def test_network_property(self, sandbox: Sandbox) -> None:
-        from serverless_sandbox.api.network import NetworkModule
+        from easy_sandbox.api.network import NetworkModule
         net = sandbox.network
         assert isinstance(net, NetworkModule)
         assert sandbox.network is net
 
     def test_code_property(self, sandbox: Sandbox) -> None:
-        from serverless_sandbox.api.code import CodeContextModule
+        from easy_sandbox.api.code import CodeContextModule
         code = sandbox.code
         assert isinstance(code, CodeContextModule)
         assert sandbox.code is code
@@ -295,10 +295,10 @@ class TestSandboxResourceParams:
         mock_sandbox_proto = AsyncMock()
         mock_sandbox_proto.create.return_value = info
 
-        with patch("serverless_sandbox.api.sandbox.load_config") as mock_lc, \
-             patch("serverless_sandbox.api.sandbox.create_auth_provider") as mock_ca, \
-             patch("serverless_sandbox.api.sandbox.HttpClient"), \
-             patch("serverless_sandbox.api.sandbox.SandboxProtocol") as mock_pc:
+        with patch("easy_sandbox.api.sandbox.load_config") as mock_lc, \
+             patch("easy_sandbox.api.sandbox.create_auth_provider") as mock_ca, \
+             patch("easy_sandbox.api.sandbox.HttpClient"), \
+             patch("easy_sandbox.api.sandbox.SandboxProtocol") as mock_pc:
             mock_lc.return_value = TransportConfig(api_key=TEST_API_KEY)
             mock_ca.return_value = AsyncMock()
             mock_pc.return_value = mock_sandbox_proto
@@ -325,10 +325,10 @@ class TestSandboxResourceParams:
         mock_sandbox_proto = AsyncMock()
         mock_sandbox_proto.create.return_value = info
 
-        with patch("serverless_sandbox.api.sandbox.load_config") as mock_lc, \
-             patch("serverless_sandbox.api.sandbox.create_auth_provider") as mock_ca, \
-             patch("serverless_sandbox.api.sandbox.HttpClient"), \
-             patch("serverless_sandbox.api.sandbox.SandboxProtocol") as mock_pc:
+        with patch("easy_sandbox.api.sandbox.load_config") as mock_lc, \
+             patch("easy_sandbox.api.sandbox.create_auth_provider") as mock_ca, \
+             patch("easy_sandbox.api.sandbox.HttpClient"), \
+             patch("easy_sandbox.api.sandbox.SandboxProtocol") as mock_pc:
             mock_lc.return_value = TransportConfig(api_key=TEST_API_KEY)
             mock_ca.return_value = AsyncMock()
             mock_pc.return_value = mock_sandbox_proto
@@ -355,10 +355,10 @@ class TestSandboxResourceParams:
         mock_sandbox_proto = AsyncMock()
         mock_sandbox_proto.create.return_value = info
 
-        with patch("serverless_sandbox.api.sandbox.load_config") as mock_lc, \
-             patch("serverless_sandbox.api.sandbox.create_auth_provider") as mock_ca, \
-             patch("serverless_sandbox.api.sandbox.HttpClient"), \
-             patch("serverless_sandbox.api.sandbox.SandboxProtocol") as mock_pc:
+        with patch("easy_sandbox.api.sandbox.load_config") as mock_lc, \
+             patch("easy_sandbox.api.sandbox.create_auth_provider") as mock_ca, \
+             patch("easy_sandbox.api.sandbox.HttpClient"), \
+             patch("easy_sandbox.api.sandbox.SandboxProtocol") as mock_pc:
             mock_lc.return_value = TransportConfig(api_key=TEST_API_KEY)
             mock_ca.return_value = AsyncMock()
             mock_pc.return_value = mock_sandbox_proto
@@ -388,11 +388,11 @@ class TestSandboxDescriptionInfer:
         mock_infer_result.cpu = 2
         mock_infer_result.memory = 4096
 
-        with patch("serverless_sandbox.api.sandbox.load_config") as mock_lc, \
-             patch("serverless_sandbox.api.sandbox.create_auth_provider") as mock_ca, \
-             patch("serverless_sandbox.api.sandbox.HttpClient"), \
-             patch("serverless_sandbox.api.sandbox.SandboxProtocol") as mock_pc, \
-             patch("serverless_sandbox.agent.infer.infer_template", new_callable=AsyncMock) as mock_infer:
+        with patch("easy_sandbox.api.sandbox.load_config") as mock_lc, \
+             patch("easy_sandbox.api.sandbox.create_auth_provider") as mock_ca, \
+             patch("easy_sandbox.api.sandbox.HttpClient"), \
+             patch("easy_sandbox.api.sandbox.SandboxProtocol") as mock_pc, \
+             patch("easy_sandbox.agent.infer.infer_template", new_callable=AsyncMock) as mock_infer:
             mock_lc.return_value = TransportConfig(api_key=TEST_API_KEY)
             mock_ca.return_value = AsyncMock()
             mock_pc.return_value = mock_sandbox_proto
@@ -416,11 +416,11 @@ class TestSandboxDescriptionInfer:
         mock_sandbox_proto = AsyncMock()
         mock_sandbox_proto.create.return_value = info
 
-        with patch("serverless_sandbox.api.sandbox.load_config") as mock_lc, \
-             patch("serverless_sandbox.api.sandbox.create_auth_provider") as mock_ca, \
-             patch("serverless_sandbox.api.sandbox.HttpClient"), \
-             patch("serverless_sandbox.api.sandbox.SandboxProtocol") as mock_pc, \
-             patch("serverless_sandbox.agent.infer.infer_template", new_callable=AsyncMock) as mock_infer:
+        with patch("easy_sandbox.api.sandbox.load_config") as mock_lc, \
+             patch("easy_sandbox.api.sandbox.create_auth_provider") as mock_ca, \
+             patch("easy_sandbox.api.sandbox.HttpClient"), \
+             patch("easy_sandbox.api.sandbox.SandboxProtocol") as mock_pc, \
+             patch("easy_sandbox.agent.infer.infer_template", new_callable=AsyncMock) as mock_infer:
             mock_lc.return_value = TransportConfig(api_key=TEST_API_KEY)
             mock_ca.return_value = AsyncMock()
             mock_pc.return_value = mock_sandbox_proto
@@ -447,11 +447,11 @@ class TestSandboxDescriptionInfer:
         mock_infer_result.cpu = 2
         mock_infer_result.memory = 4096
 
-        with patch("serverless_sandbox.api.sandbox.load_config") as mock_lc, \
-             patch("serverless_sandbox.api.sandbox.create_auth_provider") as mock_ca, \
-             patch("serverless_sandbox.api.sandbox.HttpClient"), \
-             patch("serverless_sandbox.api.sandbox.SandboxProtocol") as mock_pc, \
-             patch("serverless_sandbox.agent.infer.infer_template", new_callable=AsyncMock) as mock_infer:
+        with patch("easy_sandbox.api.sandbox.load_config") as mock_lc, \
+             patch("easy_sandbox.api.sandbox.create_auth_provider") as mock_ca, \
+             patch("easy_sandbox.api.sandbox.HttpClient"), \
+             patch("easy_sandbox.api.sandbox.SandboxProtocol") as mock_pc, \
+             patch("easy_sandbox.agent.infer.infer_template", new_callable=AsyncMock) as mock_infer:
             mock_lc.return_value = TransportConfig(api_key=TEST_API_KEY)
             mock_ca.return_value = AsyncMock()
             mock_pc.return_value = mock_sandbox_proto
@@ -573,7 +573,7 @@ class TestSandboxTerminal:
     ) -> None:
         mock_session = AsyncMock()
         with patch(
-            "serverless_sandbox.protocol.terminal.TerminalSession.create",
+            "easy_sandbox.protocol.terminal.TerminalSession.create",
             new_callable=AsyncMock,
             return_value=mock_session,
         ) as mock_create:
@@ -603,10 +603,10 @@ class TestSandboxEnvdUrlDerivation:
         mock_sandbox_proto = AsyncMock()
         mock_sandbox_proto.create.return_value = info
 
-        with patch("serverless_sandbox.api.sandbox.load_config") as mock_lc, \
-             patch("serverless_sandbox.api.sandbox.create_auth_provider") as mock_ca, \
-             patch("serverless_sandbox.api.sandbox.HttpClient"), \
-             patch("serverless_sandbox.api.sandbox.SandboxProtocol") as mock_pc:
+        with patch("easy_sandbox.api.sandbox.load_config") as mock_lc, \
+             patch("easy_sandbox.api.sandbox.create_auth_provider") as mock_ca, \
+             patch("easy_sandbox.api.sandbox.HttpClient"), \
+             patch("easy_sandbox.api.sandbox.SandboxProtocol") as mock_pc:
             mock_lc.return_value = TransportConfig(api_key=TEST_API_KEY)
             mock_ca.return_value = AsyncMock()
             mock_pc.return_value = mock_sandbox_proto
@@ -630,10 +630,10 @@ class TestSandboxEnvdUrlDerivation:
         mock_sandbox_proto = AsyncMock()
         mock_sandbox_proto.connect.return_value = info
 
-        with patch("serverless_sandbox.api.sandbox.load_config") as mock_lc, \
-             patch("serverless_sandbox.api.sandbox.create_auth_provider") as mock_ca, \
-             patch("serverless_sandbox.api.sandbox.HttpClient"), \
-             patch("serverless_sandbox.api.sandbox.SandboxProtocol") as mock_pc:
+        with patch("easy_sandbox.api.sandbox.load_config") as mock_lc, \
+             patch("easy_sandbox.api.sandbox.create_auth_provider") as mock_ca, \
+             patch("easy_sandbox.api.sandbox.HttpClient"), \
+             patch("easy_sandbox.api.sandbox.SandboxProtocol") as mock_pc:
             mock_lc.return_value = TransportConfig(api_key=TEST_API_KEY)
             mock_ca.return_value = AsyncMock()
             mock_pc.return_value = mock_sandbox_proto

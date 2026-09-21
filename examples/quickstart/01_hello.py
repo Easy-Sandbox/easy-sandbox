@@ -7,7 +7,7 @@ Shows how to create a sandbox, run commands, capture output, and manage lifecycl
 import asyncio
 import os
 
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 
 async def main() -> None:

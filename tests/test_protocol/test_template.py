@@ -7,15 +7,15 @@ from unittest.mock import AsyncMock, patch
 import httpx
 import pytest
 
-from serverless_sandbox.models.errors import SandboxError
-from serverless_sandbox.protocol.template import (
+from easy_sandbox.models.errors import SandboxError
+from easy_sandbox.protocol.template import (
     TemplateProtocol,
     TemplateBuildError,
     TemplateBuildTimeoutError,
 )
-from serverless_sandbox.transport.auth import ApiKeyAuth
-from serverless_sandbox.transport.config import TransportConfig
-from serverless_sandbox.transport.http import HttpClient
+from easy_sandbox.transport.auth import ApiKeyAuth
+from easy_sandbox.transport.config import TransportConfig
+from easy_sandbox.transport.http import HttpClient
 
 BASE = "https://sandbox-test.example.com"
 

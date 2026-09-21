@@ -6,7 +6,7 @@ import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from serverless_sandbox.agent.mcp import (
+from easy_sandbox.agent.mcp import (
     SandboxMCPServer,
     SandboxManager,
     MCP_PROTOCOL_VERSION,
@@ -65,7 +65,7 @@ class TestSandboxManager:
         mock_sb = AsyncMock()
         mock_sb.id = "sbx-001"
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.create",
+            "easy_sandbox.api.sandbox.Sandbox.create",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ):
@@ -216,7 +216,7 @@ class TestSandboxMCPServer:
         # Mock the manager's get_sandbox
         mock_sb = AsyncMock()
         mock_sb.id = "sbx-t"
-        from serverless_sandbox.models.process import CodeResult
+        from easy_sandbox.models.process import CodeResult
         mock_sb.run_code = AsyncMock(return_value=CodeResult(
             text="ok", stdout="ok\n", stderr="", exit_code=0,
         ))

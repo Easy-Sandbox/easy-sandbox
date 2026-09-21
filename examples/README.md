@@ -1,6 +1,6 @@
-# Serverless Sandbox SDK 使用示例
+# Easy Sandbox SDK 使用示例
 
-本目录包含 Serverless Sandbox SDK 的完整使用示例，覆盖从基础操作到高级场景。
+本目录包含 Easy Sandbox SDK 的完整使用示例，覆盖从基础操作到高级场景。
 
 ## 前置条件
 
@@ -8,11 +8,11 @@
 
 ```bash
 # 完整安装（推荐，包含 CLI + 声明式装饰器）
-pip install serverless-sandbox[all]
+pip install easy-sandbox[all]
 
 # 或按需安装
-pip install serverless-sandbox[cli]          # 仅 CLI
-pip install serverless-sandbox[declarative]  # 仅 @sandbox 装饰器
+pip install easy-sandbox[cli]          # 仅 CLI
+pip install easy-sandbox[declarative]  # 仅 @sandbox 装饰器
 
 # 从源码安装
 pip install -e .
@@ -24,8 +24,8 @@ pip install -e .
 # 方式一：环境变量
 export E2B_API_KEY="your-api-key"
 
-# 方式二：CLI 配置（持久化到 ~/.sbox/config.toml）
-sbox config set api_key your-api-key
+# 方式二：CLI 配置（持久化到 ~/.ebx/config.toml）
+ebx config set api_key your-api-key
 
 # 如需运行 Codex Agent 示例，还需配置：
 export OPENAI_API_KEY="your-openai-key-here"
@@ -113,7 +113,7 @@ python examples/compat-demos/e2b_data_analysis.py
 ## 核心 API 速览
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 # 创建沙箱（推荐使用 async with 自动管理生命周期）
 async with await Sandbox.create(template="base", api_key="...") as sandbox:
@@ -136,7 +136,7 @@ async with await Sandbox.create(template="base", api_key="...") as sandbox:
 
 ```python
 # @sandbox 装饰器 — 声明式远程执行
-from serverless_sandbox.declarative import sandbox
+from easy_sandbox.declarative import sandbox
 
 @sandbox(template="code-interpreter", packages=["numpy"])
 def compute(n: int) -> float:

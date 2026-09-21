@@ -1,4 +1,4 @@
-"""Tests for ``sbox run`` dispatching to Sandbox.run_command (server call)."""
+"""Tests for ``ebx run`` dispatching to Sandbox.run_command (server call)."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import click.testing
 
-from serverless_sandbox.cli.main import cli
+from easy_sandbox.cli.main import cli
 
 
 @dataclass
@@ -57,7 +57,7 @@ def _fake_run_sync(coro: object) -> object:
 
 
 class TestRunCommandServer:
-    """``sbox run <id> <cmd> --key value`` dispatches via Sandbox.run_command."""
+    """``ebx run <id> <cmd> --key value`` dispatches via Sandbox.run_command."""
 
     def test_run_command_success(self) -> None:
         """Happy path: registry hit -> run_command called -> result printed."""
@@ -69,14 +69,14 @@ class TestRunCommandServer:
         }
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ), patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=_fake_run_sync,
         ), patch(
-            "serverless_sandbox.declarative.decorator.sandbox._registry",
+            "easy_sandbox.declarative.decorator.sandbox._registry",
             fake_registry,
         ):
             result = runner.invoke(
@@ -102,14 +102,14 @@ class TestRunCommandServer:
         }
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ), patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=_fake_run_sync,
         ), patch(
-            "serverless_sandbox.declarative.decorator.sandbox._registry",
+            "easy_sandbox.declarative.decorator.sandbox._registry",
             fake_registry,
         ):
             result = runner.invoke(
@@ -136,14 +136,14 @@ class TestRunCommandServer:
         }
 
         with patch(
-            "serverless_sandbox.api.sandbox.Sandbox.connect",
+            "easy_sandbox.api.sandbox.Sandbox.connect",
             new_callable=AsyncMock,
             return_value=mock_sb,
         ), patch(
-            "serverless_sandbox.utils.async_bridge.run_sync",
+            "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=_fake_run_sync,
         ), patch(
-            "serverless_sandbox.declarative.decorator.sandbox._registry",
+            "easy_sandbox.declarative.decorator.sandbox._registry",
             fake_registry,
         ):
             result = runner.invoke(

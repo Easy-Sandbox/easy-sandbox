@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from serverless_sandbox.api.image import Image
+from easy_sandbox.api.image import Image
 
 
 class TestImageFromTemplate:

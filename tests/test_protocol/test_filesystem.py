@@ -8,13 +8,13 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 
-from serverless_sandbox.models.filesystem import FileInfo, FileType, WatchEvent, WatchEventType
-from serverless_sandbox.protocol.filesystem import (
+from easy_sandbox.models.filesystem import FileInfo, FileType, WatchEvent, WatchEventType
+from easy_sandbox.protocol.filesystem import (
     FilesystemProtocol,
     _parse_file_info,
     _parse_watch_event,
 )
-from serverless_sandbox.transport.auth import EnvdTokenManager
+from easy_sandbox.transport.auth import EnvdTokenManager
 
 
 @pytest.fixture

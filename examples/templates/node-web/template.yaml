@@ -1,7 +1,7 @@
 name: node-web
 version: "1.0.0"
 description: "Node.js Web 服务运行环境 - 支持 Express、Fastify 等框架的快速开发与部署"
-author: "Serverless-Sandbox"
+author: "Easy-Sandbox"
 tags:
   - nodejs
   - web

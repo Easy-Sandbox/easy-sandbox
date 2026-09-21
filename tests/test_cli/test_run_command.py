@@ -1,4 +1,4 @@
-"""Tests for `sbox run` CLI command."""
+"""Tests for `ebx run` CLI command."""
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -6,8 +6,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from serverless_sandbox.cli.main import cli
-from serverless_sandbox.models.process import ProcessResult
+from easy_sandbox.cli.main import cli
+from easy_sandbox.models.process import ProcessResult
 
 
 @pytest.fixture
@@ -24,16 +24,16 @@ def _make_run_patches(mock_sandbox):
     execute the merged async function.
     """
     return patch(
-        "serverless_sandbox.api.sandbox.Sandbox.connect",
+        "easy_sandbox.api.sandbox.Sandbox.connect",
         new=AsyncMock(return_value=mock_sandbox),
     )
 
 
 class TestRunCommand:
-    """Test ``sbox run <sandbox_id> <command_name> [--arg ...]``."""
+    """Test ``ebx run <sandbox_id> <command_name> [--arg ...]``."""
 
     def test_run_dispatches_custom_command(self, runner: CliRunner) -> None:
-        """Basic happy-path: sbox run sbx-1 build."""
+        """Basic happy-path: ebx run sbx-1 build."""
         mock_result = ProcessResult(
             stdout="built!\n",
             stderr="",
@@ -50,7 +50,7 @@ class TestRunCommand:
         assert "built!" in result.output
 
     def test_run_with_args(self, runner: CliRunner) -> None:
-        """sbox run sbx-1 deploy --arg target=staging."""
+        """ebx run sbx-1 deploy --arg target=staging."""
         mock_result = ProcessResult(
             stdout="deployed\n",
             stderr="",
@@ -78,7 +78,7 @@ class TestRunCommand:
         assert result.exit_code == 2
 
     def test_run_json_output(self, runner: CliRunner) -> None:
-        """sbox --json run sbx-1 test."""
+        """ebx --json run sbx-1 test."""
         mock_result = ProcessResult(
             stdout="pass\n",
             stderr="",

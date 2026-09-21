@@ -21,13 +21,13 @@
 **从本地安装：**
 
 ```bash
-sbox install ./examples/templates/qwen-code --registry-type local
+ebx install ./examples/templates/qwen-code --registry-type local
 ```
 
 **从 GitHub 安装：**
 
 ```bash
-sbox install Serverless-Sandbox/awesome-templates//qwen-code
+ebx install Easy-Sandbox/awesome-templates//qwen-code
 ```
 
 ## 使用示例
@@ -35,13 +35,13 @@ sbox install Serverless-Sandbox/awesome-templates//qwen-code
 创建沙箱实例并传入 API Key：
 
 ```bash
-sbox create --template qwen-code --env DASHSCOPE_API_KEY=sk-xxx
+ebx create --template qwen-code --env DASHSCOPE_API_KEY=sk-xxx
 ```
 
 在沙箱中通过 DashScope SDK 调用 Qwen 模型：
 
 ```bash
-sbox exec <sandbox-id> -- python3 -c "
+ebx exec <sandbox-id> -- python3 -c "
 import dashscope
 from dashscope import Generation
 response = Generation.call(model='qwen-turbo', prompt='编写一个快速排序算法')
@@ -52,7 +52,7 @@ print(response.output.text)
 也支持使用 OpenAI 兼容接口：
 
 ```bash
-sbox exec <sandbox-id> -- python3 -c "
+ebx exec <sandbox-id> -- python3 -c "
 from openai import OpenAI
 client = OpenAI(
     api_key='your-dashscope-key',
@@ -69,7 +69,7 @@ print(response.choices[0].message.content)
 使用 Python SDK：
 
 ```python
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 sandbox = Sandbox.create(
     template="qwen-code",
@@ -95,20 +95,20 @@ print(result.stdout)
 
 ```bash
 # 使用 qwen-code 进行 NL 部署
-sbox deploy ./my-project "部署这个 FastAPI 项目"
+ebx deploy ./my-project "部署这个 FastAPI 项目"
 
 # 或在沙箱内直接使用 qwen 命令
-sbox exec <sandbox-id> -- qwen -p "分析项目并部署" --yolo
+ebx exec <sandbox-id> -- qwen -p "分析项目并部署" --yolo
 ```
 
 如需安装额外工具：
 
 ```bash
 # 安装额外 Python 包
-sbox exec <sandbox-id> -- pip install <agent-package>
+ebx exec <sandbox-id> -- pip install <agent-package>
 
 # 安装额外 Node.js 工具
-sbox exec <sandbox-id> -- npm install -g <agent-tool>
+ebx exec <sandbox-id> -- npm install -g <agent-tool>
 ```
 
 ## 注意事项

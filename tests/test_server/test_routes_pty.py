@@ -1,4 +1,4 @@
-"""Tests for serverless_sandbox.server.routes_pty — PTY WebSocket terminal system.
+"""Tests for easy_sandbox.server.routes_pty — PTY WebSocket terminal system.
 
 REST tests follow the same pattern as test_app.py (_find_free_port, _start_server,
 _request).  WebSocket tests use ``websockets.connect`` async client.
@@ -25,12 +25,12 @@ pytestmark = pytest.mark.skipif(
 )
 
 # Import triggers route registration side-effect.
-import serverless_sandbox.server.routes_pty  # noqa: F401
+import easy_sandbox.server.routes_pty  # noqa: F401
 
-from serverless_sandbox.server.app import SandboxRequestHandler
-from serverless_sandbox.server.registry import CommandRegistry
-from serverless_sandbox.server.router import CapabilityGroup, RouteTable, default_table
-from serverless_sandbox.server.routes_pty import (
+from easy_sandbox.server.app import SandboxRequestHandler
+from easy_sandbox.server.registry import CommandRegistry
+from easy_sandbox.server.router import CapabilityGroup, RouteTable, default_table
+from easy_sandbox.server.routes_pty import (
     PtySession,
     PtySessionManager,
     pty_session_manager,

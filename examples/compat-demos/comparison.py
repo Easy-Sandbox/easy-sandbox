@@ -17,8 +17,8 @@ import time
 
 API_KEY = os.environ.get("E2B_API_KEY", "")
 
-from serverless_sandbox import Sandbox, SandboxError
-from serverless_sandbox.declarative import sandbox
+from easy_sandbox import Sandbox, SandboxError
+from easy_sandbox.declarative import sandbox
 
 
 # ═══════════════════════════════════════════════════════════════════════════

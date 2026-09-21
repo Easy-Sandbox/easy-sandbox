@@ -30,9 +30,9 @@ from dotenv import load_dotenv  # noqa: E402
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 import httpx  # noqa: E402
-from serverless_sandbox.api.docker_builder import ACRConfig, DockerBuilder, _get_acr_auth_token  # noqa: E402
-from serverless_sandbox.api.sandbox import Sandbox  # noqa: E402
-from serverless_sandbox.transport.config import load_config, reset_config  # noqa: E402
+from easy_sandbox.api.docker_builder import ACRConfig, DockerBuilder, _get_acr_auth_token  # noqa: E402
+from easy_sandbox.api.sandbox import Sandbox  # noqa: E402
+from easy_sandbox.transport.config import load_config, reset_config  # noqa: E402
 
 # ── Paths ──
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -46,7 +46,7 @@ SK = os.environ.get("AccessSecret", "")
 
 # ACR config
 ACR_REGISTRY = os.environ.get("ACR_REGISTRY", "registry.cn-hangzhou.aliyuncs.com")
-ACR_NAMESPACE = os.environ.get("ACR_NAMESPACE", "serverless-sandbox-test")
+ACR_NAMESPACE = os.environ.get("ACR_NAMESPACE", "easy-sandbox-test")
 ACR_REPO = os.environ.get("ACR_REPO", "python-hello")
 ACREE_INSTANCE_ID = os.environ.get("ACREE_INSTANCE_ID", "")
 
@@ -178,9 +178,9 @@ async def phase1_build_and_push() -> str | None:
     print("\n[1.5] Creating template on platform (v3/v2 API)...", flush=True)
     reset_config()
 
-    from serverless_sandbox.transport.auth import create_auth_provider
-    from serverless_sandbox.transport.http import HttpClient
-    from serverless_sandbox.protocol.template import TemplateProtocol
+    from easy_sandbox.transport.auth import create_auth_provider
+    from easy_sandbox.transport.http import HttpClient
+    from easy_sandbox.protocol.template import TemplateProtocol
 
     config = load_config()
     auth = create_auth_provider(
@@ -537,9 +537,9 @@ async def phase3_cleanup(template_id: str | None) -> None:
     print("=" * 60, flush=True)
 
     reset_config()
-    from serverless_sandbox.transport.auth import create_auth_provider
-    from serverless_sandbox.transport.http import HttpClient
-    from serverless_sandbox.protocol.template import TemplateProtocol
+    from easy_sandbox.transport.auth import create_auth_provider
+    from easy_sandbox.transport.http import HttpClient
+    from easy_sandbox.protocol.template import TemplateProtocol
 
     config = load_config()
     auth = create_auth_provider(
@@ -564,7 +564,7 @@ async def phase3_cleanup(template_id: str | None) -> None:
 
 async def main() -> None:
     print("=" * 60)
-    print("  Serverless Sandbox — E2E Custom Template Test")
+    print("  Easy Sandbox — E2E Custom Template Test")
     print(f"  Time: {time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"  Template Dir: {TEMPLATE_DIR}")
     print(f"  ACR: {ACR_REGISTRY}/{ACR_NAMESPACE}/{ACR_REPO}")

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from serverless_sandbox.api.network import NetworkModule
+from easy_sandbox.api.network import NetworkModule
 
 from tests.test_api.conftest import TEST_SANDBOX_ID, TEST_ENVD_TOKEN
 

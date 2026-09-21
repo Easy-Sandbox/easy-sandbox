@@ -7,12 +7,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from serverless_sandbox.declarative.decorator import (
+from easy_sandbox.declarative.decorator import (
     _build_execution_script,
     _get_function_source,
     sandbox,
 )
-from serverless_sandbox.models.process import ProcessResult
+from easy_sandbox.models.process import ProcessResult
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -50,7 +50,7 @@ def _make_mock_sandbox(
 class TestSyncDecoration:
     """@sandbox on synchronous functions."""
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_basic_call(self, mock_sandbox_cls: MagicMock) -> None:
         """Decorated sync function runs successfully."""
         mock_sb = _make_mock_sandbox(stdout=json.dumps({"result": 42}))
@@ -69,7 +69,7 @@ class TestSyncDecoration:
         mock_sb.commands.run.assert_awaited()
         mock_sb.kill.assert_awaited_once()
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_with_kwargs(self, mock_sandbox_cls: MagicMock) -> None:
         """Kwargs are correctly passed through."""
         mock_sb = _make_mock_sandbox(stdout=json.dumps("hello world"))
@@ -91,7 +91,7 @@ class TestSyncDecoration:
 class TestAsyncDecoration:
     """@sandbox on async functions."""
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     async def test_async_call(self, mock_sandbox_cls: MagicMock) -> None:
         mock_sb = _make_mock_sandbox(stdout=json.dumps([1, 2, 3]))
         mock_sandbox_cls.create = AsyncMock(return_value=mock_sb)
@@ -113,7 +113,7 @@ class TestAsyncDecoration:
 class TestKeepAlive:
     """keep_alive=True prevents sandbox.kill()."""
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_keep_alive_no_kill(self, mock_sandbox_cls: MagicMock) -> None:
         mock_sb = _make_mock_sandbox(stdout=json.dumps(None))
         mock_sandbox_cls.create = AsyncMock(return_value=mock_sb)
@@ -134,7 +134,7 @@ class TestKeepAlive:
 class TestSandboxIdReuse:
     """sandbox_id reuses an existing sandbox via connect()."""
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_connect_instead_of_create(self, mock_sandbox_cls: MagicMock) -> None:
         mock_sb = _make_mock_sandbox(stdout=json.dumps("ok"))
         mock_sandbox_cls.connect = AsyncMock(return_value=mock_sb)
@@ -158,7 +158,7 @@ class TestSandboxIdReuse:
 class TestPackageInstallation:
     """packages= triggers pip install before execution."""
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_packages_installed(self, mock_sandbox_cls: MagicMock) -> None:
         mock_sb = _make_mock_sandbox(stdout=json.dumps(None))
         mock_sandbox_cls.create = AsyncMock(return_value=mock_sb)
@@ -188,7 +188,7 @@ class TestPackageInstallation:
 class TestErrorHandling:
     """Remote execution failures raise RuntimeError."""
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_nonzero_exit_code(self, mock_sandbox_cls: MagicMock) -> None:
         mock_sb = _make_mock_sandbox(
             stdout="",
@@ -274,14 +274,14 @@ class TestBuildExecutionScript:
 
 
 class TestTopLevelImport:
-    """sandbox decorator is accessible from serverless_sandbox."""
+    """sandbox decorator is accessible from easy_sandbox."""
 
     def test_import_from_declarative(self) -> None:
-        from serverless_sandbox.declarative import sandbox as sb
+        from easy_sandbox.declarative import sandbox as sb
         assert callable(sb)
 
     def test_import_from_top(self) -> None:
-        from serverless_sandbox import sandbox as sb
+        from easy_sandbox import sandbox as sb
         assert callable(sb)
 
 
@@ -294,7 +294,7 @@ class TestImageBuildWiring:
     """When image= is provided, Image.build() is called and its template_id
     is forwarded as template to Sandbox.create()."""
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_image_build_then_create(self, mock_sandbox_cls: MagicMock) -> None:
         """image.build() → template_id → Sandbox.create(template=...)."""
         mock_sb = _make_mock_sandbox(stdout=json.dumps("ok"))
@@ -329,7 +329,7 @@ class TestImageBuildWiring:
         effective_tpl = call_kw.args[0] if call_kw.args else call_kw.kwargs.get("template")
         assert effective_tpl == "tpl-from-image-build"
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_no_image_uses_template(self, mock_sandbox_cls: MagicMock) -> None:
         """Without image=, the template param is used as-is."""
         mock_sb = _make_mock_sandbox(stdout=json.dumps(None))
@@ -353,7 +353,7 @@ class TestImageBuildWiring:
 class TestCpuMemoryPassThrough:
     """cpu= and memory= are forwarded to Sandbox.create()."""
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_cpu_memory_forwarded(self, mock_sandbox_cls: MagicMock) -> None:
         mock_sb = _make_mock_sandbox(stdout=json.dumps(None))
         mock_sandbox_cls.create = AsyncMock(return_value=mock_sb)
@@ -368,7 +368,7 @@ class TestCpuMemoryPassThrough:
         assert call_kw["cpu"] == 4
         assert call_kw["memory"] == 2048
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_cpu_memory_default_none(self, mock_sandbox_cls: MagicMock) -> None:
         """When cpu/memory are not specified, None is passed."""
         mock_sb = _make_mock_sandbox(stdout=json.dumps(None))
@@ -384,7 +384,7 @@ class TestCpuMemoryPassThrough:
         assert call_kw["cpu"] is None
         assert call_kw["memory"] is None
 
-    @patch("serverless_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
+    @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_image_with_cpu_memory(self, mock_sandbox_cls: MagicMock) -> None:
         """image + cpu/memory: all three are honoured together."""
         mock_sb = _make_mock_sandbox(stdout=json.dumps("done"))

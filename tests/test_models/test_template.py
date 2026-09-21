@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from serverless_sandbox.models.template import SandboxTemplate, TemplateRef
+from easy_sandbox.models.template import SandboxTemplate, TemplateRef
 
 
 class TestSandboxTemplate:

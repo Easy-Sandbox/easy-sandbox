@@ -29,14 +29,14 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from serverless_sandbox.agent.infer import TEMPLATE_CATALOG
-from serverless_sandbox.models.template import (
+from easy_sandbox.agent.infer import TEMPLATE_CATALOG
+from easy_sandbox.models.template import (
     DEFAULT_CAPABILITIES,
     STANDARD_CAPABILITIES,
     CustomCommand,
     SandboxTemplate,
 )
-from serverless_sandbox.utils.registry import load_template_from_yaml
+from easy_sandbox.utils.registry import load_template_from_yaml
 
 from .conftest import REQUIRED_TEMPLATE_FILES, REQUIRED_YAML_KEYS
 
@@ -73,7 +73,7 @@ def _yaml_path(template_dir: Path) -> Path:
 
 
 def _load(template_dir: Path) -> SandboxTemplate:
-    """Load through the real loader — the same code path ``sbox install`` uses."""
+    """Load through the real loader — the same code path ``ebx install`` uses."""
     return load_template_from_yaml(_yaml_path(template_dir))
 
 
@@ -254,7 +254,7 @@ class TestCustomCommands:
         for name in _load(template_dir).custom_commands:
             assert re.fullmatch(r"[a-z][a-z0-9_-]*", name), (
                 f"{template_dir.name}: custom command name {name!r} must be "
-                f"lowercase identifier-like (used as `sbox run <id> {name}`)"
+                f"lowercase identifier-like (used as `ebx run <id> {name}`)"
             )
 
     def test_cmd_is_non_empty(self, template_dir: Path) -> None:
@@ -361,7 +361,7 @@ class TestCatalogCrossReference:
         )
         assert not orphans, (
             f"template folder(s) not referenced by TEMPLATE_CATALOG: {orphans}. "
-            f"Add a TemplateProfile in src/serverless_sandbox/agent/infer.py or "
+            f"Add a TemplateProfile in src/easy_sandbox/agent/infer.py or "
             f"list the name in EXAMPLE_ONLY_TEMPLATES."
         )
 
@@ -597,8 +597,8 @@ class TestCatalogReadme:
 
     def test_readme_documents_run_vs_exec(self, catalog_readme: Path) -> None:
         readme = catalog_readme.read_text(encoding="utf-8")
-        assert "sbox run" in readme
-        assert "sbox exec" in readme
+        assert "ebx run" in readme
+        assert "ebx exec" in readme
 
     def test_readme_documents_full_schema(self, catalog_readme: Path) -> None:
         """Contribution guide must spell out the capability + command schema."""

@@ -1,6 +1,0 @@
-"""E2B SDK compatibility layer."""
-from __future__ import annotations
-
-from serverless_sandbox.compat.sandbox import Sandbox
-
-__all__ = ["Sandbox"]

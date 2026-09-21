@@ -10,7 +10,7 @@ Pydantic BaseSettings in `transport/config.py`. Priority (highest to lowest):
 1. Code parameters (passed directly to constructors)
 2. Environment variables (`SANDBOX_*` prefix)
 3. `.env` file in project root
-4. `~/.sbox/config.toml` user config file
+4. `~/.ebx/config.toml` user config file
 5. Built-in defaults
 
 Lazy loading: file I/O (`.env`, `config.toml`) only performed on first access, not at import time.

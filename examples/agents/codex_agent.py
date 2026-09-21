@@ -11,7 +11,7 @@ Shows how to create a Codex sandbox, configure API keys, and run AI coding tasks
 import asyncio
 import os
 
-from serverless_sandbox import Sandbox
+from easy_sandbox import Sandbox
 
 
 async def main() -> None:

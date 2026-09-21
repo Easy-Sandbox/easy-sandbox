@@ -1,6 +1,6 @@
 # 系统架构设计 — 六层分层架构
 
-> Serverless Sandbox SDK 采用六层分层架构，从底层传输到上层 AI 集成逐层抽象，每层职责单一、边界清晰，用户可在任意层级接入使用。SDK 零 LLM 依赖，不依赖 E2B SDK，自行实现 E2B 兼容协议。
+> Easy Sandbox SDK 采用六层分层架构，从底层传输到上层 AI 集成逐层抽象，每层职责单一、边界清晰，用户可在任意层级接入使用。SDK 零 LLM 依赖，不依赖 E2B SDK，自行实现 E2B 兼容协议。
 
 ---
 
@@ -36,7 +36,7 @@ graph TD
 |------|------|
 | `transport.http` | 基于 httpx 封装 HTTPS 请求，连接池管理，超时/重试策略 |
 | `transport.ws` | 基于 websockets 的长连接，心跳保活，自动重连 |
-| `auth.api_key` | **API Key 认证（主路径）**：通过 `X-API-KEY` 请求头传递，环境变量 `SANDBOX_API_KEY` |
+| `auth.api_key` | **API Key 认证（主路径）**：通过 `X-API-KEY` 请求头传递，环境变量 `E2B_API_KEY`（优先）或 `SANDBOX_API_KEY` |
 | `auth.ak_sk` | **AK/SK 认证（扩展）**：通过阿里云 AK/SK 兑换临时 API Key，或用于控制面 OpenAPI 调用 |
 | `auth.config` | 多环境配置加载（代码参数 → 环境变量 → .env → config.toml → 默认值） |
 
@@ -44,8 +44,10 @@ graph TD
 
 | 认证方式 | 场景 | 传递方式 | 环境变量 |
 |----------|------|----------|----------|
-| **API Key（主路径）** | 云沙箱数据面操作 | `X-API-KEY` 请求头 | `SANDBOX_API_KEY` |
+| **API Key（主路径）** | 云沙箱数据面操作 | `X-API-KEY` 请求头 | `E2B_API_KEY`（优先）/ `SANDBOX_API_KEY` |
 | **AK/SK（扩展）** | 兑换临时 API Key、控制面 OpenAPI | 阿里云 V4 签名 | `ALICLOUD_ACCESS_KEY_ID` / `ALICLOUD_ACCESS_KEY_SECRET` |
+
+> **注意**：当 `E2B_API_KEY` 与 `SANDBOX_API_KEY` 同时存在时，`E2B_API_KEY` 优先。这与 [authentication.md](../guide/authentication.md)、[configuration.md](../reference/configuration.md) 中的优先级规则一致。
 
 **面向用户**：基础设施开发者、需要自定义认证逻辑的高级用户。
 
@@ -170,7 +172,7 @@ graph TD
 ## 4. 项目目录结构
 
 ```
-src/serverless_sandbox/
+src/easy_sandbox/
 ├── __init__.py                    # 顶层导出：Sandbox, Image, Agent, sandbox
 ├── _version.py                    # 版本号
 │
@@ -238,10 +240,10 @@ src/serverless_sandbox/
 │   ├── __init__.py
 │   ├── main.py                    #   CLI 入口
 │   ├── commands/                  #   子命令实现
-│   │   ├── sandbox.py             #     sbox create/list/kill/...
-│   │   ├── sandbox_files.py       #     sbox sandbox files (list/stat/mkdir/rm/mv/search)
-│   │   ├── sandbox_process.py     #     sbox sandbox process (list/start/info/signal)
-│   │   ├── sandbox_system.py      #     sbox sandbox system (info/env/ports/packages/metrics)
+│   │   ├── sandbox.py             #     ebx create/list/kill/...
+│   │   ├── sandbox_files.py       #     ebx sandbox files (list/stat/mkdir/rm/mv/search)
+│   │   ├── sandbox_process.py     #     ebx sandbox process (list/start/info/signal)
+│   │   ├── sandbox_system.py      #     ebx sandbox system (info/env/ports/packages/metrics)
 │   │   ├── template.py            #     template build/push/list/...
 │   │   ├── skill.py               #     skill search/install/...
 │   │   └── mcp.py                 #     mcp install/start/...
@@ -282,7 +284,7 @@ src/serverless_sandbox/
 
 1. **E2B 协议兼容**：L4 层 API 兼容 E2B 数据面协议，提供兼容层方便迁移用户；L2 层自行实现协议，不依赖 E2B SDK
 2. **渐进式复杂度**：用户从 L4 开始，按需向下探索或向上使用高级功能
-3. **零配置默认**：开箱即用的默认值，`SANDBOX_API_KEY` 环境变量即可启动
+3. **零配置默认**：开箱即用的默认值，`E2B_API_KEY`（或 `SANDBOX_API_KEY`）环境变量即可启动
 4. **阿里云原生**：深度集成阿里云服务（FC、VPC、OSS），发挥平台优势
 5. **AI First**：沙箱内置 AI CLI 工具、MCP Server 是一等公民，SDK 零 LLM 依赖
 6. **类型安全**：全面使用 Python Type Hints + Pydantic 验证

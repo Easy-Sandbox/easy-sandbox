@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 from pydantic import ValidationError
 
-from serverless_sandbox.models.sandbox import (
+from easy_sandbox.models.sandbox import (
     SandboxStatus,
     SandboxConfig,
     SandboxInfo,

@@ -14,7 +14,7 @@ Style: E2B (imperative)
 import asyncio
 import os
 
-from serverless_sandbox import Sandbox, SandboxError
+from easy_sandbox import Sandbox, SandboxError
 
 # ── 内嵌销售数据 / Embedded sales CSV data ────────────────────────────────
 SALES_CSV = """\
