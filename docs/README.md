@@ -16,6 +16,8 @@
 | 6 | [MCP Server](design/mcp-server.md) | Tools 定义（P0/P1/P2）、会话绑定、传输方式、IDE 配置 |
 | 7 | [模板体系](design/template-system.md) | 官方模板、自定义模板、sandbox.yaml 规范、模板市场 |
 | 8 | [内置 Agent](design/built-in-agents.md) | 配置推断 Agent、5 种内置 Agent、自定义 Agent、Agent Chain |
+| 9 | [Server API](design/server-api.md) | 容器内 HTTP Server 端点定义、42 端点、8 个能力组 |
+| 10 | [模板目录](design/templates-catalog.md) | 官方模板集合形态契约、发布流程、离线校验 |
 
 ## 项目规划
 
@@ -32,10 +34,14 @@
 - **SDK 用户**：[SDK API 设计](design/sdk-api-design.md) → [沙箱类型](design/sandbox-types.md) → [模板体系](design/template-system.md)
 - **CLI 用户**：[CLI 命令体系](design/cli-design.md) → [模板体系](design/template-system.md) → [Skills 系统](design/skills-system.md)
 - **AI Agent 开发者**：[内置 Agent](design/built-in-agents.md) → [MCP Server](design/mcp-server.md) → [Skills 系统](design/skills-system.md)
-- **架构师**：[系统架构](design/architecture.md) → [项目路线图](roadmap.md)
+- **架构师**：[系统架构](design/architecture.md) → [Server API](design/server-api.md) → [项目路线图](roadmap.md)
 
 ### 按功能
 
 - **自然语言创建沙箱**：[SDK API](design/sdk-api-design.md#核心设计理念自然语言优先) | [CLI](design/cli-design.md#3-自然语言创建) | [InferAgent](design/built-in-agents.md#2-配置推断-agentinferagent)
-- **项目直接部署**：[CLI deploy](design/cli-design.md#4-项目直接部署)
+- **项目直接部署**：[CLI 未来计划](design/cli-design.md#9-未来计划)（`sbox deploy` 尚未实现，计划中）
 - **MCP 集成（Cursor/Claude）**：[MCP Server](design/mcp-server.md#5-安装方式)
+
+### 其他资源
+
+- **社区模板索引**：[`awesome-templates.yaml`](../awesome-templates.yaml) — 官方与社区贡献的沙箱模板统一索引

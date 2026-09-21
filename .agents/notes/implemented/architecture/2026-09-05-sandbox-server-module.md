@@ -1,6 +1,7 @@
 # Decision: serverless_sandbox.server — 用户 Opt-in 容器内 HTTP Server 模块
 
-Status: proposed
+Status: implemented
+Implemented: 2026-09-21
 Task: #118
 
 ## Problem
@@ -19,6 +20,10 @@ Task: #118
 
 4. **ports 能力门控**：server 模块需模板声明 `capabilities: [..., ports]`。`ports` ∉ `DEFAULT_CAPABILITIES = {shell, files, code}`。客户端通过 `https://{port}-{sandbox_id}.{domain}` 访问 server，依赖 Gateway 的 `routeDynamic` 动态端口路由。
 
+### 最终实现规模
+
+Server 模块最终扩展到 **42 个端点**，按 **8 个 CapabilityGroup** 分组管理（CORE, COMMANDS, FILE_OPS, PROCESS, SYSTEM, TERMINAL, DEV_TOOLS, BROWSER）。采用声明式 `RouteTable` + `CapabilityGroup` 机制替代 if/elif 硬编码路由。
+
 ### 内置命令
 
 5. **upload**：上传文件到容器。请求 body 含文件内容和目标路径。
@@ -34,7 +39,8 @@ Task: #118
    - Error Response: `4xx/5xx`，`{"error": "<message>", "type": "<exception_class>"}`
 
 9. **命令发现**：`GET /commands`
-   - Response: `200 OK`，`[{"name": "upload", "description": "...", "args": [...]}, ...]`
+   - Response: `200 OK`，`{"commands": [{"name": "upload", "args": [...]}, ...]}`
+   > 注：早期 ADR 中示例为裸数组格式，实际实现为 `{"commands": [...]}` 对象包裹。
 
 10. **健康检查**：`GET /health`
     - Response: `200 OK`，`{"status": "ok"}`
@@ -117,13 +123,14 @@ class SandboxServer:
 - 零依赖验证：server 模块源码不含任何 `import` 第三方包。
 
 ## Acceptance criteria
-- `serverless_sandbox.server` 模块仅使用 Python 标准库，零第三方依赖。
-- 内置 upload/download/runshell 三个命令，直接操作本地文件系统。
-- WIRE CONTRACT 稳定：`POST /commands/{name}` + JSON body → `{"result"}` 或 `{"error","type"}`。
-- `GET /commands` 发现端点返回所有已注册命令及参数 schema。
-- `ports` 能力门控：未声明 `ports` 时 `start()` 报错。
-- 客户端 API：`sandbox.server.start()` / `.call()` / `.discover()` 功能完整。
-- 实现后，此 ADR 从 `proposed/` 移至 `implemented/`。
+- ✅ `serverless_sandbox.server` 模块仅使用 Python 标准库，零第三方依赖。
+- ✅ 内置 upload/download/runshell 三个命令，直接操作本地文件系统。
+- ✅ WIRE CONTRACT 稳定：`POST /commands/{name}` + JSON body → `{"result"}` 或 `{"error","type"}`。
+- ✅ `GET /commands` 发现端点返回所有已注册命令及参数 schema。
+- ✅ `ports` 能力门控：未声明 `ports` 时 `start()` 报错。
+- ✅ 客户端 API：`sandbox.server.start()` / `.call()` / `.discover()` 功能完整。
+- ✅ Server 从 6 个端点扩展到 42 个端点，8 个能力组（含 BROWSER）。
+- ✅ 此 ADR 已从 `proposed/` 移至 `implemented/`。
 
 ## Evidence
 - `docs/evidence/research/2026-09-04-fc-claude-code-image-inspection.md`（Gateway routeDynamic 确认动态端口路由可行）

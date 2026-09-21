@@ -12,8 +12,9 @@
 4. [核心命令详述](#4-核心命令详述)
 5. [配置管理](#5-配置管理)
 6. [核心工作流](#6-核心工作流)
-7. [AI Friendly 设计原则](#7-ai-friendly-设计原则)
-8. [未来计划](#8-未来计划)
+7. [OutputManager 统一输出管理](#7-outputmanager-统一输出管理)
+8. [AI Friendly 设计原则](#8-ai-friendly-设计原则)
+9. [未来计划](#9-未来计划)
 
 ***
 
@@ -32,6 +33,33 @@ sbox
 ├── upload <sandbox-id> <local> <remote>    # 上传文件/目录
 ├── download <sandbox-id> <remote> <local>  # 下载文件
 ├── install <template-ref>            # 安装社区模板（快捷方式）
+│
+├── sandbox                           # 沙箱管理分组（含扩展子命令）
+│   ├── create / list / info / kill / exec / connect / upload / download / run
+│   │                                 # （同顶层快捷命令）
+│   ├── files                         # 文件操作子命令组
+│   │   ├── list <sandbox-id>         # 列出目录内容
+│   │   ├── stat <sandbox-id>         # 查看文件/目录信息
+│   │   ├── mkdir <sandbox-id>        # 创建目录
+│   │   ├── rm <sandbox-id>           # 删除文件/目录
+│   │   ├── mv <sandbox-id>           # 移动/重命名文件
+│   │   └── search <sandbox-id>       # 按 glob 模式搜索文件
+│   │
+│   ├── process                       # 进程管理子命令组
+│   │   ├── list <sandbox-id>         # 列出运行中进程
+│   │   ├── start <sandbox-id>        # 启动后台进程
+│   │   ├── info <sandbox-id> <pid>   # 查看进程详情
+│   │   └── signal <sandbox-id> <pid> # 向进程发送信号
+│   │
+│   ├── system                        # 系统信息子命令组
+│   │   ├── info <sandbox-id>         # 系统信息（OS/CPU/内存/磁盘）
+│   │   ├── env <sandbox-id>          # 环境变量
+│   │   ├── ports <sandbox-id>        # 监听端口
+│   │   ├── packages <sandbox-id>     # 已安装包列表
+│   │   └── metrics <sandbox-id>      # 资源使用指标
+│   │
+│   ├── capabilities <sandbox-id>     # 查看沙箱支持的能力组
+│   └── shell-stream <sandbox-id>     # 流式命令执行（实时输出）
 │
 ├── template
 │   ├── list                          # 列出可用模板
@@ -61,8 +89,10 @@ sbox
 | -------------- | ------ | ---------------------- | -------------- |
 | `--json`       | `-j`   | 输出 JSON 格式（AI 友好） | `false`        |
 | `--quiet`      | `-q`   | 静默模式，仅输出关键结果   | `false`        |
-| `--verbose`    | `-v`   | 详细输出，含调试信息       | `false`        |
+| `--verbose`    | `-v`   | 详细输出（DEBUG 级别日志） | `false`        |
 | `--no-color`   |        | 禁用颜色输出              | `false`        |
+| `--log-level`  |        | 显式设置日志级别（DEBUG/INFO/WARNING/ERROR） | `None` |
+| `--ci`         |        | CI/CD 模式（等同 quiet + no-color + json） | `false` |
 | `--timeout`    | `-t`   | 默认超时时间（秒）         | `300`          |
 | `--region`     | `-r`   | 指定区域                  | `cn-hangzhou`  |
 | `--profile`    | `-p`   | [预留] 配置档案           | `None`         |
@@ -72,9 +102,17 @@ sbox
 # 示例：JSON 输出 + 静默
 sbox list --json --quiet
 
+# CI/CD 模式（自动 quiet + no-color + json）
+sbox list --ci
+
+# 指定日志级别
+sbox create "python 环境" --log-level DEBUG
+
 # 指定区域
 sbox create "python 环境" --region cn-shanghai
 ```
+
+CLI 会自动检测 CI 环境（`CI`、`GITHUB_ACTIONS`、`GITLAB_CI`、`JENKINS_URL` 等环境变量），自动启用 CI 模式。非 TTY 环境下颜色输出自动禁用。
 
 ***
 
@@ -145,21 +183,26 @@ sbox create "分析这个 CSV 文件" --upload data.csv
 
 ```bash
 # 直接指定模板 — 跳过推断
-sbox create --template code-interpreter
-sbox create -T python-data-science
+sbox create --template codex
+sbox create -T browser-automation
 ```
 
 ### 可用模板列表
 
-| 模板名                | 说明                              | CPU | 内存   |
-| --------------------- | --------------------------------- | --- | ------ |
-| `code-interpreter`    | Python 代码执行和数据分析环境      | 2   | 4096MB |
-| `python-data-science` | 数据科学/ML，预装 pandas/numpy 等  | 2   | 4096MB |
-| `node-web`            | Node.js Web 服务开发环境           | 1   | 2048MB |
-| `browser-automation`  | 浏览器自动化，预装 Chromium        | 2   | 4096MB |
-| `codex`               | OpenAI Codex CLI Agent 运行环境    | 2   | 4096MB |
-| `full-stack`          | 全栈开发环境（Node.js + Python）   | 2   | 4096MB |
-| `base`                | 基础 Ubuntu 环境                   | 1   | 1024MB |
+| 模板名                | 说明                              | 状态 |
+| --------------------- | --------------------------------- | ------ |
+| `python-hello`        | 最小化 Python hello world 测试环境  | 官方 |
+| `node-web`            | Node.js Web 服务开发环境           | 官方 |
+| `browser-automation`  | 浏览器自动化，预装 Chromium + Playwright | 官方 |
+| `codex`               | OpenAI Codex CLI Agent 运行环境    | 官方 |
+| `claude-code`         | Claude Code Agent 运行环境        | 官方 |
+| `qoder`               | Qoder AI 编码助手运行环境          | 官方 |
+| `qwen-code`           | Qwen Code Agent 运行环境          | 官方 |
+| `deepseek-harness`    | DeepSeek Agent 运行环境            | 官方 |
+| `hermes-agent`        | Hermes Agent 运行环境              | 官方 |
+| `openclaw`            | OpenClaw AI Agent 运行环境         | 官方 |
+
+> 完整的社区模板索引参见仓库根目录的 [`awesome-templates.yaml`](../../awesome-templates.yaml)。
 
 ***
 
@@ -368,6 +411,243 @@ sbox download <sandbox-id> <remote-path> <local-path>
 ```
 
 下载沙箱中的文件到本地。`local-path` 如果是目录，文件名取自远程路径。
+
+### sbox sandbox files
+
+沙箱文件操作子命令组，提供 6 个命令。
+
+#### files list
+
+```bash
+sbox sandbox files list <sandbox-id> [选项]
+
+选项：
+  --path, -p <path>       目录路径 (默认: /home/user)
+  --recursive, -r         递归列出 (最大深度 5)
+
+示例：
+  sbox sandbox files list abc123
+  sbox sandbox files list abc123 --path /app --recursive
+```
+
+#### files stat
+
+```bash
+sbox sandbox files stat <sandbox-id> [选项]
+
+选项：
+  --path, -p <path>       文件或目录路径 (必填)
+
+示例：
+  sbox sandbox files stat abc123 --path /home/user/app.py
+```
+
+#### files mkdir
+
+```bash
+sbox sandbox files mkdir <sandbox-id> [选项]
+
+选项：
+  --path, -p <path>       要创建的目录路径 (必填)
+
+示例：
+  sbox sandbox files mkdir abc123 --path /home/user/myproject/src
+```
+
+自动创建父目录。
+
+#### files rm
+
+```bash
+sbox sandbox files rm <sandbox-id> [选项]
+
+选项：
+  --path, -p <path>       要删除的文件或目录路径 (必填)
+  --yes, -y               跳过确认
+
+示例：
+  sbox sandbox files rm abc123 --path /home/user/temp.txt
+  sbox sandbox files rm abc123 --path /home/user/old_dir -y
+```
+
+#### files mv
+
+```bash
+sbox sandbox files mv <sandbox-id> [选项]
+
+选项：
+  --source, -s <path>     源路径 (必填)
+  --dest, -d <path>       目标路径 (必填)
+
+示例：
+  sbox sandbox files mv abc123 --source /home/user/old.py --dest /home/user/new.py
+```
+
+#### files search
+
+```bash
+sbox sandbox files search <sandbox-id> [选项]
+
+选项：
+  --path, -p <path>       搜索目录 (必填)
+  --pattern <glob>        Glob 模式, 如 '*.py' (必填)
+  --max-depth <n>         最大搜索深度 (默认: 5)
+
+示例：
+  sbox sandbox files search abc123 --path /home/user --pattern "*.py"
+  sbox sandbox files search abc123 --path /app --pattern "*.log" --max-depth 3
+```
+
+### sbox sandbox process
+
+沙箱进程管理子命令组，提供 4 个命令。
+
+#### process list
+
+```bash
+sbox sandbox process list <sandbox-id>
+
+示例：
+  sbox sandbox process list abc123
+```
+
+列出沙箱中运行的进程，输出包含 PID、命令和状态。
+
+#### process start
+
+```bash
+sbox sandbox process start <sandbox-id> [选项]
+
+选项：
+  --command, -c <cmd>     要运行的命令 (必填)
+  --timeout, -t <seconds> 超时秒数 (默认: 300)
+  --cwd <path>            工作目录
+
+示例：
+  sbox sandbox process start abc123 --command "python app.py"
+  sbox sandbox process start abc123 -c "node server.js" --cwd /app
+```
+
+进程完成后输出 stdout/stderr，退出码传播为 CLI 退出码。
+
+#### process info
+
+```bash
+sbox sandbox process info <sandbox-id> <pid>
+
+示例：
+  sbox sandbox process info abc123 1234
+```
+
+使用 `ps` 查询进程信息，输出 PPID、User、State、RSS、Elapsed 等。
+
+#### process signal
+
+```bash
+sbox sandbox process signal <sandbox-id> <pid> [选项]
+
+选项：
+  --signal, -s <number>   信号编号 (默认: 15/SIGTERM)
+
+示例：
+  sbox sandbox process signal abc123 1234
+  sbox sandbox process signal abc123 1234 --signal 9
+```
+
+常用信号：15 (SIGTERM)、9 (SIGKILL)、2 (SIGINT)。
+
+### sbox sandbox system
+
+沙箱系统信息子命令组，提供 5 个命令。
+
+#### system info
+
+```bash
+sbox sandbox system info <sandbox-id>
+
+示例：
+  sbox sandbox system info abc123
+```
+
+显示操作系统、架构、CPU 数、Python 版本、磁盘空间等。
+
+#### system env
+
+```bash
+sbox sandbox system env <sandbox-id> [选项]
+
+选项：
+  --filter, -f <names>    逗号分隔的变量名白名单
+
+示例：
+  sbox sandbox system env abc123
+  sbox sandbox system env abc123 --filter PATH,HOME,LANG
+```
+
+包含 TOKEN、SECRET、KEY、PASSWORD 的敏感变量自动排除。
+
+#### system ports
+
+```bash
+sbox sandbox system ports <sandbox-id>
+
+示例：
+  sbox sandbox system ports abc123
+```
+
+使用 `ss -tlnp` 或 `netstat -tlnp` 查询监听中的 TCP 端口。
+
+#### system packages
+
+```bash
+sbox sandbox system packages <sandbox-id> [选项]
+
+选项：
+  --manager, -m <pip|npm> 包管理器 (默认: pip)
+
+示例：
+  sbox sandbox system packages abc123
+  sbox sandbox system packages abc123 --manager npm
+```
+
+#### system metrics
+
+```bash
+sbox sandbox system metrics <sandbox-id>
+
+示例：
+  sbox sandbox system metrics abc123
+```
+
+显示 CPU 负载（1/5/15 分钟）、磁盘使用率等实时指标。
+
+### sbox sandbox capabilities
+
+```bash
+sbox sandbox capabilities <sandbox-id>
+
+示例：
+  sbox sandbox capabilities abc123
+```
+
+列出沙箱支持的能力组（如 shell、files、code、terminal、ports 等）。
+
+### sbox sandbox shell-stream
+
+```bash
+sbox sandbox shell-stream <sandbox-id> [选项]
+
+选项：
+  --command, -c <cmd>     要执行的命令 (必填)
+  --timeout, -t <seconds> 超时秒数 (默认: 300)
+  --cwd <path>            工作目录
+
+示例：
+  sbox sandbox shell-stream abc123 --command "pip install numpy"
+  sbox sandbox shell-stream abc123 -c "make build" --cwd /app
+```
+
+与 `exec` 不同，`shell-stream` 逐行实时打印输出（使用 SSE 流式传输），适合长时间运行的命令。退出码传播为 CLI 退出码。
 
 ### sbox install
 
@@ -615,7 +895,45 @@ sbox create --template my-ml-env
 
 ***
 
-## 7. AI Friendly 设计原则
+## 7. OutputManager 统一输出管理
+
+> CLI 所有命令统一使用 `OutputManager`（`cli/output.py`）代替裸 `click.echo` 调用，确保输出行为在不同模式下保持一致。
+
+### 输出方法
+
+| 方法 | 说明 | quiet 模式 | JSON 模式 |
+|------|------|------------|----------|
+| `info(message)` | 信息性消息 | 抑制 | `{"level": "info", "message": ...}` |
+| `success(message)` | 成功消息（绿色） | 抑制 | `{"status": "success", "message": ...}` |
+| `warning(message)` | 警告消息（黄色，输出到 stderr） | 抑制 | `{"level": "warning", ...}` |
+| `error(message)` | 错误消息（红色，**始终显示**） | 显示 | `{"status": "error", ...}` |
+| `debug(message)` | 调试消息（仅 verbose 模式） | 抑制 | `{"level": "debug", ...}` |
+| `data(data)` | 结构化数据（dict/list） | 按原样输出 | JSON 对象 |
+| `table(headers, rows)` | 表格数据（Rich 表格 + 纯文本回退） | Tab 分隔 | `[{...}, ...]` |
+| `progress(message)` | 进度/状态消息 | 抑制 | `{"level": "progress", ...}` |
+
+### 环境自动检测
+
+- **TTY 检测**：自动检测 stdout 是否连接终端，非 TTY 环境自动禁用颜色输出。
+- **CI 环境检测**：检测 `CI`、`GITHUB_ACTIONS`、`GITLAB_CI`、`JENKINS_URL`、`TRAVIS`、`CIRCLECI`、`BITBUCKET_PIPELINES`、`TF_BUILD`、`CODEBUILD_BUILD_ID` 等环境变量，自动启用 CI 模式（quiet + no-color + json）。
+
+### 使用方式
+
+```python
+from serverless_sandbox.cli.output import get_output
+
+# 在任意 Click 命令中获取 OutputManager
+out = get_output(ctx)
+out.info("正在创建沙箱...")
+out.success("沙箱创建成功")
+out.data({"sandbox_id": "sb-abc123", "status": "running"})
+```
+
+`get_output(ctx)` 从 Click 上下文的 `ctx.meta["sbox.output"]` 中获取 `OutputManager` 实例，无上下文时自动回退到默认实例。
+
+***
+
+## 8. AI Friendly 设计原则
 
 CLI 同时为人类和 AI 设计，以下原则确保 AI Agent 能高效使用 CLI：
 
@@ -683,7 +1001,7 @@ CLI 使用 `LazyGroup` 实现懒加载，`sbox --help` 响应时间 < 200ms。�
 
 ***
 
-## 8. 未来计划
+## 9. 未来计划
 
 以下功能尚未实现，计划在后续版本中加入：
 

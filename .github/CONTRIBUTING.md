@@ -109,12 +109,45 @@ pytest -v
 
 ## Template Contributions
 
-Sandbox templates are maintained in the [awesome-templates](https://github.com/Serverless-Sandbox/awesome-templates) repository. To contribute a template:
+Community sandbox templates are indexed in [`awesome-templates.yaml`](../awesome-templates.yaml) at the repository root. This file serves as a curated, searchable registry of both official and community templates — similar to an awesome-list.
 
-1. Fork the [awesome-templates](https://github.com/Serverless-Sandbox/awesome-templates) repo
-2. Add your template following the existing structure
-3. Include a `README.md` with usage instructions
-4. Open a PR with a description of your template's purpose
+### Adding Your Template to the Index
+
+1. **Fork** this repository
+2. **Open** `awesome-templates.yaml` and add your entry under the `# === Community Templates ===` section:
+   ```yaml
+   - name: my-template
+     description: "One-line description of what your template does"
+     repo: https://github.com/your-username/your-repo
+     path: optional/subdir        # omit if template is at repo root
+     tags: [python, your-tag]
+     author: your-github-handle
+     capabilities: [shell, files, code]  # sandbox capabilities your template requires
+     status: community
+   ```
+3. **Required fields**: `name`, `description`, `repo`, `tags`, `author`, `capabilities`, `status`
+4. **Status values**:
+   - `official` — maintained by the Serverless-Sandbox team (do not use for community PRs)
+   - `community` — community-contributed and maintained
+   - `experimental` — early-stage or proof-of-concept
+5. **Ensure** your repo contains a valid `template.yaml` at the specified path
+6. **Open a PR** against `main` with the commit message: `feat: add <template-name> community template`
+
+### Template Repository Requirements
+
+Your template repository should include:
+- A `template.yaml` defining the sandbox configuration (base image, packages, capabilities, etc.)
+- A `README.md` with usage instructions
+- Example code or scripts that demonstrate the template's purpose
+
+### Searching Templates
+
+Use the CLI to search the community index:
+```bash
+sbox template search python      # search by tag or keyword
+sbox template search ai-agent    # find AI agent templates
+sbox template search browser     # find browser automation templates
+```
 
 ## Commit Message Convention
 

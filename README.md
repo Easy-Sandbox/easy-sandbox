@@ -64,8 +64,7 @@ async def main():
 
 ```bash
 # Configure credentials
-sbox config set access_key_id <YOUR_AK>
-sbox config set access_key_secret <YOUR_SK>
+sbox config set api_key <YOUR_API_KEY>
 
 # Sandbox lifecycle
 sbox create --template python-base       # create a sandbox
@@ -78,15 +77,15 @@ sbox connect <sandbox-id>                 # interactive shell
 sbox upload <sandbox-id> ./local.txt /remote/path.txt
 sbox download <sandbox-id> /remote/path.txt ./local.txt
 
-# Install packages
-sbox install <sandbox-id> numpy pandas
+# Install community templates
+sbox install owner/repo                   # install from GitHub
 
 # Manage templates
 sbox template list
 sbox template info python-base
 
 # MCP server
-sbox mcp serve                            # start MCP tool server
+sbox mcp start                            # start MCP tool server
 
 # Cleanup
 sbox kill <sandbox-id>
@@ -109,7 +108,7 @@ Ready-made sandbox templates live in [`examples/templates/`](examples/templates/
 | `hermes-agent` | Hermes agent harness |
 | `openclaw` | OpenClaw agent harness |
 
-See each template directory for its `Dockerfile`, `manifest.yaml`, and `README.md`.
+See each template directory for its `Dockerfile`, `template.yaml`, and `README.md`.
 
 ## Architecture
 

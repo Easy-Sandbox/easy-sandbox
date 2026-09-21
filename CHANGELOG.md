@@ -7,6 +7,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 ## [0.1.0-dev] - 2026-09-02
 
 ### Added
+- **Server Module**: Container-side HTTP server (`serverless_sandbox.server`) expanded from 6 to 42 endpoints across 8 capability groups (CORE, COMMANDS, FILE_OPS, PROCESS, SYSTEM, TERMINAL, DEV_TOOLS, BROWSER)
+- **Server CapabilityGroup.BROWSER**: New browser automation capability group with 8 Playwright-backed endpoints (navigate, screenshot, content, click, type, evaluate, pdf, console)
+- **Server PTY Terminal**: WebSocket-based interactive PTY terminal system with session management (REST create/list/delete + WebSocket I/O)
+- **Server SSE Shell**: Streaming shell execution via Server-Sent Events (`POST /shell/stream`) for real-time command output
+- **Server RouteTable**: Declarative route registry replacing if/elif dispatch; capability groups can be toggled at runtime or via `SBOX_SERVER_DISABLED_GROUPS` env var
+- **CLI `sbox sandbox files`**: 6 file-operation subcommands — `list`, `stat`, `mkdir`, `rm`, `mv`, `search`
+- **CLI `sbox sandbox process`**: 4 process-management subcommands — `list`, `start`, `info`, `signal`
+- **CLI `sbox sandbox system`**: 5 system-info subcommands — `info`, `env`, `ports`, `packages`, `metrics`
+- **CLI `sbox sandbox capabilities`**: Show supported capability groups of a sandbox
+- **CLI `sbox sandbox shell-stream`**: Real-time streaming command execution (SSE-backed)
+- **CLI Global Options**: Added `--ci` (CI/CD mode: quiet + no-color + json), `--log-level` (explicit DEBUG/INFO/WARNING/ERROR)
+- **CLI OutputManager**: Unified output manager (`cli/output.py`) with TTY/CI auto-detection, replacing ad-hoc click.echo calls
+- **Template Migration**: All 10 templates migrated to new `CapabilityGroup` API
 - **Core SDK**: `Sandbox` class with `create()`, `connect()`, `kill()`, `run_code()` and async context manager
 - **Commands Module**: `run()`, `stream()`, `start()` for executing commands in sandboxes
 - **Files Module**: `read()`, `write()`, `list()`, `upload()`, `download()`, `exists()`, `remove()`, `make_dir()`
@@ -20,12 +33,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **E2B Compatibility**: Drop-in compatible `compat.Sandbox` wrapper
 - **Output Formats**: Table (rich), JSON, and quiet modes for CLI
 - **Sync Support**: All async methods have synchronous variants via `run_sync()`
+- **Community Template Index**: `awesome-templates.yaml` — curated index of official and community sandbox templates
 
 ### Changed
 - **Network Module**: Removed experimental `expose()` and `list_ports()` APIs in favor of a simpler local URL calculation interface based on official documentation. Port URL is now computed client-side as `https://{port}-sbx-{sandbox_id}.{domain}`.
 
 ### Architecture
-- Six-layer architecture: Transport → Protocol → API → CLI
+- Six-layer architecture: Transport → Protocol → Extensions → API → Declarative → Agent Integration (+ CLI + Server)
 - Async-first design with sync wrappers
 - Lazy imports for fast CLI startup (< 200ms)
 - Domain-partitioned HTTP connection pools (Platform API vs envd API)

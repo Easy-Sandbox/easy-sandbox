@@ -73,8 +73,8 @@ graph TD
 | `extensions.vpc` | VPC 网络配置，安全组规则，ENI 绑定 |
 | `extensions.oss` | OSS 挂载，文件同步，大文件传输加速 |
 | `extensions.domain` | 自定义域名绑定与 TLS 证书管理 |
-| `extensions.nas` | NAS 文件系统挂载（共享存储） |
-| `extensions.log` | SLS 日志集成，结构化日志采集 |
+| `extensions.nas` | NAS 文件系统挂载（共享存储） | _TODO — 计划中_ |
+| `extensions.log` | SLS 日志集成，结构化日志采集 | _TODO — 计划中_ |
 
 **面向用户**：企业用户、需要深度集成阿里云服务的开发者。
 
@@ -83,7 +83,7 @@ graph TD
 | 模块 | 职责 |
 |------|------|
 | `api.sandbox` | Sandbox 类 — 创建、管理、执行、销毁的统一入口 |
-| `api.pool` | SandboxPool — 连接池/预热池，并发管理 |
+| `api.pool` | SandboxPool — 连接池/预热池，并发管理 | _TODO — 计划中_ |
 | `api.image` | Image 构建器 — 链式 API 构建自定义镜像 |
 | `api.files` | 高层文件操作 — 上传/下载/监听 |
 | `api.code` | 代码执行引擎 — 多语言支持，Rich Output |
@@ -97,7 +97,7 @@ graph TD
 | `declarative.decorator` | `@sandbox` 装饰器 — Modal 风格远程执行 |
 | `declarative.config` | `sandbox.yaml` 解析与验证 |
 | `declarative.serializer` | 参数/返回值序列化（pickle / cloudpickle / JSON） |
-| `declarative.scheduler` | 声明式任务调度与编排 |
+| `declarative.scheduler` | 声明式任务调度与编排 | _TODO — 计划中_ |
 
 **面向用户**：追求极简体验的 Python 开发者、ML 工程师。
 
@@ -112,6 +112,37 @@ graph TD
 **面向用户**：AI 应用开发者、Agent 框架集成者。
 
 > **注意**：SDK 零 LLM 依赖，不内置 LLM Provider 适配层。Agent 能力来自沙箱模板内预装的 AI CLI 工具。Agent API（`sb.agent.code()`）是 `commands.run()` 的语法糖封装。
+
+### Server 模块（容器内运行时服务）
+
+| 模块 | 职责 |
+|------|------|
+| `server.app` | `SandboxServer` 主类 — stdlib-only HTTP server，零第三方依赖，容器内常驻运行 |
+| `server.router` | `RouteTable` + `CapabilityGroup` — 声明式路由注册与能力组开关 |
+| `server.registry` | `CommandRegistry` — 用户自定义命令注册与发现 |
+| `server.routes` | 核心内置路由：health、commands、upload、download、shell |
+| `server.routes_files` | 文件操作端点：list/stat/mkdir/delete/move/search/archive（9 端点） |
+| `server.routes_process` | 进程管理端点：start/list/detail/signal + SSE 流式 shell（5 端点，按文件统计） |
+| `server.routes_system` | 系统信息端点：info/env/ports/packages/metrics + capabilities（7 端点，按文件统计；注：server-api.md 按能力组统计口径不同） |
+| `server.routes_pty` | PTY WebSocket 终端：会话创建/列表/删除 + WebSocket 交互式终端 |
+| `server.routes_browser` | 浏览器自动化端点：navigate/screenshot/content/click/type/evaluate/pdf/console（8 端点） |
+| `server.routes_devtools` | 开发工具端点：code/run、git/status、git/diff（3 端点） |
+| `server.types` | 请求/响应数据模型：`ServerRequest`、`ServerResponse`、`SSEResponse` |
+
+Server 模块运行在沙箱容器内部，与 SDK 主体分层不同，它是用户 opt-in 的容器内常驻 HTTP 服务。完全基于 Python stdlib，零第三方依赖（PTY 终端使用 SDK 已有的 `websockets` 核心依赖）。提供 42 个端点，按 8 个 CapabilityGroup 分组管理：
+
+| 能力组 | 说明 | 默认状态 |
+|--------|------|----------|
+| `CORE` | health、capabilities | 始终启用，不可禁用 |
+| `COMMANDS` | 用户自定义命令注册与发现 | 启用 |
+| `FILE_OPS` | 文件系统 CRUD + 归档 | 启用 |
+| `PROCESS` | 进程管理 + SSE 流式 shell | 启用 |
+| `SYSTEM` | 系统信息、环境变量、端口、包管理、指标 | 启用 |
+| `TERMINAL` | PTY WebSocket 交互式终端 | 启用 |
+| `DEV_TOOLS` | Code Interpreter + Git 操作 | 禁用（需显式启用） |
+| `BROWSER` | Playwright 浏览器自动化 | 禁用（需显式启用） |
+
+**面向用户**：沙箱模板开发者、需要在容器内注册自定义命令的高级用户。
 
 ---
 
@@ -163,13 +194,13 @@ src/serverless_sandbox/
 │   ├── vpc.py                     #   VPC 网络配置
 │   ├── oss.py                     #   OSS 挂载与文件同步
 │   ├── domain.py                  #   自定义域名绑定
-│   ├── nas.py                     #   NAS 文件系统挂载
-│   └── log.py                     #   SLS 日志集成
+│   ├── nas.py                     #   NAS 文件系统挂载（TODO — 计划中）
+│   └── log.py                     #   SLS 日志集成（TODO — 计划中）
 │
 ├── api/                           # L4 — 高层便捷 API
 │   ├── __init__.py
 │   ├── sandbox.py                 #   Sandbox 核心类
-│   ├── pool.py                    #   SandboxPool 沙箱池
+│   ├── pool.py                    #   SandboxPool 沙箱池（TODO — 计划中）
 │   ├── image.py                   #   Image 链式构建器
 │   ├── files.py                   #   高层文件操作
 │   └── code.py                    #   代码执行引擎
@@ -179,7 +210,7 @@ src/serverless_sandbox/
 │   ├── decorator.py               #   @sandbox 装饰器
 │   ├── config.py                  #   sandbox.yaml 解析
 │   ├── serializer.py              #   参数序列化
-│   └── scheduler.py               #   任务调度
+│   └── scheduler.py               #   任务调度（TODO — 计划中）
 │
 ├── agent/                         # L6 — AI 集成层（轻量封装）
 │   ├── __init__.py
@@ -188,15 +219,34 @@ src/serverless_sandbox/
 │   ├── infer.py                   #   自然语言推断（外部调用 Server/Qwen CLI/规则匹配）
 │   └── mcp.py                     #   MCP Server 实现
 │
+├── server/                        # 容器内运行时 HTTP Server（opt-in，stdlib-only）
+│   ├── __init__.py                #   模块导出：SandboxServer, start, CapabilityGroup, RouteTable
+│   ├── app.py                     #   SandboxServer 主类，HTTP 请求分发
+│   ├── router.py                  #   RouteTable 声明式路由 + CapabilityGroup 能力组枚举
+│   ├── registry.py                #   CommandRegistry 用户自定义命令注册
+│   ├── routes.py                  #   核心内置路由（health/commands/upload/download/shell）
+│   ├── routes_files.py            #   FILE_OPS 能力组（9 端点）
+│   ├── routes_process.py          #   PROCESS 能力组（5 端点）
+│   ├── routes_system.py           #   SYSTEM 能力组 + CORE/capabilities（7 端点）
+│   ├── routes_pty.py              #   TERMINAL 能力组（REST + WebSocket PTY）
+│   ├── routes_browser.py          #   BROWSER 能力组（8 端点，Playwright）
+│   ├── routes_devtools.py         #   DEV_TOOLS 能力组（Code Interpreter + Git）
+│   ├── _compat.py                 #   向后兼容层（enable_builtin/disable_builtin）
+│   └── types.py                   #   ServerRequest/ServerResponse/SSEResponse
+│
 ├── cli/                           # CLI 命令行工具
 │   ├── __init__.py
 │   ├── main.py                    #   CLI 入口
 │   ├── commands/                  #   子命令实现
 │   │   ├── sandbox.py             #     sbox create/list/kill/...
+│   │   ├── sandbox_files.py       #     sbox sandbox files (list/stat/mkdir/rm/mv/search)
+│   │   ├── sandbox_process.py     #     sbox sandbox process (list/start/info/signal)
+│   │   ├── sandbox_system.py      #     sbox sandbox system (info/env/ports/packages/metrics)
 │   │   ├── template.py            #     template build/push/list/...
 │   │   ├── skill.py               #     skill search/install/...
 │   │   └── mcp.py                 #     mcp install/start/...
-│   └── formatters.py              #   输出格式化（table/json/quiet）
+│   ├── formatters.py              #   输出格式化（table/json/quiet）
+│   └── output.py                  #   OutputManager 统一输出管理器
 │
 ├── models/                        # 数据模型
 │   ├── __init__.py
@@ -209,7 +259,7 @@ src/serverless_sandbox/
     ├── __init__.py
     ├── retry.py                   #   重试策略
     ├── logging.py                 #   日志工具
-    └── compat.py                  #   E2B 兼容层
+    └── async_bridge.py            #   同步/异步桥接工具
 ```
 
 ---
