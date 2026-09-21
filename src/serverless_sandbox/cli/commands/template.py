@@ -8,6 +8,7 @@ import click
 
 from serverless_sandbox.cli.formatters import get_formatter
 from serverless_sandbox.cli.main import handle_errors
+from serverless_sandbox.cli.output import get_output
 
 
 @click.group()
@@ -420,8 +421,9 @@ def build_local(
         else:
             fmt.print_error(f"Build status: {result.build_status}")
             if result.logs:
+                out = get_output(ctx)
                 for log in result.logs:
-                    click.echo(f"  {log}")
+                    out.info(f"  {log}")
 
 
 @template.command("delete")
@@ -462,7 +464,8 @@ def delete(ctx: click.Context, template_id: str) -> None:
 
 @template.command("cache")
 @click.option("--clear", is_flag=True, help="Clear local template cache (~/.sbox/templates/)")
-def cache(clear: bool) -> None:
+@click.pass_context
+def cache(ctx: click.Context, clear: bool) -> None:
     """Manage the local template cache (~/.sbox/templates/).
 
     Without flags, lists cached templates.  With --clear, removes all
@@ -471,10 +474,11 @@ def cache(clear: bool) -> None:
     """
     from serverless_sandbox.utils.registry import RegistryClient, TEMPLATE_CACHE_DIR
 
+    out = get_output(ctx)
     client = RegistryClient()
     if clear:
         count = client.clear_cache()
-        click.echo(f"Cleared {count} cached item(s).")
+        out.success(f"Cleared {count} cached item(s).")
     else:
         if TEMPLATE_CACHE_DIR.exists():
             items = list(TEMPLATE_CACHE_DIR.rglob("template.yaml"))
@@ -488,13 +492,119 @@ def cache(clear: bool) -> None:
                 and not (p.parent / "sandbox-template.yaml").exists()
             )
             if items:
-                click.echo(f"Cached templates ({len(items)}):")
+                out.info(f"Cached templates ({len(items)}):")
                 for item in items:
-                    click.echo(f"  {item.parent.relative_to(TEMPLATE_CACHE_DIR)}")
+                    out.info(f"  {item.parent.relative_to(TEMPLATE_CACHE_DIR)}")
             else:
-                click.echo("No templates cached.")
+                out.info("No templates cached.")
         else:
-            click.echo("No templates cached.")
+            out.info("No templates cached.")
+
+
+@template.command("search")
+@click.argument("query")
+@click.option(
+    "--tag", "-t", default=None,
+    help="Filter by exact tag name",
+)
+@click.option(
+    "--status", "-s",
+    type=click.Choice(["official", "community", "experimental"]),
+    default=None,
+    help="Filter by template status",
+)
+@click.pass_context
+def search(ctx: click.Context, query: str, tag: str | None, status: str | None) -> None:
+    """Search community templates by name, tag, or description.
+
+    Searches the awesome-templates.yaml index for templates matching
+    QUERY against name, description, tags, and author fields.
+
+    \b
+    Examples:
+      sbox template search python
+      sbox template search ai-agent
+      sbox template search browser --status official
+      sbox template search qwen --tag deploy
+    """
+    from pathlib import Path
+
+    import yaml
+
+    fmt = get_formatter(ctx)
+
+    # Locate awesome-templates.yaml (project root or package root)
+    candidates = [
+        Path.cwd() / "awesome-templates.yaml",
+        Path(__file__).resolve().parents[3] / "awesome-templates.yaml",
+    ]
+    index_path: Path | None = None
+    for candidate in candidates:
+        if candidate.exists():
+            index_path = candidate
+            break
+
+    if index_path is None:
+        fmt.print_error(
+            "awesome-templates.yaml not found.",
+            suggestion="Run this command from the project root or ensure "
+            "awesome-templates.yaml is present.",
+        )
+        sys.exit(1)
+
+    with open(index_path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+
+    templates_list: list[dict[str, Any]] = data.get("templates", [])
+    if not templates_list:
+        fmt.print_success("No templates found in the index.")
+        return
+
+    query_lower = query.lower()
+
+    def matches(tmpl: dict[str, Any]) -> bool:
+        """Check if a template matches the search query and filters."""
+        # Status filter
+        if status and tmpl.get("status", "") != status:
+            return False
+        # Tag filter
+        if tag and tag.lower() not in [t.lower() for t in tmpl.get("tags", [])]:
+            return False
+        # Query match against name, description, tags, author
+        name = tmpl.get("name", "").lower()
+        desc = tmpl.get("description", "").lower()
+        tags = [t.lower() for t in tmpl.get("tags", [])]
+        author = tmpl.get("author", "").lower()
+        return (
+            query_lower in name
+            or query_lower in desc
+            or any(query_lower in t for t in tags)
+            or query_lower in author
+        )
+
+    results = [t for t in templates_list if matches(t)]
+
+    if not results:
+        fmt.print_success(f"No templates matching '{query}'.")
+        return
+
+    if fmt.use_json:
+        fmt.print_data(results)
+        return
+
+    headers = ["Name", "Description", "Tags", "Status"]
+    rows = [
+        [
+            t.get("name", "N/A"),
+            t.get("description", "N/A"),
+            ", ".join(t.get("tags", [])),
+            t.get("status", "N/A"),
+        ]
+        for t in results
+    ]
+    fmt.print_table(headers, rows)
+    if not fmt.quiet:
+        click.echo(f"\n{len(results)} template(s) found.")
 
 
 # ---------------------------------------------------------------------------

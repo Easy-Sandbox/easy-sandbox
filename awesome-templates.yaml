@@ -1,0 +1,130 @@
+# Serverless Sandbox Community Templates
+#
+# A curated index of sandbox templates — official and community-contributed.
+# Anyone can add their template by submitting a PR!
+#
+# How to contribute:
+#   1. Fork this repository
+#   2. Add your template entry under "# === Community Templates ===" below
+#   3. Ensure all required fields are filled (name, description, repo, tags, author, capabilities, status)
+#   4. Set status to "community" (or "experimental" for early-stage templates)
+#   5. Open a PR — see .github/CONTRIBUTING.md for full guidelines
+#
+# Schema:
+#   - name:         Template display name (unique identifier)
+#     description:  One-line description of what the template does
+#     repo:         GitHub repository URL
+#     path:         Path within repo (optional, for monorepos)
+#     tags:         List of technology/topic tags for search
+#     author:       Author name or GitHub handle
+#     template_id:  Platform template ID (optional, if published to registry)
+#     capabilities: List of required sandbox capabilities (shell, files, code, terminal, ports)
+#     status:       "official" | "community" | "experimental"
+
+templates:
+  # === Official Templates ===
+
+  - name: python-hello
+    description: "A minimal Python hello world template for testing"
+    repo: https://github.com/Serverless-Sandbox/serverless-sandbox
+    path: examples/templates/python-hello
+    tags: [python, hello-world, example]
+    author: Serverless-Sandbox
+    capabilities: [shell, files, code, ports]
+    status: official
+
+  - name: browser-automation
+    description: "Browser automation sandbox with Playwright + Chromium for web scraping and UI testing"
+    repo: https://github.com/Serverless-Sandbox/serverless-sandbox
+    path: examples/templates/browser-automation
+    tags: [browser, playwright, chromium, automation, web-scraping]
+    author: Serverless-Sandbox
+    capabilities: [shell, files, code, ports]
+    status: official
+
+  - name: claude-code
+    description: "Claude Code Agent runtime — Anthropic Claude-powered AI coding assistant"
+    repo: https://github.com/Serverless-Sandbox/serverless-sandbox
+    path: examples/templates/claude-code
+    tags: [claude, anthropic, ai-coding, ai-agent]
+    author: Serverless-Sandbox
+    capabilities: [shell, files, code, terminal, ports]
+    status: official
+
+  - name: codex
+    description: "OpenAI Codex CLI Agent runtime for AI-driven code generation and execution"
+    repo: https://github.com/Serverless-Sandbox/serverless-sandbox
+    path: examples/templates/codex
+    tags: [codex, openai, ai-agent, code-generation]
+    author: Serverless-Sandbox
+    capabilities: [shell, files, code, ports]
+    status: official
+
+  - name: qoder
+    description: "Qoder AI coding assistant runtime with Python and Node.js integrated dev sandbox"
+    repo: https://github.com/Serverless-Sandbox/serverless-sandbox
+    path: examples/templates/qoder
+    tags: [qoder, ai-coding, ai-agent, development]
+    author: Serverless-Sandbox
+    capabilities: [shell, files, code, terminal, ports]
+    status: official
+
+  - name: qwen-code
+    description: "Qwen Code Agent runtime — Dashscope-powered AI autonomous deployment agent"
+    repo: https://github.com/Serverless-Sandbox/serverless-sandbox
+    path: examples/templates/qwen-code
+    tags: [qwen, qwen-code, dashscope, ai-coding, ai-agent, deploy]
+    author: Serverless-Sandbox
+    capabilities: [shell, files, code, ports]
+    status: official
+
+  - name: deepseek-harness
+    description: "DeepSeek Agent Runtime — DeepSeek model-driven AI coding agent"
+    repo: https://github.com/Serverless-Sandbox/serverless-sandbox
+    path: examples/templates/deepseek-harness
+    tags: [deepseek, ai-agent, ai-coding, code-generation]
+    author: Serverless-Sandbox
+    capabilities: [shell, files, code, ports]
+    status: official
+
+  - name: hermes-agent
+    description: "Hermes Agent runtime — NousResearch Hermes model-driven AI agent with tool calling"
+    repo: https://github.com/Serverless-Sandbox/serverless-sandbox
+    path: examples/templates/hermes-agent
+    tags: [hermes, nousresearch, ai-agent, tool-calling]
+    author: Serverless-Sandbox
+    capabilities: [shell, files, code, ports]
+    status: official
+
+  - name: node-web
+    description: "Node.js web service runtime for Express, Fastify and other frameworks"
+    repo: https://github.com/Serverless-Sandbox/serverless-sandbox
+    path: examples/templates/node-web
+    tags: [nodejs, web, express, api, javascript]
+    author: Serverless-Sandbox
+    capabilities: [shell, files, ports]
+    status: official
+
+  - name: openclaw
+    description: "OpenClaw AI Agent runtime — open-source AI coding agent gateway"
+    repo: https://github.com/Serverless-Sandbox/serverless-sandbox
+    path: examples/templates/openclaw
+    tags: [openclaw, ai-agent, ai-coding, gateway]
+    author: Serverless-Sandbox
+    capabilities: [shell, files, ports]
+    status: official
+
+  # === Community Templates ===
+  # Add your template here! Submit a PR following the schema above.
+  # Set status to "community" and make sure your repo contains a valid template.yaml.
+  #
+  # Example:
+  #
+  #   - name: my-awesome-template
+  #     description: "Brief description of what your template does"
+  #     repo: https://github.com/your-username/your-repo
+  #     path: optional/subdir
+  #     tags: [python, your-tag]
+  #     author: your-github-handle
+  #     capabilities: [shell, files, code]
+  #     status: community
