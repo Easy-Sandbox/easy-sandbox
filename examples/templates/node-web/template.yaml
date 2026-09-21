@@ -29,6 +29,7 @@ ports:
 capabilities:
   - shell
   - files
+  - code
   - ports
 
 custom_commands:

@@ -33,6 +33,7 @@ def qwen(prompt: str, max_turns: int = 50) -> str:
             "qwen", "-p", prompt,
             "--yolo",
             "--output-format", "json",
+            "--max-turns", str(max_turns),
         ],
         capture_output=True, text=True, timeout=300,
     )

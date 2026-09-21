@@ -25,17 +25,32 @@ registry = CommandRegistry()
 
 
 @registry.command("serve", description="Start Node.js app.")
-def serve(entry: str = "index.js") -> str:
-    """Start Node.js app."""
+def serve(entry: str = "index.js", port: int = 3000) -> dict:
+    """Start a Node.js web application server."""
+    import os
     import subprocess
+    import time
 
-    result = subprocess.run(
+    env = {**os.environ, "PORT": str(port)}
+    proc = subprocess.Popen(
         ["node", entry],
-        capture_output=True, text=True, timeout=10,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env=env,
     )
-    if result.returncode != 0:
-        raise RuntimeError(result.stderr)
-    return result.stdout
+    # 等待短暂时间确认进程启动
+    time.sleep(1)
+    if proc.poll() is not None:
+        # 进程已退出，说明启动失败
+        stdout, stderr = proc.communicate()
+        raise RuntimeError(f"Server failed to start: {stderr or stdout}")
+    return {
+        "pid": proc.pid,
+        "port": port,
+        "entry": entry,
+        "status": "running",
+    }
 
 
 registry.freeze()
