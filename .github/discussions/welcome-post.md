@@ -43,7 +43,7 @@ ebx exec <sandbox-id> "echo hello"
 ## 📚 Key Links
 
 - 📖 **[README & Docs](https://github.com/Easy-Sandbox/easy-sandbox#readme)**
-- 🏗️ **[Design Document](https://github.com/Easy-Sandbox/easy-sandbox/blob/main/docs/DESIGN.md)**
+- 🏗️ **[Design Document](https://github.com/Easy-Sandbox/easy-sandbox/blob/main/docs/zh/DESIGN.md)**
 - 📦 **[Community Templates](https://github.com/Easy-Sandbox/awesome-templates)**
 - 📝 **[Contributing Guide](https://github.com/Easy-Sandbox/easy-sandbox/blob/main/.github/CONTRIBUTING.md)**
 - 🔒 **[Security Policy](https://github.com/Easy-Sandbox/easy-sandbox/blob/main/.github/SECURITY.md)**

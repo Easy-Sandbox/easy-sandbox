@@ -322,6 +322,121 @@ def info(ctx: click.Context, template_id: str) -> None:
     fmt.print_data(data)
 
 
+@template.command("create")
+@click.argument("image")
+@click.option("--name", "-n", required=True, help="Template name")
+@click.option("--team-id", envvar=["TEAM_ID", "E2B_TEAM_ID"], default=None,
+              help="Team ID (or env TEAM_ID / E2B_TEAM_ID; auto-resolved if omitted)")
+@click.option("--cpu", type=float, default=2, help="CPU cores (default 2)")
+@click.option("--memory", type=int, default=2048, help="Memory in MB (default 2048)")
+@click.option("--disk-size", type=int, default=None, help="Disk size in MB")
+@click.option("--internet-access/--no-internet-access", default=None,
+              help="Internet access (default: platform decides)")
+@click.option("--start-cmd", default=None, help="Container start command")
+@click.option("--ready-cmd", default=None, help="Container readiness check command")
+@click.option("--generation", type=int, default=1,
+              help="Sandbox generation (default 1)")
+@click.option("--envd-inject/--no-envd-inject", default=False,
+              help="Enable envd injection in build")
+@click.option("--registry-type", type=click.Choice(["acr", "acree"]),
+              default=None, help="Registry type (auto-detected from --acree-instance-id)")
+@click.option("--acree-instance-id", envvar="ACREE_INSTANCE_ID", default=None,
+              help="ACR EE instance ID (cri-...)")
+@click.option("--registry-username", default=None,
+              help="Registry login username (for pulling image)")
+@click.option("--registry-password", default=None,
+              help="Registry login password (for pulling image)")
+@click.pass_context
+@handle_errors
+def create_template(
+    ctx: click.Context,
+    image: str,
+    name: str,
+    team_id: str | None,
+    cpu: float,
+    memory: int,
+    disk_size: int | None,
+    internet_access: bool | None,
+    start_cmd: str | None,
+    ready_cmd: str | None,
+    generation: int,
+    envd_inject: bool,
+    registry_type: str | None,
+    acree_instance_id: str | None,
+    registry_username: str | None,
+    registry_password: str | None,
+) -> None:
+    """Create a sandbox template from an existing container image.
+
+    Uses the official Alibaba Cloud FCSandbox CreateTemplate API.
+    Requires AK/SK credentials and 'easy-sandbox[alicloud]' extra.
+
+    \b
+    Examples:
+      ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag \\
+        --name my-template
+      ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag \\
+        --name my-template --team-id team-xxx --cpu 4 --memory 4096
+      ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag \\
+        --name my-template --envd-inject --generation 1
+    """
+    from easy_sandbox.transport.config import load_config
+
+    fmt = get_formatter(ctx)
+    config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
+
+    ak = config.access_key_id or ""
+    sk = config.access_key_secret or ""
+    if not ak or not sk:
+        fmt.print_error(
+            "Alibaba Cloud AK/SK credentials required for official CreateTemplate API.",
+            suggestion="Set ALICLOUD_ACCESS_KEY_ID / ALICLOUD_ACCESS_KEY_SECRET "
+            "(or AccessKey / AccessSecret) in .env or environment.",
+        )
+        sys.exit(1)
+
+    from easy_sandbox.api.fc_template import create_official_template
+
+    region = config.region or "cn-hangzhou"
+
+    result = create_official_template(
+        name=name,
+        image=image,
+        access_key_id=ak,
+        access_key_secret=sk,
+        region=region,
+        team_id=team_id,
+        cpu=cpu,
+        memory_size=memory,
+        disk_size=disk_size,
+        internet_access=internet_access,
+        generation=generation,
+        start_command=start_cmd,
+        ready_command=ready_cmd,
+        envd_inject=envd_inject,
+        registry_type=registry_type,
+        acr_instance_id=acree_instance_id,
+        registry_username=registry_username,
+        registry_password=registry_password,
+    )
+
+    data = {
+        "TemplateID": result.get("templateID", "N/A"),
+        "RequestID": result.get("requestId", "N/A"),
+        "StatusCode": result.get("statusCode", "N/A"),
+        "Message": result.get("message") or "N/A",
+    }
+    if fmt.use_json:
+        fmt.print_data(data)
+    else:
+        fmt.print_dict(data)
+        template_id = result.get("templateID")
+        if template_id:
+            fmt.print_success(
+                f"Template created! Use: ebx create --template {template_id}"
+            )
+
+
 @template.command("build")
 @click.option("--dockerfile", "-f", required=True, type=click.Path(exists=True))
 @click.option("--alias", "-a", default=None, help="模板别名")
@@ -414,9 +529,22 @@ def build(ctx: click.Context, dockerfile: str, alias: str | None) -> None:
 @click.option("--cpu", type=int, default=2, help="CPU cores for template")
 @click.option("--memory", type=int, default=2048, help="Memory in MB")
 @click.option("--start-cmd", default=None, help="Container start command")
+@click.option("--ready-cmd", default=None, help="Container readiness check command")
 @click.option("--timeout", type=int, default=600, help="Build timeout in seconds")
 @click.option("--dockerfile", "-f", default=None, type=click.Path(exists=True),
               help="Custom Dockerfile path")
+@click.option("--disk-size", type=int, default=None,
+              help="Disk size in MB (official API only)")
+@click.option("--internet-access/--no-internet-access", default=None,
+              help="Internet access (default: platform decides; official API only)")
+@click.option("--official-api/--legacy-api", "use_official", default=True,
+              help="Use official CreateTemplate API (default) or legacy v3/v2")
+@click.option("--team-id", envvar=["TEAM_ID", "E2B_TEAM_ID"], default=None,
+              help="Team ID for official API (or env TEAM_ID / E2B_TEAM_ID)")
+@click.option("--envd-inject/--no-envd-inject", default=True,
+              help="Enable envd injection (default True for official API)")
+@click.option("--generation", type=int, default=1,
+              help="Sandbox generation (default 1)")
 @click.pass_context
 @handle_errors
 def build_local(
@@ -437,22 +565,42 @@ def build_local(
     cpu: int,
     memory: int,
     start_cmd: str | None,
+    ready_cmd: str | None,
     timeout: int,
     dockerfile: str | None,
+    disk_size: int | None,
+    internet_access: bool | None,
+    use_official: bool,
+    team_id: str | None,
+    envd_inject: bool,
+    generation: int,
 ) -> None:
     """Build Docker image locally, push to ACR, and create a sandbox template.
 
-    Full chain: local docker build → ACR push → v3/v2 API template creation.
+    Supports two modes:
+
+    \b
+    --official-api (default):
+      local docker build → ACR push → official CreateTemplate API (envdInject).
+      Requires AK/SK credentials and 'easy-sandbox[alicloud]' extra.
+
+    \b
+    --legacy-api:
+      local docker build → ACR push → legacy v3/v2 platform API.
+      Use --legacy-api to keep the old behaviour.
 
     Requires Docker daemon running and ACR credentials.
-    For custom template builds, ACR Enterprise Edition (EE) is required by
-    the FC sandbox platform.
 
-    示例：\n
+    \b
+    Examples:
       ebx template build-local ./examples/templates/python-hello \\
-        --acr-namespace my-ns --acr-repo python-hello\n
+        --acr-namespace my-ns --acr-repo python-hello
       ebx template build-local ./my-template \\
         --acr-namespace prod --acree-instance-id cri-xxx
+      ebx template build-local ./my-template \\
+        --acr-namespace prod --disk-size 10240 --internet-access
+      ebx template build-local ./my-template \\
+        --acr-namespace prod --legacy-api
     """
     from pathlib import Path
     from easy_sandbox.api.docker_builder import ACRConfig, DockerBuilder
@@ -462,12 +610,13 @@ def build_local(
     fmt = get_formatter(ctx)
     config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
 
-    # Resolve defaults from config/.env
-    resolved_username = acr_username or config.access_key_id or ""
-    resolved_password = acr_password or config.access_key_secret or ""
+    # Resolve ACR credentials: CLI explicit values take priority,
+    # fall back to platform AK/SK from config/.env.
+    resolved_acr_username = acr_username or config.access_key_id or ""
+    resolved_acr_password = acr_password or config.access_key_secret or ""
     resolved_repo = acr_repo or Path(template_dir).resolve().name
 
-    if not resolved_username or not resolved_password:
+    if not resolved_acr_username or not resolved_acr_password:
         fmt.print_error(
             "ACR credentials missing.",
             suggestion="Set --acr-username/--acr-password or "
@@ -475,12 +624,16 @@ def build_local(
         )
         sys.exit(1)
 
+    # Platform API credentials always come from load_config().
+    platform_ak = config.access_key_id or ""
+    platform_sk = config.access_key_secret or ""
+
     acr = ACRConfig(
         registry=acr_registry,
         namespace=acr_namespace,
         repo=resolved_repo,
-        username=resolved_username,
-        password=resolved_password,
+        username=resolved_acr_username,
+        password=resolved_acr_password,
         acree_instance_id=acree_instance_id,
         vpc_id=vpc_id,
         vswitch_ids=vswitch_ids,
@@ -493,25 +646,66 @@ def build_local(
     def on_progress(msg: str) -> None:
         fmt.print_success(msg)
 
-    result = run_sync(
-        builder.build_and_register(
-            template_dir=template_dir,
-            acr=acr,
-            name=template_name,
-            tag=tag,
-            platform=platform,
-            dockerfile=dockerfile,
-            cpu_count=cpu,
-            memory_mb=memory,
-            start_cmd=start_cmd,
-            on_progress=on_progress,
-            api_key=config.api_key,
-            api_url=config.api_url,
-            access_key_id=config.access_key_id,
-            access_key_secret=config.access_key_secret,
-            timeout=timeout,
+    region = config.region or "cn-hangzhou"
+
+    if use_official:
+        # Official CreateTemplate API path
+        if disk_size is not None or internet_access is not None:
+            # These options are only supported by the official API
+            pass  # will be forwarded below
+        result = run_sync(
+            builder.build_and_register_official(
+                template_dir=template_dir,
+                acr=acr,
+                name=template_name,
+                tag=tag,
+                platform=platform,
+                dockerfile=dockerfile,
+                cpu_count=cpu,
+                memory_mb=memory,
+                disk_size=disk_size,
+                internet_access=internet_access,
+                start_cmd=start_cmd,
+                ready_cmd=ready_cmd,
+                envd_inject=envd_inject,
+                generation=generation,
+                team_id=team_id,
+                region=region,
+                on_progress=on_progress,
+                acr_access_key_id=resolved_acr_username,
+                acr_access_key_secret=resolved_acr_password,
+                api_access_key_id=platform_ak,
+                api_access_key_secret=platform_sk,
+                timeout=timeout,
+            )
         )
-    )
+    else:
+        # Legacy v3/v2 API path
+        if disk_size is not None or internet_access is not None:
+            fmt.print_error(
+                "--disk-size and --internet-access are only supported with "
+                "the official API (default). They are ignored with --legacy-api.",
+            )
+        result = run_sync(
+            builder.build_and_register(
+                template_dir=template_dir,
+                acr=acr,
+                name=template_name,
+                tag=tag,
+                platform=platform,
+                dockerfile=dockerfile,
+                cpu_count=cpu,
+                memory_mb=memory,
+                start_cmd=start_cmd,
+                ready_cmd=ready_cmd,
+                on_progress=on_progress,
+                api_key=config.api_key,
+                api_url=config.api_url,
+                access_key_id=config.access_key_id,
+                access_key_secret=config.access_key_secret,
+                timeout=timeout,
+            )
+        )
 
     data = {
         "TemplateID": result.template_id or "N/A",

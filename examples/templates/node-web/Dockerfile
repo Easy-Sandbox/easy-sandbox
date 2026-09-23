@@ -11,12 +11,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install global Node.js packages
-RUN npm install -g yarn nodemon pm2
+RUN npm install -g --force yarn nodemon pm2
 
 # Install Python and easy-sandbox for command server
 RUN apt-get update && apt-get install -y --no-install-recommends python3 python3-pip \
     && rm -rf /var/lib/apt/lists/*
-RUN pip3 install --no-cache-dir --break-system-packages easy-sandbox
+COPY *.whl /tmp/
+RUN if ls /tmp/*.whl 1>/dev/null 2>&1; then \
+        pip3 install --no-cache-dir --break-system-packages /tmp/*.whl && rm -f /tmp/*.whl; \
+    else \
+        pip3 install --no-cache-dir --break-system-packages easy-sandbox; \
+    fi
 
 # Set environment variables
 ENV NODE_ENV=production

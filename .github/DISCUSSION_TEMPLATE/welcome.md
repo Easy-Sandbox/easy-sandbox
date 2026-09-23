@@ -36,7 +36,7 @@ async def main():
 ## 📚 Resources
 
 - 📖 [Documentation](https://github.com/Easy-Sandbox/easy-sandbox#readme)
-- 🏗️ [Design Doc](https://github.com/Easy-Sandbox/easy-sandbox/blob/main/docs/DESIGN.md)
+- 🏗️ [Design Doc](https://github.com/Easy-Sandbox/easy-sandbox/blob/main/docs/zh/DESIGN.md)
 - 📦 [Community Templates](https://github.com/Easy-Sandbox/awesome-templates)
 - 📝 [Contributing Guide](https://github.com/Easy-Sandbox/easy-sandbox/blob/main/.github/CONTRIBUTING.md)
 

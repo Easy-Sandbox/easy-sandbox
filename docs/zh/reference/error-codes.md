@@ -142,39 +142,79 @@ except CapabilityNotSupportedError as e:
 
 ## 异常层级结构
 
-```text
-SandboxError (E0000)
-├── AuthenticationError (E1000)
-│   ├── InvalidAPIKeyError (E1001)
-│   ├── TokenExpiredError (E1002)
-│   └── InvalidCredentialsError (E1003)
-├── SandboxCreationError (E2000)
-│   ├── TemplateNotFoundError (E2001)
-│   ├── QuotaExceededError (E2002)
-│   ├── RegionUnavailableError (E2003)
-│   └── TemplateParseError (E2004)
-├── ExecutionError (E3000)
-│   ├── CommandTimeoutError (E3001)
-│   ├── ProcessError (E3002)
-│   ├── CodeExecutionError (E3003)
-│   └── CapabilityNotSupportedError (E3004)
-├── FileOperationError (E4000)
-│   ├── FileNotFoundError_ (E4001)
-│   └── PermissionDeniedError (E4002)
-├── NetworkError (E5000)
-│   └── ConnectionError_ (E5001)
-├── SessionError (E6000)
-│   ├── SessionNotFoundError (E6001)
-│   └── SessionAlreadyExistsError (E6002)
-├── DeployError (E7000)
-│   ├── DeployLLMKeyMissingError (E7001)
-│   ├── DeployAgentError (E7002)
-│   └── DeployTimeoutError (E7003)
-├── TemplateBuildError (E7010)
-├── TemplateBuildTimeoutError (E7011)
-├── DockerBuildError (E7020)
-├── ACRPushError (E7021)
-└── ACRLoginError (E7022)
+```mermaid
+classDiagram
+    SandboxError <|-- AuthenticationError
+    SandboxError <|-- SandboxCreationError
+    SandboxError <|-- ExecutionError
+    SandboxError <|-- FileOperationError
+    SandboxError <|-- NetworkError
+    SandboxError <|-- SessionError
+    SandboxError <|-- DeployError
+    SandboxError <|-- TemplateBuildError
+    SandboxError <|-- TemplateBuildTimeoutError
+    SandboxError <|-- DockerBuildError
+    SandboxError <|-- ACRPushError
+    SandboxError <|-- ACRLoginError
+
+    AuthenticationError <|-- InvalidAPIKeyError
+    AuthenticationError <|-- TokenExpiredError
+    AuthenticationError <|-- InvalidCredentialsError
+
+    SandboxCreationError <|-- TemplateNotFoundError
+    SandboxCreationError <|-- QuotaExceededError
+    SandboxCreationError <|-- RegionUnavailableError
+    SandboxCreationError <|-- TemplateParseError
+
+    ExecutionError <|-- CommandTimeoutError
+    ExecutionError <|-- ProcessError
+    ExecutionError <|-- CodeExecutionError
+    ExecutionError <|-- CapabilityNotSupportedError
+
+    FileOperationError <|-- FileNotFoundError_
+    FileOperationError <|-- PermissionDeniedError
+
+    NetworkError <|-- ConnectionError_
+
+    SessionError <|-- SessionNotFoundError
+    SessionError <|-- SessionAlreadyExistsError
+
+    DeployError <|-- DeployLLMKeyMissingError
+    DeployError <|-- DeployAgentError
+    DeployError <|-- DeployTimeoutError
+
+    class SandboxError { E0000 }
+    class AuthenticationError { E1000 }
+    class InvalidAPIKeyError { E1001 }
+    class TokenExpiredError { E1002 }
+    class InvalidCredentialsError { E1003 }
+    class SandboxCreationError { E2000 }
+    class TemplateNotFoundError { E2001 }
+    class QuotaExceededError { E2002 }
+    class RegionUnavailableError { E2003 }
+    class TemplateParseError { E2004 }
+    class ExecutionError { E3000 }
+    class CommandTimeoutError { E3001 }
+    class ProcessError { E3002 }
+    class CodeExecutionError { E3003 }
+    class CapabilityNotSupportedError { E3004 }
+    class FileOperationError { E4000 }
+    class FileNotFoundError_ { E4001 }
+    class PermissionDeniedError { E4002 }
+    class NetworkError { E5000 }
+    class ConnectionError_ { E5001 }
+    class SessionError { E6000 }
+    class SessionNotFoundError { E6001 }
+    class SessionAlreadyExistsError { E6002 }
+    class DeployError { E7000 }
+    class DeployLLMKeyMissingError { E7001 }
+    class DeployAgentError { E7002 }
+    class DeployTimeoutError { E7003 }
+    class TemplateBuildError { E7010 }
+    class TemplateBuildTimeoutError { E7011 }
+    class DockerBuildError { E7020 }
+    class ACRPushError { E7021 }
+    class ACRLoginError { E7022 }
 ```
 
 ---

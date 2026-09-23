@@ -123,16 +123,12 @@ sandbox = await Sandbox.create(
 
 认证凭证按以下优先级解析（从高到低）：
 
-```text
-1. 代码参数 (api_key= / access_key_id=)
-     ↓
-2. 环境变量 (E2B_API_KEY > SANDBOX_API_KEY > ALICLOUD_ACCESS_KEY_*)
-     ↓
-3. .env 文件 (./env 或 ~/.ebx/.env)
-     ↓
-4. ~/.ebx/config.toml
-     ↓
-5. 默认值（无凭证 → 抛出 InvalidAPIKeyError E1001）
+```mermaid
+flowchart TD
+    A["1. 代码参数 (api_key= / access_key_id=)"] --> B["2. 环境变量 (E2B_API_KEY, SANDBOX_API_KEY, ALICLOUD_ACCESS_KEY_*)"]
+    B --> C["3. .env 文件 (./.env 或 ~/.ebx/.env)"]
+    C --> D["4. ~/.ebx/config.toml"]
+    D --> E["5. 默认值 (无凭证 — 抛出 InvalidAPIKeyError E1001)"]
 ```
 
 在同一层级内，API Key 优先于 AK/SK：

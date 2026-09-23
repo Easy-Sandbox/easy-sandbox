@@ -192,16 +192,19 @@ def my_func(): ...
 
 ### 2.3 GitHub tarball 解析流程
 
-```
-1. 解析模板名 "hello/world[@ref]"
-2. 检查本地缓存 ~/.ebx/templates/hello/world/<ref|default>/
-3. 缓存未命中 → 调用 GitHub tarball API（follow_redirects，302 到 codeload 的 .tar.gz）:
-   - 无 ref: GET https://api.github.com/repos/hello/world/tarball（默认分支）
-   - 有 ref: GET https://api.github.com/repos/hello/world/tarball/v1.2.0（tag/branch/sha）
-4. 下载 tarball（.tar.gz）
-5. 剥除顶层目录（{owner}-{repo}-{sha}/）后解压到本地缓存（防路径穿越）
-6. 定位 //subdir（如有），验证模板结构（必须包含 template.yaml 或 Dockerfile）
-7. 构建/使用模板
+```mermaid
+flowchart TD
+    A["1. 解析模板名 hello/world @ref"] --> B{"2. 本地缓存命中?"}
+    B -- 是 --> G["7. 构建/使用模板"]
+    B -- 否 --> C["3. 调用 GitHub tarball API"]
+    C --> C1{"ref 是否指定?"}
+    C1 -- 无 ref --> C2["GET /repos/hello/world/tarball（默认分支）"]
+    C1 -- 有 ref --> C3["GET /repos/hello/world/tarball/ref（tag/branch/sha）"]
+    C2 --> D["4. 下载 tarball (.tar.gz)"]
+    C3 --> D
+    D --> E["5. 剥除顶层目录并解压到本地缓存（防路径穿越）"]
+    E --> F["6. 定位 subdir（如有），验证模板结构"]
+    F --> G
 ```
 
 GitHub 会自动把 `ref` 解析为 tag/branch/sha，无需区分。公开仓库匿名可用，私有仓库带 `Authorization: Bearer <token>` 即可。

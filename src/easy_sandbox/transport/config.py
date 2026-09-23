@@ -96,6 +96,8 @@ _ENV_VAR_MAP: list[tuple[str, str, bool]] = [
     ("SANDBOX_API_KEY", "api_key", False),
     ("ALICLOUD_ACCESS_KEY_ID", "access_key_id", False),
     ("ALICLOUD_ACCESS_KEY_SECRET", "access_key_secret", False),
+    ("AccessKey", "access_key_id", False),
+    ("AccessSecret", "access_key_secret", False),
     ("SANDBOX_API_BASE_URL", "api_url", False),
     ("SANDBOX_REGION", "region", False),
     ("SANDBOX_HTTP_TIMEOUT", "http_timeout", False),
@@ -157,18 +159,17 @@ def _read_env_vars() -> dict[str, Any]:
     Uses the single merged _ENV_VAR_MAP to avoid duplicate iteration.
     """
     result: dict[str, Any] = {}
-    e2b_fields: set[str] = set()  # track fields already set by E2B_* vars
+    set_fields: set[str] = set()  # track fields already set (first-wins)
 
     for env_var, field_name, is_e2b in _ENV_VAR_MAP:
-        if not is_e2b and field_name in e2b_fields:
-            continue  # E2B_* already provided this field
+        if not is_e2b and field_name in set_fields:
+            continue  # already provided by higher-priority var
         value = os.environ.get(env_var)
         if value is not None:
             coerced = _coerce_value(field_name, value)
             if coerced is not None:
                 result[field_name] = coerced
-                if is_e2b:
-                    e2b_fields.add(field_name)
+                set_fields.add(field_name)
     return result
 
 
@@ -178,18 +179,17 @@ def _env_dict_to_fields(env_vals: dict[str, str]) -> dict[str, Any]:
     Applies the same priority: E2B_* entries override SANDBOX_* entries.
     """
     result: dict[str, Any] = {}
-    e2b_fields: set[str] = set()
+    set_fields: set[str] = set()
 
     for env_var, field_name, is_e2b in _ENV_VAR_MAP:
         if env_var not in env_vals:
             continue
-        if not is_e2b and field_name in e2b_fields:
+        if not is_e2b and field_name in set_fields:
             continue
         coerced = _coerce_value(field_name, env_vals[env_var])
         if coerced is not None:
             result[field_name] = coerced
-            if is_e2b:
-                e2b_fields.add(field_name)
+            set_fields.add(field_name)
     return result
 
 

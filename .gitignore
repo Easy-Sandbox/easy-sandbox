@@ -47,6 +47,11 @@ Thumbs.db
 # Build
 *.so
 *.dylib
+*.whl
+
+# Temporary diff/patch files
+current_diff.patch
+diff-code.txt
 
 # Sandbox config (may contain API keys)
 ~/.sbox/

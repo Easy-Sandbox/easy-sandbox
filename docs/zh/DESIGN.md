@@ -156,11 +156,17 @@ graph TD
 
 **envdAccessToken 双 Token 认证流**：
 
-```
-认证流程：
-1. X-API-KEY → Platform API (POST /sandboxes) → 返回 sandboxId + envdAccessToken
-2. SDK 自动从 create 响应中提取 envdAccessToken，缓存到 Sandbox 实例
-3. X-Access-Token (envdAccessToken) → Sandbox envd API（进程/文件/代码执行）
+```mermaid
+sequenceDiagram
+    participant User as SDK / User
+    participant Platform as Platform API
+    participant Envd as Sandbox envd API
+
+    User->>Platform: POST /sandboxes (X-API-KEY)
+    Platform-->>User: sandboxId + envdAccessToken
+    Note over User: 自动提取 envdAccessToken 并缓存到 Sandbox 实例
+    User->>Envd: 进程/文件/代码执行 (X-Access-Token: envdAccessToken)
+    Envd-->>User: 执行结果
 ```
 
 > **说明**：`X-API-KEY` 用于沙箱的创建、管理、销毁等生命周期操作（Platform API）；`envdAccessToken` 用于沙箱内部的进程、文件、代码执行等数据面操作（Sandbox envd API）。两个 Token 的作用域不同，SDK 内部自动管理切换，用户无感知。
@@ -668,10 +674,14 @@ sb = await Sandbox.create("用 playwright 爬取网页并截图")
 
 **推断实现策略**（三级 Fallback）：
 
-```
-1. Server 端 AI 推断接口（如果阿里云提供）→ 最优精度
-2. 本地 Qwen CLI / DashScope API Fallback   → 本地可用时
-3. 关键词规则匹配（完全离线）               → 最终兜底
+```mermaid
+flowchart TD
+    A["自然语言描述"] --> B{"Server 端 AI 推断接口"}
+    B -- 可用 --> R1["返回推断结果（最优精度）"]
+    B -- 不可用/超时 --> C{"本地 Qwen CLI / DashScope API"}
+    C -- 可用 --> R2["返回推断结果（本地 Fallback）"]
+    C -- 不可用/超时 --> D["关键词规则匹配（完全离线）"]
+    D --> R3["返回推断结果（最终兜底）"]
 ```
 
 **Fallback 控制策略**：
@@ -940,26 +950,84 @@ print(sb.network.public_url)  # https://sandbox.example.com
 
 #### 异常类层次
 
-```
-SandboxError (基类)
-├── AuthenticationError          # 认证失败
-│   ├── InvalidAPIKeyError     #   API Key 无效
-│   ├── InvalidCredentialsError#   AK/SK 无效
-│   └── TokenExpiredError      #   Token 过期
-├── SandboxCreationError         # 沙箱创建失败
-│   ├── TemplateNotFoundError  #   模板不存在
-│   ├── QuotaExceededError     #   配额超限
-│   └── RegionUnavailableError #   区域不可用
-├── ExecutionError               # 执行失败
-│   ├── TimeoutError           #   执行超时
-│   ├── ProcessError           #   进程异常退出
-│   └── CodeExecutionError     #   代码执行错误
-├── FileOperationError           # 文件操作失败
-├── NetworkError                 # 网络错误
-│   ├── ConnectionLostError    #   网络断开
-│   └── ReconnectFailedError   #   重连失败
-└── AgentError                   # Agent 错误
-    └── ToolExecutionError     #   工具执行失败
+```mermaid
+classDiagram
+    class SandboxError {
+        <<基类>>
+    }
+    class AuthenticationError {
+        认证失败
+    }
+    class InvalidAPIKeyError {
+        E1001 API Key 无效
+    }
+    class InvalidCredentialsError {
+        E1003 AK/SK 无效
+    }
+    class TokenExpiredError {
+        E1002 Token 过期
+    }
+    class SandboxCreationError {
+        创建失败
+    }
+    class TemplateNotFoundError {
+        E2001 模板不存在
+    }
+    class QuotaExceededError {
+        E2002 配额超限
+    }
+    class RegionUnavailableError {
+        E2003 区域不可用
+    }
+    class ExecutionError {
+        执行失败
+    }
+    class TimeoutError {
+        E3001 执行超时
+    }
+    class ProcessError {
+        E3002 进程异常退出
+    }
+    class CodeExecutionError {
+        E3003 代码执行错误
+    }
+    class FileOperationError {
+        E4001 文件操作失败
+    }
+    class NetworkError {
+        网络错误
+    }
+    class ConnectionLostError {
+        E5002 网络断开
+    }
+    class ReconnectFailedError {
+        重连失败
+    }
+    class AgentError {
+        Agent 错误
+    }
+    class ToolExecutionError {
+        工具执行失败
+    }
+
+    SandboxError <|-- AuthenticationError
+    SandboxError <|-- SandboxCreationError
+    SandboxError <|-- ExecutionError
+    SandboxError <|-- FileOperationError
+    SandboxError <|-- NetworkError
+    SandboxError <|-- AgentError
+    AuthenticationError <|-- InvalidAPIKeyError
+    AuthenticationError <|-- InvalidCredentialsError
+    AuthenticationError <|-- TokenExpiredError
+    SandboxCreationError <|-- TemplateNotFoundError
+    SandboxCreationError <|-- QuotaExceededError
+    SandboxCreationError <|-- RegionUnavailableError
+    ExecutionError <|-- TimeoutError
+    ExecutionError <|-- ProcessError
+    ExecutionError <|-- CodeExecutionError
+    NetworkError <|-- ConnectionLostError
+    NetworkError <|-- ReconnectFailedError
+    AgentError <|-- ToolExecutionError
 ```
 
 #### 错误码体系
@@ -1016,90 +1084,82 @@ except SandboxError as e:
 
 ### 5.1 命令体系
 
-```
-ebx
-├── create [描述/模板]              # 创建沙箱（支持自然语言）
-├── list                            # 列出所有沙箱
-├── info <sandbox-id>               # 查看沙箱详情
-├── kill <sandbox-id>               # 销毁沙箱
-├── kill --all                      # 销毁全部沙箱
-│
-├── exec <sandbox-id> <command>     # 在沙箱中执行命令
-├── run <sandbox-id> <code-file>    # 执行代码文件
-├── shell <sandbox-id>              # 交互式 Shell
-├── logs <sandbox-id>               # 查看沙箱日志（⚠️ 实验性，底层当前返回空数组）
-│
-├── upload <id> <local> <remote>    # 上传文件
-├── download <id> <remote> <local>  # 下载文件
-│
-├── start <name>                    # 启动命名 Session
-├── connect <name>                  # 连接已有 Session
-├── sessions                        # Session 管理子命令组
-│   ├── list [--all]                # 列出 Session
-│   ├── info <name>                 # Session 详情
-│   ├── rename <old> <new>          # 重命名
-│   ├── export <name>               # 导出 Session 配置信息（JSON 格式）
-│   ├── clean                       # 清理过期
-│   └── import <file>               # 从导出文件恢复 Session 配置
-│
-├── build [path]                    # 从目录构建镜像
-├── deploy [path]                   # 直接部署项目
-│
-├── template
-│   ├── list                        # 列出可用模板
-│   ├── info <template>             # 模板详情（含 checksum）
-│   ├── build <path>                # 构建自定义模板
-│   ├── push <name>                 # 推送模板
-│   ├── pull <name>                 # 拉取模板（含 checksum 校验）
-│   ├── init <name>                 # 初始化模板脚手架
-│   └── cache [list|clean]          # 缓存管理
-│
-├── skill
-│   ├── search <keyword>            # 搜索 Skill
-│   ├── install <skill>             # 安装 Skill
-│   ├── update [skill]              # 更新 Skill
-│   ├── list                        # 列出已安装 Skill
-│   ├── create <name>               # 创建脚手架
-│   ├── publish <path>              # 发布 Skill
-│   └── uninstall <skill>           # 卸载 Skill
-│
-├── secret                          # Secrets 管理
-│   ├── create <name> <value>       # 创建 Secret
-│   ├── list                        # 列出 Secrets
-│   ├── delete <name>               # 删除 Secret
-│   └── inject <sandbox-id>         # 将 Secrets 注入沙箱环境变量
-│
-├── mcp
-│   ├── install --target <ide>      # 安装 MCP Server
-│   ├── start                       # 启动 MCP Server
-│   ├── status                      # 状态
-│   └── config                      # 配置
-│
-├── pool
-│   ├── create <name>               # 创建沙箱池
-│   ├── list                        # 列出
-│   ├── status <name>               # 状态
-│   ├── scale <name> <size>         # 调整
-│   └── destroy <name>              # 销毁
-│
-├── auth
-│   ├── login                       # 登录（支持 --keychain 存储到系统密钥链）
-│   ├── logout                      # 登出
-│   ├── status                      # 认证状态
-│   └── switch <profile>            # 切换配置
-│
-├── config
-│   ├── get <key>                   # 获取
-│   ├── set <key> <value>           # 设置
-│   ├── list                        # 列出
-│   └── reset                       # 重置
-│
-│   # 🔮 远期规划命令
-│   # ebx hibernate <sandbox-id>   # 休眠沙箱
-│   # ebx wake <sandbox-id>        # 唤醒沙箱
-│   # ebx snapshot <sandbox-id>    # 创建快照
-│
-└── version                         # 版本信息
+```mermaid
+graph TB
+    ebx["ebx"]
+
+    ebx --- create["create - 创建沙箱（支持自然语言）"]
+    ebx --- list["list - 列出所有沙箱"]
+    ebx --- info["info - 查看沙箱详情"]
+    ebx --- kill["kill - 销毁沙箱 / --all"]
+    ebx --- exec["exec - 在沙箱中执行命令"]
+    ebx --- run["run - 执行代码文件"]
+    ebx --- shell["shell - 交互式 Shell"]
+    ebx --- logs["logs - 查看沙箱日志"]
+    ebx --- upload["upload - 上传文件"]
+    ebx --- download["download - 下载文件"]
+    ebx --- start["start - 启动命名 Session"]
+    ebx --- connect["connect - 连接已有 Session"]
+    ebx --- sessions["sessions"]
+    ebx --- build["build - 从目录构建镜像"]
+    ebx --- deploy["deploy - 直接部署项目"]
+    ebx --- template["template"]
+    ebx --- skill["skill"]
+    ebx --- secret["secret"]
+    ebx --- mcp["mcp"]
+    ebx --- pool["pool"]
+    ebx --- auth["auth"]
+    ebx --- config["config"]
+    ebx --- version["version - 版本信息"]
+
+    sessions --- sess_list["list"]
+    sessions --- sess_info["info"]
+    sessions --- sess_rename["rename"]
+    sessions --- sess_export["export"]
+    sessions --- sess_clean["clean"]
+    sessions --- sess_import["import"]
+
+    template --- tpl_list["list"]
+    template --- tpl_info["info"]
+    template --- tpl_build["build"]
+    template --- tpl_push["push"]
+    template --- tpl_pull["pull"]
+    template --- tpl_init["init"]
+    template --- tpl_cache["cache"]
+
+    skill --- sk_search["search"]
+    skill --- sk_install["install"]
+    skill --- sk_update["update"]
+    skill --- sk_list["list"]
+    skill --- sk_create["create"]
+    skill --- sk_publish["publish"]
+    skill --- sk_uninstall["uninstall"]
+
+    secret --- sec_create["create"]
+    secret --- sec_list["list"]
+    secret --- sec_delete["delete"]
+    secret --- sec_inject["inject"]
+
+    mcp --- mcp_install["install"]
+    mcp --- mcp_start["start"]
+    mcp --- mcp_status["status"]
+    mcp --- mcp_config["config"]
+
+    pool --- pool_create["create"]
+    pool --- pool_list["list"]
+    pool --- pool_status["status"]
+    pool --- pool_scale["scale"]
+    pool --- pool_destroy["destroy"]
+
+    auth --- auth_login["login"]
+    auth --- auth_logout["logout"]
+    auth --- auth_status["status"]
+    auth --- auth_switch["switch"]
+
+    config --- cfg_get["get"]
+    config --- cfg_set["set"]
+    config --- cfg_list["list"]
+    config --- cfg_reset["reset"]
 ```
 
 #### 全局选项
@@ -1416,16 +1476,21 @@ ebx config set session.on_orphan warn             # 孤儿 Session：warn/cleanu
 
 **GC 流程**：
 
-```
-定时触发 / ebx sessions clean
-  │
-  ├─ 读取 Session 存储中所有 Session
-  ├─ 对每个 session:
-  │   ├─ 查询远端沙箱状态
-  │   ├─ 如果沙箱已不存在 → 标记 state = "dead"
-  │   ├─ 如果 state = "dead" 且超过 session_ttl → 按 on_orphan 策略处理
-  │   └─ 更新 last_checked 时间戳
-  └─ 输出清理报告
+```mermaid
+flowchart TD
+    A["定时触发 / ebx sessions clean"] --> B["读取 Session 存储中所有 Session"]
+    B --> C{"遍历每个 Session"}
+    C --> D["查询远端沙箱状态"]
+    D --> E{"沙箱是否存在?"}
+    E -- 不存在 --> F["标记 state = dead"]
+    E -- 存在 --> H["更新 last_checked 时间戳"]
+    F --> G{"state = dead 且超过 session_ttl?"}
+    G -- 是 --> I["按 on_orphan 策略处理"]
+    G -- 否 --> H
+    I --> H
+    H --> J{"还有更多 Session?"}
+    J -- 是 --> C
+    J -- 否 --> K["输出清理报告"]
 ```
 
 ### 6.7 多 Session 并发
@@ -1835,15 +1900,30 @@ MCP Server 引入「默认沙箱」概念：
 3. 后续调用自动复用默认沙箱
 4. 会话结束时自动销毁默认沙箱
 
-```
-会话开始
-  ├── run_code("print(1)")          → 自动创建默认沙箱 sb-001
-  ├── run_code("print(2)")          → 复用 sb-001
-  ├── create_sandbox(template=...)  → 创建新沙箱 sb-002
-  ├── run_code("...", sandbox=002)  → 使用 sb-002
-  ├── run_code("print(3)")          → 仍使用默认 sb-001
-会话结束
-  └── 自动销毁 sb-001（默认沙箱）
+```mermaid
+sequenceDiagram
+    participant Client as MCP Client
+    participant MCP as MCP Server
+    participant SB1 as "默认沙箱 sb-001"
+    participant SB2 as "新沙箱 sb-002"
+
+    Note over Client,MCP: 会话开始
+    Client->>MCP: run_code("print(1)")
+    MCP->>SB1: 自动创建默认沙箱
+    SB1-->>Client: 执行结果
+    Client->>MCP: run_code("print(2)")
+    MCP->>SB1: 复用默认沙箱
+    SB1-->>Client: 执行结果
+    Client->>MCP: create_sandbox(template=...)
+    MCP->>SB2: 创建新沙箱
+    Client->>MCP: run_code("...", sandbox=002)
+    MCP->>SB2: 使用指定沙箱
+    SB2-->>Client: 执行结果
+    Client->>MCP: run_code("print(3)")
+    MCP->>SB1: 仍使用默认沙箱
+    SB1-->>Client: 执行结果
+    Note over Client,MCP: 会话结束
+    MCP->>SB1: 自动销毁默认沙箱
 ```
 
 **传输方式**：
@@ -1983,17 +2063,14 @@ class AgentModule:
 
 自然语言创建沙箱的推断逻辑不再由 SDK 内部的 InferAgent 实现，而是通过外部调用：
 
-```
-自然语言描述
-    │
-    ├─► Server 端 AI 推断接口（如果阿里云提供）→ 最优精度
-    │
-    ├─► 本地 Qwen CLI / DashScope API         → Fallback
-    │
-    └─► 关键词规则匹配（完全离线）              → 最终兜底
-        │
-        ▼
-    SandboxPlan(template, cpu, memory, gpu, confidence, reasoning)
+```mermaid
+flowchart TD
+    A["自然语言描述"] --> B{"Server 端 AI 推断接口"}
+    B -- 可用 --> P["SandboxPlan(template, cpu, memory, gpu, confidence, reasoning)"]
+    B -- 不可用/超时 --> C{"本地 Qwen CLI / DashScope API"}
+    C -- 可用 --> P
+    C -- 不可用/超时 --> D["关键词规则匹配（完全离线）"]
+    D --> P
 ```
 
 **规则匹配示例**（离线兜底）：

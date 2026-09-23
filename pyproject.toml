@@ -52,8 +52,11 @@ declarative = [
 session = [
     "filelock>=3.12",
 ]
+alicloud = [
+    "alibabacloud-fcsandbox20260509>=1.6.0",
+]
 all = [
-    "easy-sandbox[cli,fast,session,mcp,declarative]",
+    "easy-sandbox[cli,fast,session,mcp,declarative,alicloud]",
 ]
 dev = [
     "easy-sandbox[all]",

@@ -1,12 +1,16 @@
 """Tests for template CLI commands."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
 from easy_sandbox.cli.main import cli
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture
@@ -32,6 +36,7 @@ class TestTemplateGroup:
         assert "delete" in result.output
         assert "cache" in result.output
         assert "info" in result.output
+        assert "create" in result.output
 
 
 class TestInstallCommand:
@@ -506,3 +511,237 @@ class TestTemplateCommandErrorHandling:
         assert "tpl-missing" in result.output
         assert "TEMPLATE_ID" in result.output
         mock_http.close.assert_awaited()
+
+
+class TestTemplateCreateCommand:
+    """Tests for 'ebx template create' command."""
+
+    def test_create_help(self, runner: CliRunner) -> None:
+        """'ebx template create --help' should show required options."""
+        result = runner.invoke(cli, ["template", "create", "--help"])
+        assert result.exit_code == 0
+        assert "IMAGE" in result.output
+        assert "--name" in result.output
+        assert "--team-id" in result.output
+        assert "--cpu" in result.output
+        assert "--memory" in result.output
+        assert "--generation" in result.output
+        assert "--envd-inject" in result.output
+
+    def test_create_requires_name(self, runner: CliRunner) -> None:
+        """'ebx template create IMAGE' without --name should error."""
+        result = runner.invoke(cli, ["template", "create", "img:latest"])
+        assert result.exit_code != 0
+        assert "--name" in result.output or "Missing" in result.output
+
+    def test_create_missing_aksk(self, runner: CliRunner) -> None:
+        """Without AK/SK, create should show friendly error."""
+        with patch(
+            "easy_sandbox.transport.config.load_config",
+        ) as mock_load:
+            mock_cfg = MagicMock()
+            mock_cfg.access_key_id = None
+            mock_cfg.access_key_secret = None
+            mock_cfg.region = "cn-hangzhou"
+            mock_load.return_value = mock_cfg
+
+            result = runner.invoke(
+                cli,
+                ["template", "create", "img:tag", "--name", "test"],
+            )
+            assert result.exit_code != 0
+            assert "AK/SK" in result.output or "credentials" in result.output.lower()
+
+    def test_create_success_mock(self, runner: CliRunner) -> None:
+        """Successful create with mocked API."""
+        with patch(
+            "easy_sandbox.transport.config.load_config",
+        ) as mock_load, patch(
+            "easy_sandbox.api.fc_template.create_official_template",
+        ) as mock_create:
+            mock_cfg = MagicMock()
+            mock_cfg.access_key_id = "AK"
+            mock_cfg.access_key_secret = "SK"
+            mock_cfg.region = "cn-hangzhou"
+            mock_load.return_value = mock_cfg
+
+            mock_create.return_value = {
+                "templateID": "tpl-test-001",
+                "requestId": "req-001",
+                "code": "200",
+                "message": "",
+                "statusCode": 200,
+            }
+
+            result = runner.invoke(
+                cli,
+                ["template", "create", "img:tag", "--name", "test-tpl"],
+            )
+
+            assert result.exit_code == 0
+            assert "tpl-test-001" in result.output
+            mock_create.assert_called_once()
+
+    def test_create_json_output(self, runner: CliRunner) -> None:
+        """JSON output mode for create command."""
+        with patch(
+            "easy_sandbox.transport.config.load_config",
+        ) as mock_load, patch(
+            "easy_sandbox.api.fc_template.create_official_template",
+        ) as mock_create:
+            mock_cfg = MagicMock()
+            mock_cfg.access_key_id = "AK"
+            mock_cfg.access_key_secret = "SK"
+            mock_cfg.region = "cn-hangzhou"
+            mock_load.return_value = mock_cfg
+
+            mock_create.return_value = {
+                "templateID": "tpl-json-001",
+                "requestId": "req-json",
+                "code": "200",
+                "message": "",
+                "statusCode": 200,
+            }
+
+            result = runner.invoke(
+                cli,
+                ["--json", "template", "create", "img:tag", "--name", "test"],
+            )
+
+            assert result.exit_code == 0
+            assert "tpl-json-001" in result.output
+
+
+class TestBuildLocalOfficialAPI:
+    """Tests for build-local with --official-api / --legacy-api."""
+
+    def test_build_local_help_shows_official_api(self, runner: CliRunner) -> None:
+        """build-local --help should show the new options."""
+        result = runner.invoke(cli, ["template", "build-local", "--help"])
+        assert result.exit_code == 0
+        assert "--official-api" in result.output
+        assert "--legacy-api" in result.output
+        assert "--team-id" in result.output
+        assert "--envd-inject" in result.output
+        assert "--generation" in result.output
+        assert "--ready-cmd" in result.output
+
+    def test_build_local_default_is_official(self, runner: CliRunner) -> None:
+        """build-local without flag should default to official API."""
+        result = runner.invoke(cli, ["template", "build-local", "--help"])
+        assert result.exit_code == 0
+        # The help should mention official API as default
+        assert "official" in result.output.lower() or "CreateTemplate" in result.output
+
+
+class TestBuildLocalCredentialSeparation:
+    """Verify that build-local passes ACR and platform API creds independently.
+
+    Task #68: CLI --acr-username/--acr-password must reach ACR login,
+    while platform AK/SK from load_config always feeds CreateTemplate API.
+    """
+
+    def test_explicit_acr_creds_not_overridden(
+        self, runner: CliRunner, tmp_path: Path,
+    ) -> None:
+        """Explicit --acr-username/--acr-password must be used for ACR login."""
+        (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+
+        fake_config = MagicMock()
+        fake_config.access_key_id = "platform-ak"
+        fake_config.access_key_secret = "platform-sk"
+        fake_config.region = "cn-hangzhou"
+        fake_config.api_key = ""
+        fake_config.api_url = ""
+
+        fake_result = MagicMock()
+        fake_result.template_id = "tpl-001"
+        fake_result.build_status = "ready"
+        fake_result.acr_ref = "reg/ns/repo:latest"
+        fake_result.local_tag = "repo:latest"
+        fake_result.success = True
+
+        with patch(
+            "easy_sandbox.transport.config.load_config",
+            return_value=fake_config,
+        ), patch(
+            "easy_sandbox.api.docker_builder.DockerBuilder",
+        ) as mock_builder, patch(
+            "easy_sandbox.utils.async_bridge.run_sync",
+            return_value=fake_result,
+        ) as mock_run_sync:
+            result = runner.invoke(
+                cli,
+                [
+                    "template", "build-local", str(tmp_path),
+                    "--acr-namespace", "test-ns",
+                    "--acr-username", "my-acr-user",
+                    "--acr-password", "my-acr-pass",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+
+        # Verify run_sync was called with the coroutine from
+        # build_and_register_official
+        mock_run_sync.assert_called_once()
+        builder_instance = mock_builder.return_value
+        builder_instance.build_and_register_official.assert_called_once()
+        call_kwargs = builder_instance.build_and_register_official.call_args.kwargs
+
+        # ACR credentials: should be the explicit CLI values
+        assert call_kwargs["acr_access_key_id"] == "my-acr-user"
+        assert call_kwargs["acr_access_key_secret"] == "my-acr-pass"
+        # Platform API credentials: always from load_config
+        assert call_kwargs["api_access_key_id"] == "platform-ak"
+        assert call_kwargs["api_access_key_secret"] == "platform-sk"
+
+    def test_acr_creds_fallback_to_platform(
+        self, runner: CliRunner, tmp_path: Path,
+    ) -> None:
+        """When --acr-username is omitted, ACR creds fall back to platform AK/SK."""
+        (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+
+        fake_config = MagicMock()
+        fake_config.access_key_id = "platform-ak"
+        fake_config.access_key_secret = "platform-sk"
+        fake_config.region = "cn-hangzhou"
+        fake_config.api_key = ""
+        fake_config.api_url = ""
+
+        fake_result = MagicMock()
+        fake_result.template_id = "tpl-002"
+        fake_result.build_status = "ready"
+        fake_result.acr_ref = "reg/ns/repo:latest"
+        fake_result.local_tag = "repo:latest"
+        fake_result.success = True
+
+        with patch(
+            "easy_sandbox.transport.config.load_config",
+            return_value=fake_config,
+        ), patch(
+            "easy_sandbox.api.docker_builder.DockerBuilder",
+        ) as mock_builder, patch(
+            "easy_sandbox.utils.async_bridge.run_sync",
+            return_value=fake_result,
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "template", "build-local", str(tmp_path),
+                    "--acr-namespace", "test-ns",
+                    # No --acr-username/--acr-password
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+
+        builder_instance = mock_builder.return_value
+        call_kwargs = builder_instance.build_and_register_official.call_args.kwargs
+
+        # ACR credentials fall back to platform AK/SK
+        assert call_kwargs["acr_access_key_id"] == "platform-ak"
+        assert call_kwargs["acr_access_key_secret"] == "platform-sk"
+        # Platform API credentials still from load_config
+        assert call_kwargs["api_access_key_id"] == "platform-ak"
+        assert call_kwargs["api_access_key_secret"] == "platform-sk"

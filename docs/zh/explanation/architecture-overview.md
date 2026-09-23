@@ -10,20 +10,27 @@
 
 Easy Sandbox 由三个核心层组成：
 
-```
-┌─────────────────────────────────────────┐
-│              用户代码 / AI IDE           │
-├───────────┬────────────┬────────────────┤
-│  SDK API  │    CLI     │ @sandbox 装饰器 │
-│ (Python)  │  (ebx)   │  (declarative)  │
-├───────────┴────────────┴────────────────┤
-│          Transport 层（HTTP/WS）         │
-├─────────────────────────────────────────┤
-│      平台 API          │    envd        │
-│  (控制平面)            │  (数据平面)    │
-├─────────────────────────────────────────┤
-│          沙箱容器（Server）              │
-└─────────────────────────────────────────┘
+```mermaid
+graph TB
+    User["用户代码 / AI IDE"]
+    SDK["SDK API (Python)"]
+    CLI["CLI (ebx)"]
+    Decl["@sandbox 装饰器 (declarative)"]
+    Transport["Transport 层 (HTTP/WS)"]
+    Platform["平台 API (控制平面)"]
+    Envd["envd (数据平面)"]
+    Server["沙箱容器 (Server)"]
+
+    User --> SDK
+    User --> CLI
+    User --> Decl
+    SDK --> Transport
+    CLI --> Transport
+    Decl --> Transport
+    Transport --> Platform
+    Transport --> Envd
+    Platform --> Server
+    Envd --> Server
 ```
 
 ### SDK 层（客户端）
@@ -72,14 +79,16 @@ URL 格式：`https://49983-{sandbox_id}.{domain}`
 
 ### 认证流程
 
-```
-客户端                  平台 API              沙箱 envd
-  │                       │                     │
-  │── API Key/AK/SK ─────→│                     │
-  │← sandbox_id + token ──│                     │
-  │                       │                     │
-  │── envd token ──────────────────────────────→│
-  │← 操作结果 ─────────────────────────────────│
+```mermaid
+sequenceDiagram
+    participant Client as 客户端
+    participant Platform as 平台 API
+    participant Envd as 沙箱 envd
+
+    Client->>Platform: API Key / AK/SK
+    Platform-->>Client: sandbox_id + token
+    Client->>Envd: envd token
+    Envd-->>Client: 操作结果
 ```
 
 ---
@@ -105,34 +114,37 @@ URL 格式：`https://49983-{sandbox_id}.{domain}`
 
 ## SDK 内部分层
 
+```mermaid
+graph TB
+    API["api/ — L4 高层 API"]
+    Protocol["protocol/ — L3 协议层"]
+    Transport["transport/ — L2 传输层"]
+    Models["models/ — L1 数据模型"]
+    Decl["declarative/ — 声明式远程执行"]
+    AgentMod["agent/ — AI Agent 集成"]
+    Sess["session/ — 会话管理"]
+    Compat["compat/ — E2B 兼容层"]
+    CLIMod["cli/ — CLI 命令"]
+
+    CLIMod --> API
+    AgentMod --> API
+    Decl --> API
+    Compat --> API
+    Sess --> API
+    API --> Protocol --> Transport --> Models
 ```
-api/          ← L4 高层 API（用户直接使用）
-  sandbox.py, files.py, commands.py, network.py, code.py, image.py
 
-protocol/     ← L3 协议层（HTTP/RPC 请求构建）
-  sandbox.py, process.py, filesystem.py, code_interpreter.py, terminal.py
+各模块包含的文件：
 
-transport/    ← L2 传输层（HTTP 客户端、认证、配置）
-  http.py, auth.py, config.py, streaming.py
-
-models/       ← L1 数据模型（Pydantic 模型）
-  sandbox.py, process.py, errors.py, template.py, session.py, filesystem.py
-
-declarative/  ← 声明式远程执行
-  decorator.py, serializer.py, config.py
-
-agent/        ← AI Agent 集成
-  mcp.py, tools.py, infer.py
-
-session/      ← 会话管理
-  local.py, base.py
-
-compat/       ← E2B 兼容层
-  sandbox.py
-
-cli/          ← CLI 命令
-  main.py, commands/
-```
+- **api/**: sandbox.py, files.py, commands.py, network.py, code.py, image.py
+- **protocol/**: sandbox.py, process.py, filesystem.py, code_interpreter.py, terminal.py
+- **transport/**: http.py, auth.py, config.py, streaming.py
+- **models/**: sandbox.py, process.py, errors.py, template.py, session.py, filesystem.py
+- **declarative/**: decorator.py, serializer.py, config.py
+- **agent/**: mcp.py, tools.py, infer.py
+- **session/**: local.py, base.py
+- **compat/**: sandbox.py
+- **cli/**: main.py, commands/
 
 ---
 

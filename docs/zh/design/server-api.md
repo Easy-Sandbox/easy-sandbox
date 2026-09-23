@@ -16,10 +16,10 @@
 运行在 Sandbox 容器内部，向外部（SDK / CLI / Agent）暴露文件、进程、终端、系统信息、开发工具、
 浏览器自动化等能力。
 
-- 基于 [`http.server.ThreadingHTTPServer`](../../src/easy_sandbox/server/app.py) + 自定义 `BaseHTTPRequestHandler` 子类。
-- 请求分发由数据驱动的 [`RouteTable`](../../src/easy_sandbox/server/router.py) 完成，而非硬编码的 `if/elif` 链。
+- 基于 [`http.server.ThreadingHTTPServer`](../../../src/easy_sandbox/server/app.py) + 自定义 `BaseHTTPRequestHandler` 子类。
+- 请求分发由数据驱动的 [`RouteTable`](../../../src/easy_sandbox/server/router.py) 完成，而非硬编码的 `if/elif` 链。
 - 每个路由归属一个 **能力组（CapabilityGroup）**，可整组启用/禁用。
-- 请求/响应对象是 stdlib `dataclass`（[`types.py`](../../src/easy_sandbox/server/types.py)），不使用 Pydantic。
+- 请求/响应对象是 stdlib `dataclass`（[`types.py`](../../../src/easy_sandbox/server/types.py)），不使用 Pydantic。
 
 > 注意：本文所述「能力组」是 **Server 端 RouteTable 的运行时开关**，与 SDK 模板层
 > （`models/template.py` / `api/capability.py`）的 `STANDARD_CAPABILITIES` 是两套独立机制，
@@ -28,7 +28,7 @@
 ### 1.2 启动方式
 
 **便捷函数** —
-[`start()`](../../src/easy_sandbox/server/app.py#L320-L334)：
+[`start()`](../../../src/easy_sandbox/server/app.py#L320-L334)：
 
 ```python
 from easy_sandbox.server import start
@@ -37,7 +37,7 @@ start(9000)  # 监听 0.0.0.0:9000，阻塞运行
 ```
 
 **类接口** —
-[`SandboxServer`](../../src/easy_sandbox/server/app.py#L215-L317)（可注入自定义 `registry` / `route_table`）：
+[`SandboxServer`](../../../src/easy_sandbox/server/app.py#L215-L317)（可注入自定义 `registry` / `route_table`）：
 
 ```python
 from easy_sandbox.server import SandboxServer, CommandRegistry
@@ -60,14 +60,14 @@ Server 使用两个端口：
 | PTY 端口 | WebSocket | 交互式终端（PTY） | `9001` | `EBX_PTY_PORT` |
 
 PTY WebSocket 服务仅在 `TERMINAL` 能力组启用时，于后台守护线程中启动（见
-[`SandboxServer.serve`](../../src/easy_sandbox/server/app.py#L254-L280)）。`TERMINAL` 默认启用，因此 PTY 服务默认随主服务一起启动。
+[`SandboxServer.serve`](../../../src/easy_sandbox/server/app.py#L254-L280)）。`TERMINAL` 默认启用，因此 PTY 服务默认随主服务一起启动。
 
 ---
 
 ## 2. 能力组（Capability Groups）
 
 能力组定义于枚举
-[`CapabilityGroup`](../../src/easy_sandbox/server/router.py#L50-L64)，
+[`CapabilityGroup`](../../../src/easy_sandbox/server/router.py#L50-L64)，
 共 **8 组**。每组是一族可作为整体启用/禁用的端点。
 
 | 能力组 | 枚举值 | 端点数 | 默认状态 | 说明 |
@@ -83,7 +83,7 @@ PTY WebSocket 服务仅在 `TERMINAL` 能力组启用时，于后台守护线程
 
 ### 2.1 默认禁用集合
 
-来自 [`router.py`](../../src/easy_sandbox/server/router.py#L68) 的定义：
+来自 [`router.py`](../../../src/easy_sandbox/server/router.py#L68) 的定义：
 
 ```python
 _DEFAULT_DISABLED = frozenset({CapabilityGroup.DEV_TOOLS, CapabilityGroup.BROWSER})
@@ -99,7 +99,7 @@ _DEFAULT_DISABLED = frozenset({CapabilityGroup.DEV_TOOLS, CapabilityGroup.BROWSE
 ### 2.2 环境变量控制
 
 `RouteTable` 在实例化时读取环境变量
-[`EBX_SERVER_DISABLED_GROUPS`](../../src/easy_sandbox/server/router.py#L112-L126)，
+[`EBX_SERVER_DISABLED_GROUPS`](../../../src/easy_sandbox/server/router.py#L112-L126)，
 其值为逗号分隔的能力组枚举值（如 `system,process`），用于在进程启动时额外禁用若干组：
 
 ```bash
@@ -115,7 +115,7 @@ export EBX_SERVER_DISABLED_GROUPS="system,process"
 ### 2.3 运行时切换 API
 
 `RouteTable` 提供运行时开关（见
-[`router.py`](../../src/easy_sandbox/server/router.py#L240-L265)）：
+[`router.py`](../../../src/easy_sandbox/server/router.py#L240-L265)）：
 
 | 方法 | 说明 |
 |------|------|
@@ -125,7 +125,7 @@ export EBX_SERVER_DISABLED_GROUPS="system,process"
 | `list_groups() -> dict[str, bool]` | 返回 `{枚举值: 是否启用}` 映射 |
 
 模板作者示例（来自
-[`python-hello/commands.py`](../../examples/templates/python-hello/commands.py#L23-L26)）：
+[`python-hello/commands.py`](../../../examples/templates/python-hello/commands.py#L23-L26)）：
 
 ```python
 from easy_sandbox.server import CapabilityGroup, default_table
@@ -139,14 +139,14 @@ table.enable_group(CapabilityGroup.SYSTEM)
 > 兼容层：历史 API `enable_builtin("upload"|"download"|"shell")` /
 > `disable_builtin(...)` 仍可用，内部映射到对应能力组
 > （`upload`/`download` → `FILE_OPS`，`shell` → `PROCESS`），见
-> [`_compat.py`](../../src/easy_sandbox/server/_compat.py#L30-L34)。
+> [`_compat.py`](../../../src/easy_sandbox/server/_compat.py#L30-L34)。
 
 ---
 
 ## 3. 认证
 
 认证逻辑位于
-[`SandboxRequestHandler._check_auth`](../../src/easy_sandbox/server/app.py#L66-L81)。
+[`SandboxRequestHandler._check_auth`](../../../src/easy_sandbox/server/app.py#L66-L81)。
 
 - Server 启动时读取环境变量 `EBX_SERVER_TOKEN`（`os.environ.get("EBX_SERVER_TOKEN") or None`）。
 - **未设置 token**：`auth_token is None`，视为本地模式，**所有请求免认证**。
@@ -159,8 +159,8 @@ table.enable_group(CapabilityGroup.SYSTEM)
 
 | 端点 | 能力组 | 源码 |
 |------|--------|------|
-| `GET /health` | `CORE` | [routes.py#L442-L445](../../src/easy_sandbox/server/routes.py#L442-L445) |
-| `GET /capabilities` | `CORE` | [routes_system.py#L411-L414](../../src/easy_sandbox/server/routes_system.py#L411-L414) |
+| `GET /health` | `CORE` | [routes.py#L442-L445](../../../src/easy_sandbox/server/routes.py#L442-L445) |
+| `GET /capabilities` | `CORE` | [routes_system.py#L411-L414](../../../src/easy_sandbox/server/routes_system.py#L411-L414) |
 
 请求携带 token 示例：
 
@@ -170,7 +170,7 @@ curl -H "X-Access-Token: $EBX_SERVER_TOKEN" http://localhost:9000/system/info
 
 ### 3.2 分发顺序
 
-[`_dispatch`](../../src/easy_sandbox/server/app.py#L134-L179) 的处理顺序为：
+[`_dispatch`](../../../src/easy_sandbox/server/app.py#L134-L179) 的处理顺序为：
 
 1. 路径归一化：`urlparse` 后 `path.rstrip("/") or "/"`（去除尾部斜杠）。
 2. `RouteTable.match(method, path)`：无匹配 → `404 {"error": "Not found: <path>", "type": "ValueError"}`。
@@ -186,7 +186,7 @@ curl -H "X-Access-Token: $EBX_SERVER_TOKEN" http://localhost:9000/system/info
 ## 3.3 请求/响应数据模型
 
 路由 handler 的输入输出使用标准库 `dataclass` 定义（非 Pydantic），源码位于
-[`types.py`](../../src/easy_sandbox/server/types.py)。
+[`types.py`](../../../src/easy_sandbox/server/types.py)。
 
 #### `ServerRequest`
 
@@ -235,7 +235,7 @@ SSE 流式 handler（`streaming=True` 路由）的返回类型。
 
 响应体统一为 JSON。成功一般为 `200`；错误体统一形如
 `{"error": "<message>", "type": "<ExceptionName>"}`（见
-[`ServerResponse.error`](../../src/easy_sandbox/server/types.py#L70-L88)）。
+[`ServerResponse.error`](../../../src/easy_sandbox/server/types.py#L70-L88)）。
 
 ### 4.1 CORE（2）
 
@@ -298,7 +298,7 @@ curl http://localhost:9000/health
 ```
 
 参数字段来自
-[`handle_list_commands`](../../src/easy_sandbox/server/routes.py#L96-L119)：
+[`handle_list_commands`](../../../src/easy_sandbox/server/routes.py#L96-L119)：
 `name` / `type` / `required` / `default` / `description`。
 
 #### `POST /commands/{name}`
@@ -312,7 +312,7 @@ curl http://localhost:9000/health
 ```
 
 处理流程（见
-[`handle_run_command`](../../src/easy_sandbox/server/routes.py#L229-L269)）：
+[`handle_run_command`](../../../src/easy_sandbox/server/routes.py#L229-L269)）：
 
 1. 命令不存在 → `404 {"error": "Unknown command '<name>'; available: ...", "type": "ValueError"}`。
 2. 参数校验/类型转换失败 → `400`（缺少必填参数、传入未声明参数、类型无法转换）。
@@ -321,7 +321,7 @@ curl http://localhost:9000/health
 
 类型强制转换支持 `string` / `integer` / `float` / `boolean`；布尔可接受
 `true/false/yes/no/1/0`（见
-[`_parse_boolean`](../../src/easy_sandbox/server/routes.py#L130-L152)）。
+[`_parse_boolean`](../../../src/easy_sandbox/server/routes.py#L130-L152)）。
 
 ```bash
 curl -X POST http://localhost:9000/commands/hello \
@@ -335,9 +335,9 @@ curl -X POST http://localhost:9000/commands/hello \
 ### 4.3 FILE_OPS（11）
 
 包含 2 个「传统」上传/下载端点（`/upload`、`/download`，注册于
-[`routes.py`](../../src/easy_sandbox/server/routes.py#L454-L461)）与 9 个扩展文件操作端点（注册于
-[`routes_files.py`](../../src/easy_sandbox/server/routes_files.py#L528-L565)）。所有路径都会经过
-[`_resolve_safe_path`](../../src/easy_sandbox/server/routes.py#L58-L84) 的路径遍历防护（见 §8.1）。
+[`routes.py`](../../../src/easy_sandbox/server/routes.py#L454-L461)）与 9 个扩展文件操作端点（注册于
+[`routes_files.py`](../../../src/easy_sandbox/server/routes_files.py#L528-L565)）。所有路径都会经过
+[`_resolve_safe_path`](../../../src/easy_sandbox/server/routes.py#L58-L84) 的路径遍历防护（见 §8.1）。
 
 #### `POST /upload`
 
@@ -474,8 +474,8 @@ curl -X POST http://localhost:9000/commands/hello \
 
 ### 4.4 PROCESS（6）
 
-包含 `/shell`（注册于 [routes.py](../../src/easy_sandbox/server/routes.py#L462-L465)）以及 SSE 流式 shell 与后台进程管理（注册于
-[routes_process.py](../../src/easy_sandbox/server/routes_process.py#L268-L288)）。
+包含 `/shell`（注册于 [routes.py](../../../src/easy_sandbox/server/routes.py#L462-L465)）以及 SSE 流式 shell 与后台进程管理（注册于
+[routes_process.py](../../../src/easy_sandbox/server/routes_process.py#L268-L288)）。
 
 #### `POST /shell`
 
@@ -550,7 +550,7 @@ SSE 事件格式见 §6。缺失/非法 `command` 或 `shlex` 解析失败 → `
 ### 4.5 TERMINAL（3 REST + WebSocket）
 
 PTY 会话管理端点（注册于
-[routes_pty.py](../../src/easy_sandbox/server/routes_pty.py#L398-L410)）。WebSocket 交互协议见 §5。
+[routes_pty.py](../../../src/easy_sandbox/server/routes_pty.py#L398-L410)）。WebSocket 交互协议见 §5。
 
 > PTY 依赖 Unix `pty` 模块；非 Unix 平台上创建会话会抛 `OSError`（→ `500`）。会话上限
 > `MAX_SESSIONS = 10`，空闲超时 `IDLE_TIMEOUT = 1800` 秒。
@@ -597,7 +597,7 @@ PTY 会话管理端点（注册于
 ### 4.6 SYSTEM（6）
 
 系统信息端点（注册于
-[routes_system.py](../../src/easy_sandbox/server/routes_system.py#L416-L440)）。全部仅用标准库实现（无 `psutil`）。
+[routes_system.py](../../../src/easy_sandbox/server/routes_system.py#L416-L440)）。全部仅用标准库实现（无 `psutil`）。
 
 #### `GET /system/info`
 
@@ -674,7 +674,7 @@ OS / CPU / 内存 / 磁盘 / Python 版本：
 ### 4.7 DEV_TOOLS（3）— 默认禁用
 
 代码执行与 Git 检查（注册于
-[routes_devtools.py](../../src/easy_sandbox/server/routes_devtools.py#L385-L397)）。使用前需
+[routes_devtools.py](../../../src/easy_sandbox/server/routes_devtools.py#L385-L397)）。使用前需
 `default_table().enable_group(CapabilityGroup.DEV_TOOLS)`，否则请求返回 `404`（组被禁用）。
 
 #### `POST /code/run`
@@ -727,11 +727,11 @@ diff 文本超过 1 MB（`_MAX_DIFF_BYTES`）会被截断并追加 `... (truncat
 ### 4.8 BROWSER（8）— 默认禁用
 
 Playwright 无头浏览器控制（注册于
-[routes_browser.py](../../src/easy_sandbox/server/routes_browser.py#L484-L516)）。使用前需
+[routes_browser.py](../../../src/easy_sandbox/server/routes_browser.py#L484-L516)）。使用前需
 `default_table().enable_group(CapabilityGroup.BROWSER)`。
 
 > **Playwright 懒加载与 503 降级**：Playwright 在首次使用时才导入并启动
-> （[`_get_playwright`](../../src/easy_sandbox/server/routes_browser.py#L60-L96)）。
+> （[`_get_playwright`](../../../src/easy_sandbox/server/routes_browser.py#L60-L96)）。
 > 若未安装 `playwright`，所有浏览器端点返回
 > `503 {"error": "Playwright is not installed. ...", "type": "RuntimeError"}`。
 > 页面为进程内共享单例（同一 `page`），操作受 `_browser_lock` 串行化。
@@ -808,8 +808,8 @@ Playwright 无头浏览器控制（注册于
 ## 5. WebSocket PTY 终端协议
 
 实现见
-[`pty_ws_handler`](../../src/easy_sandbox/server/routes_pty.py#L426-L503)
-与 [`start_pty_server`](../../src/easy_sandbox/server/routes_pty.py#L546-L571)。
+[`pty_ws_handler`](../../../src/easy_sandbox/server/routes_pty.py#L426-L503)
+与 [`start_pty_server`](../../../src/easy_sandbox/server/routes_pty.py#L546-L571)。
 WebSocket 服务依赖 `websockets` 库，运行在独立端口（默认 `9001`）。
 
 ### 5.1 连接 URL
@@ -868,8 +868,8 @@ ws://<host>:<pty_port>/pty?session_id=<session_id>
 ## 6. SSE 流式 Shell
 
 端点：`POST /shell/stream`（PROCESS 组）。实现见
-[`_handle_shell_stream`](../../src/easy_sandbox/server/routes_process.py#L64-L121)。
-响应 `Content-Type: text/event-stream`（[`SSEResponse`](../../src/easy_sandbox/server/types.py#L91-L107)），
+[`_handle_shell_stream`](../../../src/easy_sandbox/server/routes_process.py#L64-L121)。
+响应 `Content-Type: text/event-stream`（[`SSEResponse`](../../../src/easy_sandbox/server/types.py#L91-L107)），
 事件以标准 SSE 帧 `event: <name>\ndata: <json>\n\n` 逐条 flush。
 
 ### 6.1 事件类型（来自代码确认）
@@ -909,11 +909,11 @@ data: {"exit_code": 0}
 ## 7. 扩展性（模板作者指南）
 
 Server 的路由与命令均可由模板 `commands.py` 扩展，无需修改 SDK 源码。完整示例见
-[`examples/templates/python-hello/commands.py`](../../examples/templates/python-hello/commands.py)。
+[`examples/templates/python-hello/commands.py`](../../../examples/templates/python-hello/commands.py)。
 
 ### 7.1 注册自定义 HTTP 路由
 
-使用 [`RouteTable.route()`](../../src/easy_sandbox/server/router.py#L175-L204) 装饰器（或 `register()`）。
+使用 [`RouteTable.route()`](../../../src/easy_sandbox/server/router.py#L175-L204) 装饰器（或 `register()`）。
 路径模板支持 `{param}` 占位符，编译为命名捕获组 `(?P<param>[^/]+)`，通过
 `request.path_params` 取用：
 
@@ -934,9 +934,9 @@ def hello_route(request) -> ServerResponse:
 #### 自定义 SSE 流式端点
 
 当路由注册时指定 `streaming=True`，handler 应返回
-[`SSEResponse`](../../src/easy_sandbox/server/types.py#L91-L107)，其
+[`SSEResponse`](../../../src/easy_sandbox/server/types.py#L91-L107)，其
 `event_iterator` 维生成标准 SSE 帧格式的字符串（参考
-[`routes_process.py`](../../src/easy_sandbox/server/routes_process.py#L64-L121) 的实现）：
+[`routes_process.py`](../../../src/easy_sandbox/server/routes_process.py#L64-L121) 的实现）：
 
 ```python
 import json
@@ -981,7 +981,7 @@ def public_status(request) -> ServerResponse:
 
 ### 7.2 注册自定义命令
 
-使用 [`CommandRegistry.command()`](../../src/easy_sandbox/server/registry.py#L163-L234) 装饰器；
+使用 [`CommandRegistry.command()`](../../../src/easy_sandbox/server/registry.py#L163-L234) 装饰器；
 未显式提供 `args` 时会**从函数签名推断**参数类型（`int`→`integer`、`float`→`float`、
 `bool`→`boolean`，其余 `string`）与是否必填（无默认值即必填）：
 
@@ -1005,7 +1005,7 @@ server.serve(port=9000)
 ```
 
 - `hidden=True`：命令仍可通过 `POST /commands/{name}` 执行，但被
-  [`list_visible`](../../src/easy_sandbox/server/registry.py#L268-L276) 从 `GET /commands` 列表中排除。
+  [`list_visible`](../../../src/easy_sandbox/server/registry.py#L268-L276) 从 `GET /commands` 列表中排除。
 - `freeze()`：锁定注册表，防止启动后再变更；`serve()` 内部也会调用一次。
 - 也可用编程式 `registry.register(name, fn, args=[CommandArg(...)], description=..., hidden=...)`。
 
@@ -1018,7 +1018,7 @@ server.serve(port=9000)
 
 ### 8.1 路径遍历防护
 
-[`_resolve_safe_path`](../../src/easy_sandbox/server/routes.py#L58-L84)
+[`_resolve_safe_path`](../../../src/easy_sandbox/server/routes.py#L58-L84)
 对所有文件端点的路径做归一化（`os.path.realpath` + `normpath`），并校验解析结果必须等于
 base 目录或位于其下（`resolved == base_dir or resolved.startswith(base_dir + os.sep)`），
 否则抛 `ValueError`（→ `400 {"error": "Path escapes base directory"}`）。
@@ -1026,7 +1026,7 @@ base 目录或位于其下（`resolved == base_dir or resolved.startswith(base_d
 - base 目录来自 `EBX_SERVER_BASE_DIR`，默认 `/home/user`。
 - `/files/list` 额外跳过指向 base 目录之外的符号链接。
 - Git 端点（`/git/status`、`/git/diff`）使用独立的 `..` 段拒绝检查
-  （[`_validate_git_path`](../../src/easy_sandbox/server/routes_devtools.py#L62-L70)），
+  （[`_validate_git_path`](../../../src/easy_sandbox/server/routes_devtools.py#L62-L70)），
   而非 `_resolve_safe_path`。
 
 ### 8.2 信号白名单
@@ -1062,11 +1062,11 @@ base 目录或位于其下（`resolved == base_dir or resolved.startswith(base_d
 
 | 环境变量 | 默认值 | 作用 | 读取位置 |
 |----------|--------|------|----------|
-| `EBX_SERVER_TOKEN` | （未设置 = 免认证） | 认证 token；设置后需 `X-Access-Token` 头匹配 | [app.py#L43](../../src/easy_sandbox/server/app.py#L43) |
-| `EBX_SERVER_BASE_DIR` | `/home/user` | 文件端点路径安全根目录 | [routes.py#L54-L55](../../src/easy_sandbox/server/routes.py#L54-L55) |
-| `EBX_SERVER_DISABLED_GROUPS` | （空） | 逗号分隔，在默认禁用之外额外禁用能力组 | [router.py#L71](../../src/easy_sandbox/server/router.py#L71) |
-| `EBX_PTY_PORT` | `9001` | PTY WebSocket 端口，并写入 `ws_url` | [app.py#L247](../../src/easy_sandbox/server/app.py#L247) / [routes_pty.py#L362](../../src/easy_sandbox/server/routes_pty.py#L362) |
-| `EBX_MAX_UPLOAD_SIZE` | `104857600`（100 MB） | `/files/upload-stream` 上传字节上限 | [routes_files.py#L39](../../src/easy_sandbox/server/routes_files.py#L39) |
+| `EBX_SERVER_TOKEN` | （未设置 = 免认证） | 认证 token；设置后需 `X-Access-Token` 头匹配 | [app.py#L43](../../../src/easy_sandbox/server/app.py#L43) |
+| `EBX_SERVER_BASE_DIR` | `/home/user` | 文件端点路径安全根目录 | [routes.py#L54-L55](../../../src/easy_sandbox/server/routes.py#L54-L55) |
+| `EBX_SERVER_DISABLED_GROUPS` | （空） | 逗号分隔，在默认禁用之外额外禁用能力组 | [router.py#L71](../../../src/easy_sandbox/server/router.py#L71) |
+| `EBX_PTY_PORT` | `9001` | PTY WebSocket 端口，并写入 `ws_url` | [app.py#L247](../../../src/easy_sandbox/server/app.py#L247) / [routes_pty.py#L362](../../../src/easy_sandbox/server/routes_pty.py#L362) |
+| `EBX_MAX_UPLOAD_SIZE` | `104857600`（100 MB） | `/files/upload-stream` 上传字节上限 | [routes_files.py#L39](../../../src/easy_sandbox/server/routes_files.py#L39) |
 
 > HTTP 端口不由环境变量控制，而是 `start(port=...)` / `SandboxServer.serve(port=...)` 参数（默认 `9000`）。
 

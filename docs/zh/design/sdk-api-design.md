@@ -803,29 +803,96 @@ print(sb.network.public_url)  # https://sandbox.example.com
 
 ### 异常类层次
 
-```
-SandboxError (基类)
-├── AuthenticationError          # 认证失败
-│   ├── InvalidCredentialsError  #   AK/SK 无效
-│   └── TokenExpiredError        #   Token 过期
-├── SandboxCreationError         # 沙箱创建失败
-│   ├── TemplateNotFoundError    #   模板不存在
-│   ├── QuotaExceededError       #   配额超限
-│   └── RegionUnavailableError   #   区域不可用
-├── ExecutionError               # 执行失败
-│   ├── TimeoutError             #   执行超时
-│   ├── ProcessError             #   进程异常退出
-│   ├── CodeExecutionError       #   代码执行错误
-│   └── CapabilityNotSupportedError  # 调用沙箱不具备的标准能力
-├── FileOperationError           # 文件操作失败
-│   ├── FileNotFoundError        #   文件不存在
-│   └── PermissionDeniedError    #   权限不足
-├── NetworkError                 # 网络错误
-│   ├── ConnectionError          #   连接失败
-│   └── PortConflictError        #   端口冲突
-└── AgentError                   # Agent 错误
-    ├── LLMProviderError         #   LLM 调用失败
-    └── ToolExecutionError       #   工具执行失败
+```mermaid
+classDiagram
+    class SandboxError {
+        <<基类>>
+    }
+    class AuthenticationError {
+        认证失败
+    }
+    class InvalidCredentialsError {
+        E1003 AK/SK 无效
+    }
+    class TokenExpiredError {
+        E1002 Token 过期
+    }
+    class SandboxCreationError {
+        创建失败
+    }
+    class TemplateNotFoundError {
+        E2001 模板不存在
+    }
+    class QuotaExceededError {
+        E2002 配额超限
+    }
+    class RegionUnavailableError {
+        E2003 区域不可用
+    }
+    class ExecutionError {
+        执行失败
+    }
+    class TimeoutError {
+        E3001 执行超时
+    }
+    class ProcessError {
+        E3002 进程异常退出
+    }
+    class CodeExecutionError {
+        E3003 代码执行错误
+    }
+    class CapabilityNotSupportedError {
+        E3004 能力不支持
+    }
+    class FileOperationError {
+        文件操作失败
+    }
+    class FileNotFoundError {
+        E4001 文件不存在
+    }
+    class PermissionDeniedError {
+        权限不足
+    }
+    class NetworkError {
+        网络错误
+    }
+    class ConnectionError {
+        E5001 连接失败
+    }
+    class PortConflictError {
+        端口冲突
+    }
+    class AgentError {
+        Agent 错误
+    }
+    class LLMProviderError {
+        LLM 调用失败
+    }
+    class ToolExecutionError {
+        工具执行失败
+    }
+
+    SandboxError <|-- AuthenticationError
+    SandboxError <|-- SandboxCreationError
+    SandboxError <|-- ExecutionError
+    SandboxError <|-- FileOperationError
+    SandboxError <|-- NetworkError
+    SandboxError <|-- AgentError
+    AuthenticationError <|-- InvalidCredentialsError
+    AuthenticationError <|-- TokenExpiredError
+    SandboxCreationError <|-- TemplateNotFoundError
+    SandboxCreationError <|-- QuotaExceededError
+    SandboxCreationError <|-- RegionUnavailableError
+    ExecutionError <|-- TimeoutError
+    ExecutionError <|-- ProcessError
+    ExecutionError <|-- CodeExecutionError
+    ExecutionError <|-- CapabilityNotSupportedError
+    FileOperationError <|-- FileNotFoundError
+    FileOperationError <|-- PermissionDeniedError
+    NetworkError <|-- ConnectionError
+    NetworkError <|-- PortConflictError
+    AgentError <|-- LLMProviderError
+    AgentError <|-- ToolExecutionError
 ```
 
 ### 错误码体系

@@ -38,7 +38,12 @@ RUN pip install --no-cache-dir --upgrade pip \
     httpx \
     rich \
     pyyaml
-RUN pip install --no-cache-dir easy-sandbox
+COPY *.whl /tmp/
+RUN if ls /tmp/*.whl 1>/dev/null 2>&1; then \
+        pip install --no-cache-dir /tmp/*.whl && rm -f /tmp/*.whl; \
+    else \
+        pip install --no-cache-dir easy-sandbox; \
+    fi
 
 # Set environment variables
 ENV OPENAI_API_KEY=""

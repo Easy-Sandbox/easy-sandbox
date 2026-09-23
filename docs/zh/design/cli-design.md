@@ -20,66 +20,66 @@
 
 ## 1. 命令树
 
-```
-ebx
-├── create [description]              # 创建沙箱（支持自然语言推断）
-├── list                              # 列出所有沙箱
-├── info <sandbox-id>                 # 查看沙箱详情
-├── kill <sandbox-id>                 # 销毁沙箱
-├── kill --all                        # 销毁全部沙箱
-├── exec <sandbox-id> <command>       # 在沙箱中执行裸 shell 命令
-├── run <sandbox-id> <command-name> [--arg k=v ...]  # 调度模板声明的命名命令
-├── connect <sandbox-id>              # 交互式连接（REPL）
-├── upload <sandbox-id> <local> <remote>    # 上传文件/目录
-├── download <sandbox-id> <remote> <local>  # 下载文件
-├── deploy [path] [instruction]       # 部署项目到沙箱（NL 模式 / 传统模式）
-├── install <template-ref>            # 安装社区模板（快捷方式）
-│
-├── sandbox                           # 沙箱管理分组（含扩展子命令）
-│   ├── create / list / info / kill / exec / connect / upload / download / run
-│   │                                 # （同顶层快捷命令）
-│   ├── files                         # 文件操作子命令组
-│   │   ├── list <sandbox-id>         # 列出目录内容
-│   │   ├── stat <sandbox-id>         # 查看文件/目录信息
-│   │   ├── mkdir <sandbox-id>        # 创建目录
-│   │   ├── rm <sandbox-id>           # 删除文件/目录
-│   │   ├── mv <sandbox-id>           # 移动/重命名文件
-│   │   └── search <sandbox-id>       # 按 glob 模式搜索文件
-│   │
-│   ├── process                       # 进程管理子命令组
-│   │   ├── list <sandbox-id>         # 列出运行中进程
-│   │   ├── start <sandbox-id>        # 启动后台进程
-│   │   ├── info <sandbox-id> <pid>   # 查看进程详情
-│   │   └── signal <sandbox-id> <pid> # 向进程发送信号
-│   │
-│   ├── system                        # 系统信息子命令组
-│   │   ├── info <sandbox-id>         # 系统信息（OS/CPU/内存/磁盘）
-│   │   ├── env <sandbox-id>          # 环境变量
-│   │   ├── ports <sandbox-id>        # 监听端口
-│   │   ├── packages <sandbox-id>     # 已安装包列表
-│   │   └── metrics <sandbox-id>      # 资源使用指标
-│   │
-│   ├── capabilities <sandbox-id>     # 查看沙箱支持的能力组
-│   └── shell-stream <sandbox-id>     # 流式命令执行（实时输出）
-│
-├── template
-│   ├── list                          # 列出可用模板
-│   ├── info <template-id>            # 模板详情
-│   ├── build -f <Dockerfile>         # 从 Dockerfile 构建模板
-│   ├── delete <template-id>          # 删除模板
-│   ├── install <template-ref>        # 从 Registry 安装模板
-│   └── cache [--clear]               # 管理本地模板缓存
-│
-├── mcp
-│   ├── install --target <ide>        # 安装 MCP Server 到 IDE
-│   ├── start                         # 启动 MCP Server（STDIO 模式）
-│   └── status                        # MCP Server 状态
-│
-└── config
-    ├── get <key>                     # 获取配置值
-    ├── set <key> <value>             # 设置配置值
-    ├── list                          # 列出所有配置
-    └── reset                         # 重置为默认配置
+```mermaid
+graph TB
+    ebx["ebx"]
+
+    ebx --- create["create - 创建沙箱（支持自然语言推断）"]
+    ebx --- list["list - 列出所有沙箱"]
+    ebx --- info["info - 查看沙箱详情"]
+    ebx --- kill["kill - 销毁沙箱 / --all"]
+    ebx --- execCmd["exec - 执行裸 shell 命令"]
+    ebx --- run["run - 调度命名命令"]
+    ebx --- connect["connect - 交互式连接"]
+    ebx --- upload["upload - 上传文件/目录"]
+    ebx --- download["download - 下载文件"]
+    ebx --- deploy["deploy - 部署项目"]
+    ebx --- install["install - 安装社区模板"]
+    ebx --- sandbox["sandbox"]
+    ebx --- template["template"]
+    ebx --- mcp["mcp"]
+    ebx --- config["config"]
+
+    sandbox --- sb_crud["create / list / info / kill / exec / connect / upload / download / run"]
+    sandbox --- sb_files["files"]
+    sandbox --- sb_process["process"]
+    sandbox --- sb_system["system"]
+    sandbox --- sb_cap["capabilities"]
+    sandbox --- sb_shell["shell-stream"]
+
+    sb_files --- f_list["list"]
+    sb_files --- f_stat["stat"]
+    sb_files --- f_mkdir["mkdir"]
+    sb_files --- f_rm["rm"]
+    sb_files --- f_mv["mv"]
+    sb_files --- f_search["search"]
+
+    sb_process --- p_list["list"]
+    sb_process --- p_start["start"]
+    sb_process --- p_info["info"]
+    sb_process --- p_signal["signal"]
+
+    sb_system --- sys_info["info"]
+    sb_system --- sys_env["env"]
+    sb_system --- sys_ports["ports"]
+    sb_system --- sys_packages["packages"]
+    sb_system --- sys_metrics["metrics"]
+
+    template --- tpl_list["list"]
+    template --- tpl_info["info"]
+    template --- tpl_build["build"]
+    template --- tpl_delete["delete"]
+    template --- tpl_install["install"]
+    template --- tpl_cache["cache"]
+
+    mcp --- mcp_install["install"]
+    mcp --- mcp_start["start"]
+    mcp --- mcp_status["status"]
+
+    config --- cfg_get["get"]
+    config --- cfg_set["set"]
+    config --- cfg_list["list"]
+    config --- cfg_reset["reset"]
 ```
 
 ***
@@ -203,7 +203,7 @@ ebx create -T browser-automation
 | `hermes-agent`        | Hermes Agent 运行环境              | 官方 |
 | `openclaw`            | OpenClaw AI Agent 运行环境         | 官方 |
 
-> 完整的社区模板索引参见仓库根目录的 [`awesome-templates.yaml`](../../awesome-templates.yaml)。
+> 完整的社区模板索引参见仓库根目录的 [`awesome-templates.yaml`](../../../awesome-templates.yaml)。
 
 ***
 

@@ -24,40 +24,23 @@ class SandboxStatus(str, Enum):
 
 ## 状态转换
 
-```
-              create()
-                │
-                ▼
-           ┌──────────┐
-           │ CREATING  │
-           └────┬──────┘
-                │ 容器就绪
-                ▼
-           ┌──────────┐
-      ┌───→│ RUNNING   │←──┐
-      │    └──┬──┬──┬──┘   │
-      │       │  │  │      │
-      │  pause│  │  │kill  │resume
-      │       │  │  │      │
-      │       ▼  │  │      │
-      │  ┌────────┐ │      │
-      │  │ PAUSED  │─┘      │
-      │  └────────┘ resume──┘
-      │       │
-      │  kill │
-      │       ▼
-      │  ┌──────────┐
-      │  │ STOPPING  │
-      │  └────┬──────┘
-      │       │
-      │       ▼
-      │  ┌──────────┐
-      └──│ STOPPED   │
-         └──────────┘
+```mermaid
+stateDiagram-v2
+    [*] --> CREATING : create()
+    CREATING --> RUNNING : 容器就绪
+    RUNNING --> PAUSED : pause
+    PAUSED --> RUNNING : resume
+    RUNNING --> STOPPING : kill
+    PAUSED --> STOPPING : kill
+    STOPPING --> STOPPED
+    STOPPED --> [*]
 
-         ┌──────────┐
-         │  ERROR    │ （任何阶段都可能转入）
-         └──────────┘
+    CREATING --> ERROR
+    RUNNING --> ERROR
+    PAUSED --> ERROR
+    STOPPING --> ERROR
+
+    note right of ERROR : 任何阶段都可能转入
 ```
 
 ### 正常流程

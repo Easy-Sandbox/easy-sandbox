@@ -4,6 +4,15 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Changed
+- **`ebx template build-local`**: Default mode switched to **official CreateTemplate API** (`--official-api`). Legacy v3/v2 behaviour now requires explicit `--legacy-api` flag.
+- **Official template path prerequisites**: `ebx template create` and `ebx template build-local` (default mode) now require the `alicloud` extra (`pip install "easy-sandbox[cli,alicloud]"` or `pip install "easy-sandbox[alicloud]"`) and Alibaba Cloud AK/SK credentials.
+
+### Migration
+- Existing automation scripts using `build-local` without `--legacy-api` will now invoke the official API. To preserve old behaviour, add `--legacy-api` to the command.
+
 ## [0.1.0-dev] - 2026-09-02
 
 ### Added

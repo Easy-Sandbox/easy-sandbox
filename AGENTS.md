@@ -55,20 +55,35 @@ easy-sandbox/
 
 The SDK follows a strict layered architecture — **lower layers never import upper layers**:
 
-```
-L0  Models        models/           Pydantic data models, error hierarchy, config  (no cross-module deps)
-L0  Utils         utils/            Async bridge, keychain, logging, registry, retry (no cross-module deps)
-L1  Transport     transport/        HTTP, WebSocket, auth, codec, streaming         (depends on L0)
-L2  Protocol      protocol/         Sandbox lifecycle, filesystem, process, terminal, port (depends on L0+L1)
-L3  API           api/              High-level Sandbox class, file ops, code exec, capability (depends on L0–L2)
-─── ─── ─── ─── ─── ─── ─── ─── ─── ─── ─── ─── ─── ─── ─── ─── ─── ───
-    CLI           cli/              Click commands, formatters
-    Agent/MCP     agent/            MCP server, builtin agents, tool defs
-    Integrations  integrations/     LangChain, CrewAI, AutoGen adapters
-    Declarative   declarative/      @sandbox decorator
-    Compat        compat/           E2B compatibility shim
-    Extensions    extensions/       OSS, VPC, domain extensions
-    Session       session/          Persistence (local/OSS/DB)
+```mermaid
+graph TB
+    subgraph Upper["Upper Layers"]
+        CLI["CLI — Click commands, formatters"]
+        Agent["Agent/MCP — MCP server, builtin agents, tool defs"]
+        Integ["Integrations — LangChain, CrewAI, AutoGen adapters"]
+        Decl["Declarative — @sandbox decorator"]
+        Compat["Compat — E2B compatibility shim"]
+        Ext["Extensions — OSS, VPC, domain extensions"]
+        Sess["Session — Persistence"]
+    end
+    subgraph Core["Core Layers"]
+        L3["L3 API — High-level Sandbox class, file ops, code exec, capability"]
+        L2["L2 Protocol — Sandbox lifecycle, filesystem, process, terminal, port"]
+        L1["L1 Transport — HTTP, WebSocket, auth, codec, streaming"]
+        L0M["L0 Models — Pydantic data models, error hierarchy, config"]
+        L0U["L0 Utils — Async bridge, keychain, logging, registry, retry"]
+    end
+
+    CLI --> L3
+    Agent --> L3
+    Integ --> L3
+    Decl --> L3
+    Compat --> L3
+    Ext --> L3
+    Sess --> L3
+    L3 --> L2 --> L1
+    L1 --> L0M
+    L1 --> L0U
 ```
 
 ---
@@ -190,7 +205,7 @@ EBX_UPDATE_EVIDENCE=1 pytest tests/
 | PR template             | [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) |
 | Security policy         | [`.github/SECURITY.md`](.github/SECURITY.md)                        |
 | Architecture decisions  | [`.agents/notes/`](.agents/notes/README.md) (ADR system)            |
-| Design documents        | [`docs/design/`](docs/design/)                                      |
+| Design documents        | [`docs/zh/design/`](docs/zh/design/)                                |
 | CLI evidence            | [`.agents/evidence/`](.agents/evidence/README.md)                   |
 | Changelog               | [`CHANGELOG.md`](CHANGELOG.md)                                      |
 

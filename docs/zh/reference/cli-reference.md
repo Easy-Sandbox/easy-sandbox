@@ -261,6 +261,97 @@ ebx template install ./my-template --registry-type local
 ebx install owner/repo
 ```
 
+### ebx template create
+
+从已有容器镜像创建沙箱模板。使用阿里云 FCSandbox 官方 CreateTemplate API。
+
+> **前置条件**：需要 AK/SK 凭证和 `pip install "easy-sandbox[alicloud]"` SDK 扩展（或直接安装 `pip install "easy-sandbox[cli,alicloud]"`）。
+
+```bash
+ebx template create <IMAGE> --name <NAME> [选项]
+```
+
+| 选项 | 说明 |
+|------|------|
+| `--name` / `-n` | 模板名称（必需） |
+| `--team-id` | Team ID（或环境变量 `TEAM_ID` / `E2B_TEAM_ID`，缺省自动解析） |
+| `--cpu` | CPU 核数（默认 2） |
+| `--memory` | 内存 MB（默认 2048） |
+| `--disk-size` | 磁盘大小 MB |
+| `--internet-access/--no-internet-access` | 联网访问（默认由平台决定） |
+| `--generation` | 沙箱代数（默认 1） |
+| `--envd-inject/--no-envd-inject` | 启用 envd 注入 |
+| `--registry-type` | 镜像仓库类型：`acr` / `acree`（自动检测） |
+| `--acree-instance-id` | ACR EE 实例 ID |
+| `--registry-username` | 镜像仓库用户名 |
+| `--registry-password` | 镜像仓库密码 |
+| `--start-cmd` | 容器启动命令 |
+| `--ready-cmd` | 容器就绪检查命令 |
+
+```bash
+# 从已推送的 ACR 镜像创建
+ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag --name my-template
+
+# 指定资源和参数
+ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag \
+  --name my-tpl --cpu 4 --memory 4096 --disk-size 10240 --internet-access
+```
+
+### ebx template build-local
+
+本地 Docker 构建 → ACR 推送 → 创建沙箱模板。
+
+默认使用**官方 CreateTemplate API**（需要 AK/SK 和 `easy-sandbox[alicloud]`；若尚未安装 CLI 请用 `pip install "easy-sandbox[cli,alicloud]"`）。
+旧脚本请使用 `--legacy-api` 切换回 v3/v2 API。
+
+```bash
+ebx template build-local <TEMPLATE_DIR> [选项]
+```
+
+| 选项 | 说明 |
+|------|------|
+| `--acr-registry` | ACR 注册中心主机（默认 `registry.cn-hangzhou.aliyuncs.com`） |
+| `--acr-namespace` | ACR 命名空间（必需） |
+| `--acr-repo` | ACR 仓库名（默认为模板目录名） |
+| `--acr-username` / `--acr-password` | ACR 凭证（默认从 .env 读取 AK/SK） |
+| `--acree-instance-id` | ACR EE 实例 ID |
+| `--tag` / `-t` | Docker 镜像标签（默认 `latest`） |
+| `--platform` | 目标平台（默认 `linux/amd64`） |
+| `--cpu` | CPU 核数 |
+| `--memory` | 内存 MB |
+| `--disk-size` | 磁盘大小 MB（仅官方 API） |
+| `--internet-access/--no-internet-access` | 联网访问（仅官方 API） |
+| `--official-api/--legacy-api` | 使用官方 API（默认）或旧 v3/v2 API |
+| `--team-id` | Team ID |
+| `--envd-inject/--no-envd-inject` | envd 注入（默认开启） |
+| `--generation` | 沙箱代数 |
+| `--dockerfile` / `-f` | 自定义 Dockerfile 路径 |
+| `--start-cmd` / `--ready-cmd` | 启动/就绪命令 |
+| `--timeout` | 构建超时秒数 |
+
+```bash
+# 默认官方 API
+ebx template build-local ./examples/templates/python-hello \
+  --acr-namespace my-ns --acr-repo python-hello
+
+# 指定磁盘和联网
+ebx template build-local ./my-template \
+  --acr-namespace prod --disk-size 10240 --internet-access
+
+# ACR EE 实例
+ebx template build-local ./my-template \
+  --acr-namespace prod --acree-instance-id cri-xxx
+
+# 旧 API
+ebx template build-local ./my-template \
+  --acr-namespace prod --legacy-api
+```
+
+> **两条路径说明**：
+> - **官方路径**（默认）：`build-local` → Docker 构建 → ACR 推送 → `CreateTemplate` API。需要 AK/SK 和 `easy-sandbox[alicloud]`，默认 region 为 `cn-hangzhou`。
+> - **旧路径**：`build-local --legacy-api` → Docker 构建 → ACR 推送 → v3/v2 Platform API。需要 E2B API Key。
+> - **仅镜像创建**：`ebx template create <IMAGE>` 只调用 CreateTemplate API，不做本地构建。
+
 ---
 
 ## 会话命令 — ebx session

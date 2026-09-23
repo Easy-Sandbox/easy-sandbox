@@ -74,18 +74,21 @@ MCP Server 提供 7 个工具：
 
 ### 典型工作流
 
-```text
-用户: 帮我在沙箱中测试这段代码
-  ↓
-AI 调用 create_sandbox → 获取 sandbox_id
-  ↓
-AI 调用 write_file → 写入代码文件
-  ↓
-AI 调用 run_code → 执行代码
-  ↓
-AI 调用 read_file → 读取结果
-  ↓
-AI 调用 kill_sandbox → 清理
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant AI as AI 助手
+    participant MCP as MCP Server / 沙箱
+
+    User->>AI: 帮我在沙箱中测试这段代码
+    AI->>MCP: create_sandbox
+    MCP-->>AI: sandbox_id
+    AI->>MCP: write_file — 写入代码文件
+    AI->>MCP: run_code — 执行代码
+    MCP-->>AI: 执行结果
+    AI->>MCP: read_file — 读取结果
+    AI->>MCP: kill_sandbox — 清理
+    AI-->>User: 返回测试结果
 ```
 
 ---

@@ -205,6 +205,7 @@ class Sandbox:
             envd_token=self._envd_token,
             code_interpreter_protocol=self._code_interpreter_protocol,
             capabilities=self._capabilities,
+            process_protocol=self._process_protocol,
         )
 
     # ---- Factory classmethods ----

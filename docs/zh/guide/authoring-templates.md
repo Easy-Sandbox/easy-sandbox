@@ -221,6 +221,46 @@ ebx template install ./my-template --registry-type local
 
 模板安装后保存在 `~/.ebx/templates/` 目录下。
 
+### 本地构建并注册模板（build-local）
+
+当你需要将自定义 Docker 镜像注册为沙箱模板时，使用 `build-local` 子命令。它自动执行：本地 Docker 构建 → ACR 推送 → 调用 CreateTemplate API。
+
+> **前置条件**：
+> - Docker 守护进程已启动
+> - 阿里云 AK/SK 凭证（配置在 `.env` 或环境变量中）
+> - 安装官方 SDK 扩展：`pip install "easy-sandbox[cli,alicloud]"`（已安装 CLI 时可只加 `pip install "easy-sandbox[alicloud]"`）
+
+```bash
+# 默认使用官方 CreateTemplate API
+ebx template build-local ./my-template \
+  --acr-namespace my-ns --acr-repo my-template
+
+# 指定资源参数
+ebx template build-local ./my-template \
+  --acr-namespace my-ns --cpu 4 --memory 4096 --disk-size 10240 --internet-access
+
+# 使用旧 v3/v2 API（老脚本兼容）
+ebx template build-local ./my-template \
+  --acr-namespace my-ns --legacy-api
+```
+
+**两条路径说明**：
+
+| 路径 | 默认？ | 认证方式 | 依赖 |
+|------|--------|----------|------|
+| 官方 CreateTemplate API | ✅ 是 | AK/SK | `easy-sandbox[alicloud]` |
+| 旧 v3/v2 Platform API | 否（`--legacy-api`） | E2B API Key | 无额外依赖 |
+
+> **Region 注意**：官方 API 默认 region 为 `cn-hangzhou`，可通过 `--region` 全局选项设置。跨区域访问 ACR 可能需要配置 VPC 相关参数。
+
+### 仅从镜像创建模板
+
+如果镜像已经推送到 ACR，可以直接创建模板，不需要本地构建：
+
+```bash
+ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag --name my-template
+```
+
 ---
 
 ## 下一步

@@ -24,7 +24,6 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac as hmac_mod
-import os
 import shutil
 import subprocess  # noqa: S404
 import urllib.parse
@@ -210,6 +209,7 @@ class DockerBuilder:
         cmd = [
             self._docker, "build",
             "--platform", platform,
+            "--provenance=false",  # Disable attestation manifests (FC rejects unknown/unknown platform)
             "-t", tag,
         ]
         if dockerfile:
@@ -301,7 +301,7 @@ class DockerBuilder:
         access_key_secret: str,
         region: str = "cn-hangzhou",
         instance_id: str | None = None,
-    ) -> None:
+    ) -> dict[str, Any]:
         """Login to ACR using AK/SK → temporary credentials via GetAuthorizationToken API.
 
         Retrieves a temporary docker-login token from the Alibaba Cloud
@@ -318,12 +318,16 @@ class DockerBuilder:
             region: Region ID (default ``cn-hangzhou``).
             instance_id: ACR EE instance ID (optional).
 
+        Returns:
+            Dict with ``tempUserName`` and ``authorizationToken`` (or AK/SK
+            fallback keys ``username`` and ``password``).
+
         Raises:
             ACRLoginError: If all login attempts fail.
         """
         logger.info("Attempting ACR login via GetAuthorizationToken for %s", registry)
         try:
-            token_data = _get_acr_auth_token(
+            token_data = get_acr_auth_token(
                 access_key_id, access_key_secret, region,
                 instance_id=instance_id,
             )
@@ -338,7 +342,7 @@ class DockerBuilder:
                 temp_username, token_data.get("expireTime", "?"),
             )
             self.login_acr(registry, temp_username, auth_token)
-            return
+            return {"tempUserName": temp_username, "authorizationToken": auth_token}
         except ACRLoginError as exc:
             logger.warning(
                 "GetAuthorizationToken failed: %s — falling back to direct AK/SK login", exc
@@ -351,6 +355,7 @@ class DockerBuilder:
         # Fallback: use AK as username, SK as password directly
         logger.info("Attempting direct AK/SK docker login for %s", registry)
         self.login_acr(registry, access_key_id, access_key_secret)
+        return {"tempUserName": access_key_id, "authorizationToken": access_key_secret}
 
     def tag(self, source: str, target: str) -> None:
         """Tag a local image for a remote registry.
@@ -569,7 +574,10 @@ class DockerBuilder:
         acr_ref = acr.tagged_ref(tag)
         result.acr_ref = acr_ref
         _progress(f"[3/5] Pushing to ACR: {acr_ref}")
-        self.login_acr(acr.registry, acr.username, acr.password)
+        self.login_acr_with_aksk(
+            acr.registry, acr.username, acr.password,
+            instance_id=acr.acree_instance_id or None,
+        )
         self.tag(local_tag, acr_ref)
         self.push(acr_ref, on_output=lambda line: logger.debug("  %s", line))
         result.build_status = "pushed"
@@ -643,6 +651,182 @@ class DockerBuilder:
 
         finally:
             await http_client.close()
+
+        return result
+
+    async def build_and_register_official(
+        self,
+        template_dir: str | Path,
+        acr: ACRConfig,
+        *,
+        name: str | None = None,
+        tag: str = "latest",
+        platform: str = "linux/amd64",
+        dockerfile: str | Path | None = None,
+        cpu_count: int = 2,
+        memory_mb: int = 2048,
+        disk_size: int | None = None,
+        internet_access: bool | None = None,
+        start_cmd: str | None = None,
+        ready_cmd: str | None = None,
+        envd_inject: bool = True,
+        generation: int = 1,
+        team_id: str | None = None,
+        region: str = "cn-hangzhou",
+        on_progress: Callable[[str], None] | None = None,
+        acr_access_key_id: str | None = None,
+        acr_access_key_secret: str | None = None,
+        api_access_key_id: str | None = None,
+        api_access_key_secret: str | None = None,
+        # Backward-compat fallback — used when specific params above are not set.
+        access_key_id: str | None = None,
+        access_key_secret: str | None = None,
+        timeout: int = 600,
+    ) -> BuildResult:
+        """Full chain: local Docker build -> ACR push -> official CreateTemplate API.
+
+        Uses the official Alibaba Cloud FCSandbox ``CreateTemplate`` API
+        instead of the legacy v3/v2 platform API.
+
+        Credentials are separated into two independent sets:
+
+        * **ACR credentials** (``acr_access_key_id``/``acr_access_key_secret``)
+          are used for ``GetAuthorizationToken`` and ``docker login``.
+          Resolution order: *acr_access_key_id* >
+          ``acr.username`` > *access_key_id* (legacy fallback).
+        * **Platform API credentials** (``api_access_key_id``/
+          ``api_access_key_secret``) are used for ``CreateTemplate``.
+          Resolution order: *api_access_key_id* >
+          *access_key_id* (legacy fallback).
+
+        Args:
+            template_dir: Path to the template directory (must contain a Dockerfile).
+            acr: ACR configuration.
+            name: Template name (defaults to acr.repo or directory name).
+            tag: Image tag (default ``latest``).
+            platform: Target platform (default ``linux/amd64``).
+            dockerfile: Custom Dockerfile path.
+            cpu_count: CPU cores for the template.
+            memory_mb: Memory in MB for the template.
+            disk_size: Disk size in MB.
+            internet_access: Internet access flag.
+            start_cmd: Start command.
+            ready_cmd: Readiness check command.
+            envd_inject: Enable envd injection (default ``True`` for build-local).
+            generation: Sandbox generation (default 1).
+            team_id: Team ID (auto-resolved if not given).
+            region: Region ID (default ``cn-hangzhou``).
+            on_progress: Progress callback.
+            acr_access_key_id: AK for ACR login (GetAuthorizationToken).
+            acr_access_key_secret: SK for ACR login.
+            api_access_key_id: AK for the FCSandbox CreateTemplate API.
+            api_access_key_secret: SK for the FCSandbox CreateTemplate API.
+            access_key_id: **Deprecated** fallback AK (used when specific
+                params are not set).
+            access_key_secret: **Deprecated** fallback SK.
+            timeout: Not used for official API (kept for signature compat).
+
+        Returns:
+            :class:`BuildResult` with template_id and build status.
+        """
+        result = BuildResult()
+        tdir = Path(template_dir).resolve()
+        template_name = name or acr.repo or tdir.name
+
+        # ACR credentials: dedicated param > ACRConfig > legacy fallback
+        acr_ak = acr_access_key_id or acr.username or access_key_id or ""
+        acr_sk = acr_access_key_secret or acr.password or access_key_secret or ""
+        # Platform API credentials: dedicated param > legacy fallback
+        api_ak = api_access_key_id or access_key_id or ""
+        api_sk = api_access_key_secret or access_key_secret or ""
+
+        def _progress(msg: str) -> None:
+            if on_progress:
+                on_progress(msg)
+            logger.info(msg)
+
+        # Step 1: Check Docker
+        _progress("[1/5] Checking Docker daemon...")
+        if not self.check_docker():
+            raise DockerBuildError(
+                "Docker daemon is not running or not accessible.",
+                suggestion="Start Docker Desktop or the Docker daemon.",
+            )
+
+        # Step 1.5: Inject SDK wheel into docker context
+        _progress("[1.5/5] Injecting SDK wheel into build context...")
+        injected_wheels = self.inject_sdk_wheel(tdir)
+        if injected_wheels:
+            _progress(f"  Injected {len(injected_wheels)} wheel(s)")
+        else:
+            _progress("  No SDK wheel injected (may install from PyPI)")
+
+        # Step 2: Build locally
+        local_tag = f"{template_name}:{tag}"
+        result.local_tag = local_tag
+        _progress(f"[2/5] Building Docker image locally: {local_tag}")
+        try:
+            self.build(
+                context_dir=tdir,
+                tag=local_tag,
+                platform=platform,
+                dockerfile=dockerfile,
+                on_output=lambda line: logger.debug("  %s", line),
+            )
+        finally:
+            for whl in injected_wheels:
+                whl.unlink(missing_ok=True)  # noqa: SIM105
+
+        # Step 3: Login + tag + push to ACR
+        acr_ref = acr.tagged_ref(tag)
+        result.acr_ref = acr_ref
+        _progress(f"[3/5] Pushing to ACR: {acr_ref}")
+        creds = self.login_acr_with_aksk(
+            acr.registry, acr_ak, acr_sk,
+            region=region,
+            instance_id=acr.acree_instance_id or None,
+        )
+        self.tag(local_tag, acr_ref)
+        self.push(acr_ref, on_output=lambda line: logger.debug("  %s", line))
+        result.build_status = "pushed"
+
+        # Step 4: Create template via official CreateTemplate API
+        _progress(f"[4/5] Creating template via official API: {template_name}")
+        from easy_sandbox.api.fc_template import create_official_template
+
+        # Determine registry_type
+        registry_type: str | None = "acree" if acr.acree_instance_id else "acr"
+
+        api_result = create_official_template(
+            name=template_name,
+            image=acr_ref,
+            access_key_id=api_ak,
+            access_key_secret=api_sk,
+            region=region,
+            team_id=team_id,
+            cpu=cpu_count,
+            memory_size=memory_mb,
+            disk_size=disk_size,
+            internet_access=internet_access,
+            generation=generation,
+            start_command=start_cmd,
+            ready_command=ready_cmd,
+            envd_inject=envd_inject,
+            registry_type=registry_type,
+            acr_instance_id=acr.acree_instance_id or None,
+            registry_username=creds.get("tempUserName"),
+            registry_password=creds.get("authorizationToken"),
+            registry_vpc_id=acr.vpc_id or None,
+            registry_vswitch_id=acr.vswitch_ids or None,
+            registry_security_group_id=acr.security_group_id or None,
+        )
+
+        result.template_id = api_result.get("templateID", "")
+        result.build_status = "ready" if api_result.get("statusCode") == 200 else "submitted"
+        _progress(
+            f"[5/5] Template created: {result.template_id} "
+            f"(status={result.build_status})"
+        )
 
         return result
 
@@ -799,7 +983,7 @@ def _get_acr_auth_token_ee(
     return auth_data
 
 
-def _get_acr_auth_token(
+def get_acr_auth_token(
     access_key_id: str,
     access_key_secret: str,
     region: str = "cn-hangzhou",
@@ -848,3 +1032,13 @@ def _get_acr_auth_token(
         f"All ACR GetAuthorizationToken attempts failed: {'; '.join(errors)}",
         suggestion="Check AK/SK and region. For personal ACR ensure CR API is enabled.",
     )
+
+
+# Backward-compatible alias — the function was renamed from the private
+# ``_get_acr_auth_token`` to the public ``get_acr_auth_token`` in v0.8.
+# Existing scripts (scripts/quick_build_test.py, scripts/e2e_build_and_test.py)
+# still import the old name.  This alias keeps them working.
+#
+# .. deprecated:: 0.8
+#    Use :func:`get_acr_auth_token` instead.
+_get_acr_auth_token = get_acr_auth_token

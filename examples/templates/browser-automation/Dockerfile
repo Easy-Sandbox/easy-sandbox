@@ -1,10 +1,13 @@
-FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
+FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8
 
-# Install additional system packages
+# Install system packages including Python 3 and browser dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    python3-pip \
+    python3-venv \
     curl \
     wget \
     xvfb \
@@ -12,14 +15,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python packages
-RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir \
+RUN pip3 install --no-cache-dir --upgrade pip \
+    && pip3 install --no-cache-dir \
     "playwright>=1.40.0" \
     beautifulsoup4 \
     lxml \
     httpx \
     Pillow
-RUN pip install --no-cache-dir easy-sandbox
+COPY *.whl /tmp/
+RUN if ls /tmp/*.whl 1>/dev/null 2>&1; then \
+        pip3 install --no-cache-dir /tmp/*.whl && rm -f /tmp/*.whl; \
+    else \
+        pip3 install --no-cache-dir easy-sandbox; \
+    fi
 
 # Install Playwright browsers (Chromium only for smaller image size)
 RUN python3 -m playwright install chromium \
@@ -27,7 +35,7 @@ RUN python3 -m playwright install chromium \
 
 # Set environment variables
 ENV DISPLAY=:99
-ENV PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+ENV PLAYWRIGHT_BROWSERS_PATH=/root/.cache/ms-playwright
 
 # Create workspace directory
 RUN mkdir -p /workspace

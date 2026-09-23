@@ -3,17 +3,20 @@ Usage: cli template install [OPTIONS] TEMPLATE_REF
   Install a template from GitHub or a local directory.
 
   There is no central template registry.  Templates are sourced from GitHub
-  repos (downloaded from the latest Release) or local directories.
+  repos (fetched by tag/branch/sha via the GitHub tarball API, no Release
+  required) or local directories.
 
   示例：
 
-    ebx template install owner/repo              # GitHub repo (latest release)
+    ebx template install owner/repo              # GitHub repo (default branch)
 
     ebx template install owner/repo//subdir      # Subdirectory of a repo
 
-    ebx template install owner/repo//subdir@v1.0 # Subdirectory + tag
+    ebx template install owner/repo//subdir@v1.0 # Subdirectory + tag/branch/sha
 
-    ebx template install owner/repo@v1.0         # Specific release tag
+    ebx template install owner/repo@main         # Specific branch
+
+    ebx template install owner/repo@v1.0         # Specific tag
 
     ebx template install owner/repo --token xxx  # Private repo
 

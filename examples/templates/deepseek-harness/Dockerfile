@@ -35,7 +35,12 @@ RUN pip install --no-cache-dir --upgrade pip \
     "openai>=1.0" \
     httpx \
     rich
-RUN pip install --no-cache-dir easy-sandbox
+COPY *.whl /tmp/
+RUN if ls /tmp/*.whl 1>/dev/null 2>&1; then \
+        pip install --no-cache-dir /tmp/*.whl && rm -f /tmp/*.whl; \
+    else \
+        pip install --no-cache-dir easy-sandbox; \
+    fi
 
 # Set environment variables
 ENV DEEPSEEK_API_KEY=""

@@ -283,6 +283,7 @@ def network_module() -> NetworkModule:
 def code_module(
     envd_token_manager: EnvdTokenManager,
     mock_code_interpreter_protocol: AsyncMock,
+    mock_process_protocol: AsyncMock,
 ) -> CodeContextModule:
     return CodeContextModule(
         sandbox_id=TEST_SANDBOX_ID,
@@ -290,4 +291,5 @@ def code_module(
         envd_token=envd_token_manager,
         code_interpreter_protocol=mock_code_interpreter_protocol,
         capabilities=ALL_CAPABILITIES,
+        process_protocol=mock_process_protocol,
     )
