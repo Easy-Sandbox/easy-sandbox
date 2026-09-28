@@ -109,17 +109,17 @@ from easy_sandbox import Sandbox
 
 sandbox = Sandbox.create(template="browser-automation")
 
-# 截取网页截图
-result = sandbox.commands.run("browse", url="https://example.com", action="screenshot")
-print(result)  # {"action": "screenshot", "url": "...", "path": "/workspace/screenshot_xxx.png"}
+# 截取网页截图（调用自定义命令，返回 CommandResult）
+result = sandbox.custom("browse", url="https://example.com", action="screenshot")
+print(result.value)  # {"action": "screenshot", "url": "...", "path": "/workspace/screenshot_xxx.png"}
 
 # 提取页面文本
-result = sandbox.commands.run("browse", url="https://example.com", action="extract")
-print(result["text"])
+result = sandbox.custom("browse", url="https://example.com", action="extract")
+print(result.value["text"])
 
 # 按选择器抓取
-result = sandbox.commands.run("scrape", url="https://example.com", selector="h1")
-print(result["texts"])
+result = sandbox.custom("scrape", url="https://example.com", selector="h1")
+print(result.value["texts"])
 
 # 自动填表
 import json
@@ -127,8 +127,8 @@ fields = [
     {"selector": "#email", "value": "test@example.com"},
     {"selector": "#password", "value": "secret"},
 ]
-result = sandbox.commands.run("fill_form", url="https://example.com/login", fields_json=json.dumps(fields))
-print(result)
+result = sandbox.custom("fill_form", url="https://example.com/login", fields_json=json.dumps(fields))
+print(result.value)
 ```
 
 ## 配置说明

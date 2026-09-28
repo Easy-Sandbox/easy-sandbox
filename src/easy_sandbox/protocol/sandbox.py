@@ -5,9 +5,10 @@ Endpoints are relative to the Platform API base URL.
 
 路径无 /api/v1 前缀（已实测验证）。
 """
+
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -17,8 +18,10 @@ from easy_sandbox.models.errors import (
     TemplateNotFoundError,
 )
 from easy_sandbox.models.sandbox import SandboxConfig, SandboxInfo, SandboxStatus
-from easy_sandbox.transport.http import HttpClient
 from easy_sandbox.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from easy_sandbox.transport.http import HttpClient
 
 logger = get_logger("protocol.sandbox")
 
@@ -29,19 +32,33 @@ class SandboxProtocol:
     def __init__(self, http_client: HttpClient) -> None:
         self._http = http_client
 
-    async def create(self, config: SandboxConfig) -> SandboxInfo:
+    async def create(
+        self,
+        config: SandboxConfig,
+        *,
+        request_timeout: float | None = None,
+    ) -> SandboxInfo:
         """Create a new sandbox.
 
         POST /sandboxes → 201（已实测验证）
 
         请求体使用 camelCase: templateID, timeout, autoPause, metadata, envVars
         响应体使用 camelCase: sandboxID, templateID, envdAccessToken, envdVersion, clientID
+
+        Args:
+            config: Sandbox creation payload.
+            request_timeout: Per-request HTTP timeout override in seconds for
+                this single create call.  When *None*, the client-level
+                default (``http_timeout`` / ``SANDBOX_HTTP_TIMEOUT``) is used.
+                This is independent of ``config.timeout`` (the sandbox TTL).
         """
         payload = config.to_create_payload()
 
         try:
             # 已实测验证：路径无 /api/v1 前缀
-            response = await self._http.platform_request("POST", "/sandboxes", json=payload)
+            response = await self._http.platform_request(
+                "POST", "/sandboxes", json=payload, request_timeout=request_timeout
+            )
             data = response.json()
             return SandboxInfo.model_validate(data)
         except httpx.HTTPStatusError as exc:
@@ -76,7 +93,7 @@ class SandboxProtocol:
         status: SandboxStatus | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[SandboxInfo]:
+    ) -> list[SandboxInfo]:  # type: ignore[valid-type]
         """List sandboxes (v2).
 
         GET /v2/sandboxes → 200（已实测验证）

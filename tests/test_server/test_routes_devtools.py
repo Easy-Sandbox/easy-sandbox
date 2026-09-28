@@ -101,18 +101,35 @@ def git_repo(tmp_path: Any) -> Any:
     """Create a minimal git repository in *tmp_path* and return its path."""
     repo = tmp_path / "repo"
     repo.mkdir()
-    env = {**os.environ, "GIT_AUTHOR_NAME": "Test", "GIT_AUTHOR_EMAIL": "t@t",
-           "GIT_COMMITTER_NAME": "Test", "GIT_COMMITTER_EMAIL": "t@t"}
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "Test",
+        "GIT_AUTHOR_EMAIL": "t@t",
+        "GIT_COMMITTER_NAME": "Test",
+        "GIT_COMMITTER_EMAIL": "t@t",
+    }
     subprocess.run(  # noqa: S603, S607
-        ["git", "init"], cwd=str(repo), capture_output=True, check=True, env=env,
+        ["git", "init"],
+        cwd=str(repo),
+        capture_output=True,
+        check=True,
+        env=env,
     )
     # Create an initial file and commit
     (repo / "hello.txt").write_text("hello\n")
     subprocess.run(  # noqa: S603, S607
-        ["git", "add", "."], cwd=str(repo), capture_output=True, check=True, env=env,
+        ["git", "add", "."],
+        cwd=str(repo),
+        capture_output=True,
+        check=True,
+        env=env,
     )
     subprocess.run(  # noqa: S603, S607
-        ["git", "commit", "-m", "init"], cwd=str(repo), capture_output=True, check=True, env=env,
+        ["git", "commit", "-m", "init"],
+        cwd=str(repo),
+        capture_output=True,
+        check=True,
+        env=env,
     )
     yield str(repo)
 
@@ -231,7 +248,9 @@ class TestGitStatus:
 
     def test_clean_repo(self, server_port: int, git_repo: str) -> None:
         status, body = _request(
-            server_port, "GET", f"/git/status?path={git_repo}",
+            server_port,
+            "GET",
+            f"/git/status?path={git_repo}",
         )
         assert status == 200
         assert body["clean"] is True
@@ -244,7 +263,9 @@ class TestGitStatus:
             f.write("new content\n")
 
         status, body = _request(
-            server_port, "GET", f"/git/status?path={git_repo}",
+            server_port,
+            "GET",
+            f"/git/status?path={git_repo}",
         )
         assert status == 200
         assert body["clean"] is False
@@ -259,7 +280,9 @@ class TestGitStatus:
             f.write("modified\n")
 
         status, body = _request(
-            server_port, "GET", f"/git/status?path={git_repo}",
+            server_port,
+            "GET",
+            f"/git/status?path={git_repo}",
         )
         assert status == 200
         assert body["clean"] is False
@@ -268,7 +291,9 @@ class TestGitStatus:
 
     def test_path_traversal_rejected(self, server_port: int) -> None:
         status, body = _request(
-            server_port, "GET", "/git/status?path=../../etc",
+            server_port,
+            "GET",
+            "/git/status?path=../../etc",
         )
         assert status == 400
         assert "traversal" in body["error"].lower()
@@ -276,7 +301,9 @@ class TestGitStatus:
     def test_invalid_repo(self, server_port: int, tmp_path: Any) -> None:
         """Pointing at a non-git directory should return an error."""
         status, body = _request(
-            server_port, "GET", f"/git/status?path={tmp_path}",
+            server_port,
+            "GET",
+            f"/git/status?path={tmp_path}",
         )
         assert status == 400
         assert body["type"] == "GitError"
@@ -296,7 +323,9 @@ class TestGitDiff:
             f.write("changed content\n")
 
         status, body = _request(
-            server_port, "GET", f"/git/diff?path={git_repo}",
+            server_port,
+            "GET",
+            f"/git/diff?path={git_repo}",
         )
         assert status == 200
         assert "changed content" in body["diff"]
@@ -308,11 +337,14 @@ class TestGitDiff:
             f.write("staged change\n")
         subprocess.run(  # noqa: S603, S607
             ["git", "-C", git_repo, "add", "hello.txt"],
-            capture_output=True, check=True,
+            capture_output=True,
+            check=True,
         )
 
         status, body = _request(
-            server_port, "GET", f"/git/diff?path={git_repo}&staged=true",
+            server_port,
+            "GET",
+            f"/git/diff?path={git_repo}&staged=true",
         )
         assert status == 200
         assert "staged change" in body["diff"]
@@ -320,7 +352,9 @@ class TestGitDiff:
 
     def test_clean_repo_empty_diff(self, server_port: int, git_repo: str) -> None:
         status, body = _request(
-            server_port, "GET", f"/git/diff?path={git_repo}",
+            server_port,
+            "GET",
+            f"/git/diff?path={git_repo}",
         )
         assert status == 200
         assert body["diff"] == ""
@@ -334,11 +368,14 @@ class TestGitDiff:
             f.write("change b\n")
         subprocess.run(  # noqa: S603, S607
             ["git", "-C", git_repo, "add", "other.txt"],
-            capture_output=True, check=True,
+            capture_output=True,
+            check=True,
         )
 
         status, body = _request(
-            server_port, "GET", f"/git/diff?path={git_repo}&file=hello.txt",
+            server_port,
+            "GET",
+            f"/git/diff?path={git_repo}&file=hello.txt",
         )
         assert status == 200
         assert "change a" in body["diff"]
@@ -347,7 +384,9 @@ class TestGitDiff:
 
     def test_path_traversal_rejected(self, server_port: int) -> None:
         status, body = _request(
-            server_port, "GET", "/git/diff?path=../../etc",
+            server_port,
+            "GET",
+            "/git/diff?path=../../etc",
         )
         assert status == 400
         assert "traversal" in body["error"].lower()

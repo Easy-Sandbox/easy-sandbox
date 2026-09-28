@@ -23,6 +23,7 @@ async def create(
     template: str = "base",
     *,
     timeout: int = 300,
+    request_timeout: float | None = None,
     metadata: dict[str, str] | None = None,
     envs: dict[str, str] | None = None,
     cpu: int | None = None,
@@ -39,19 +40,20 @@ async def create(
 ) -> Sandbox
 ```
 
-创建新沙箱。当提供 `description` 且 `template` 保持默认值 `"base"` 时，SDK 通过 LLM 推断最佳模板和资源配置。
+创建新沙箱。当提供 `description` 且 `template` 保持默认值 `"base"` 时，SDK 将其记录为 hint 日志条目。通过 LLM 推断模板发生在 **CLI / Agent 层**，而非 `Sandbox.create()` 自身。
 
 | 参数 | 类型 | 默认值 | 说明 |
 |------|------|--------|------|
 | `template` | `str` | `"base"` | 沙箱模板名称 |
-| `timeout` | `int` | `300` | 超时秒数（1~86400） |
+| `timeout` | `int` | `300` | 沙箱生存时长（TTL）秒数（1~86400）；非 HTTP 请求超时 |
+| `request_timeout` | `float` | `None` | 仅针对本次创建请求的 HTTP 超时（秒）。为 `None` 时使用 `SANDBOX_HTTP_TIMEOUT` / `http_timeout`。与 E2B SDK 对齐。调大它无法绕过平台侧创建挂起。 |
 | `metadata` | `dict` | `None` | 任意元数据键值对 |
 | `envs` | `dict` | `None` | 注入的环境变量 |
 | `cpu` | `int` | `None` | CPU 核数 |
 | `memory` | `int` | `None` | 内存 MB |
 | `disk` | `int` | `None` | 磁盘 MB |
 | `gpu` | `str` | `None` | GPU 规格（如 `"A10"`） |
-| `description` | `str` | `None` | 自然语言描述（触发推断） |
+| `description` | `str` | `None` | 自然语言提示（记录为日志条目；LLM 推断发生在 CLI / Agent 层，而非 `create()` 内部） |
 | `secure` | `bool` | `True` | 安全模式（端口访问需 token） |
 | `api_key` | `str` | `None` | API Key 覆盖 |
 | `api_url` | `str` | `None` | 平台 API URL 覆盖 |
@@ -207,35 +209,64 @@ async def get_terminal(
 ) -> TerminalSession
 ```
 
-打开交互式 PTY 终端会话。需要 `terminal` 能力。
+打开交互式 PTY 终端会话。逻辑上关联 `terminal` 能力（无运行时门控）。
 
 **返回**：`TerminalSession`（WebSocket 连接）
-
-**异常**：`CapabilityNotSupportedError`（E3004）— 若 `terminal` 能力未启用
 
 **同步版**：`get_terminal_sync()`
 
 #### `list_commands()`
 
 ```python
-def list_commands(self) -> list[dict[str, Any]]
+async def list_commands(
+    self,
+    *,
+    server_port: int = 9000,
+) -> list[dict[str, Any]]
 ```
 
-返回模板定义的自定义命令目录。需要 `shell` 能力。
+返回合并的命令目录（模板 + server）。将模板 `custom_commands`（source `"template"`）与 SandboxServer `/commands`（source `"server"`）合并。同名时模板优先，server 条目标记 `shadowed=True`。
 
-**返回**：列表，每项包含 `name`、`description`、`args`
+**返回**：列表，每项包含 `name`、`description`、`args`、`source`、`shadowed`
 
 #### `run()`
 
 ```python
-async def run(self, name: str, **kwargs: str) -> ProcessResult
+async def run(
+    self,
+    cmd: str,
+    *,
+    timeout: int = 60,
+    env: dict[str, str] | None = None,
+    cwd: str = "",
+    user: str = "",
+    background: bool = False,
+) -> ProcessResult | StreamReader[ProcessChunk]
 ```
 
-执行命名的自定义命令。查找模板的 `custom_commands` 定义，填充 `{placeholder}` 令牌，运行 shell 命令。
+执行裸 shell 命令。`sandbox.commands.run(cmd, ...)` 的快捷方式。这**不是**命名命令派发，请使用 `custom()`。
 
-**异常**：`ValueError` — 命令不存在、缺少必需参数、未声明参数
+**返回**：`ProcessResult`（`background=True` 时返回 `StreamReader`）
 
-#### `run_command()`
+#### `custom()`
+
+```python
+async def custom(
+    self,
+    name: str,
+    *,
+    server_port: int = 9000,
+    **kwargs: Any,
+) -> CommandResult
+```
+
+执行命名命令，A→B 解析：先查找模板 `custom_commands`（机制 A），然后回退到 SandboxServer `POST /commands/{name}`（机制 B）。
+
+**返回**：`CommandResult`（含 `value`、`stdout`、`stderr`、`exit_code`、`execution_time`、`source`）
+
+**同步版**：`custom_sync()`
+
+#### `run_command()` *（已弃用）*
 
 ```python
 async def run_command(
@@ -247,7 +278,9 @@ async def run_command(
 ) -> Any
 ```
 
-调用沙箱内 HTTP server 上的命名命令（`POST {port_url}/commands/{name}`）。需要 `ports` 能力。
+`custom()` 的**已弃用**别名。仅返回 `CommandResult.value` 而非完整的 `CommandResult`。新代码应使用 `custom()`。
+
+**同步版**：`run_command_sync()` *（同样已弃用）*
 
 ### 属性
 
@@ -294,7 +327,7 @@ sandbox.commands  # CommandsModule 实例
 | `send_stdin()` | `async def send_stdin(pid: int, data: str) -> None` | （已弃用）同 `send_input()` |
 | `send_signal()` | `async def send_signal(pid: int, signal: int = 15) -> None` | 向进程发送信号 |
 
-所有方法均需 `shell` 能力。每个异步方法都有 `_sync` 后缀的同步版本（如 `run_sync()`）。
+逻辑上关联 `shell` 能力（在 `template.yaml` 中声明；无运行时门控——请求会直接转发到沙箱）。每个异步方法都有 `_sync` 后缀的同步版本（如 `run_sync()`）。
 
 ---
 
@@ -322,7 +355,7 @@ sandbox.files  # FilesModule 实例
 | `upload_url()` | `async def upload_url(path) -> str` | 获取上传 URL（兼容用） |
 | `download_url()` | `async def download_url(path) -> str` | 获取下载 URL（兼容用） |
 
-所有方法均需 `files` 能力。每个异步方法都有 `_sync` 后缀的同步版本。
+逻辑上关联 `files` 能力（在 `template.yaml` 中声明；无运行时门控）。每个异步方法都有 `_sync` 后缀的同步版本。
 
 ---
 
@@ -332,7 +365,7 @@ sandbox.files  # FilesModule 实例
 sandbox.network  # NetworkModule 实例
 ```
 
-所有方法均为本地计算，不涉及网络请求。均需 `ports` 能力。
+所有方法均为本地计算，不涉及网络请求。逻辑上关联 `ports` 能力（无运行时门控）。
 
 | 方法 | 签名 | 说明 |
 |------|------|------|
@@ -356,7 +389,7 @@ sandbox.code  # CodeContextModule 实例
 | `restart_context()` | `async def restart_context(context_id) -> dict` | 重启上下文 |
 | `remove_context()` | `async def remove_context(context_id) -> None` | 删除上下文 |
 
-所有方法均需 `code` 能力。每个异步方法都有 `_sync` 后缀的同步版本。
+所有方法均需 `code` 能力并在运行时强制校验——若沙箱未启用 `code` 能力，调用任何方法均抛出 `CapabilityNotSupportedError`（E3004）。每个异步方法都有 `_sync` 后缀的同步版本。
 
 ---
 
@@ -435,6 +468,27 @@ class SandboxStatus(str, Enum):
 | `exit_code` | `int` | 退出码 |
 | `execution_time` | `float` | 执行耗时（秒） |
 | `output_files` | `list` | 输出文件列表 |
+
+### CommandResult
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `value` | `Any` | 返回值 — 模板命令为 `stdout.strip()`，server 命令为 JSON 返回值 |
+| `stdout` | `str` | 标准输出（server 命令为空） |
+| `stderr` | `str` | 标准错误（server 命令为空） |
+| `exit_code` | `int` | 退出码（server 命令成功为 0，失败为 1） |
+| `execution_time` | `float` | 执行耗时（秒） |
+| `source` | `str` | `"template"` 或 `"server"` |
+| `success` | `bool` | `exit_code == 0`（属性） |
+
+### OutputFile
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `name` | `str` | 文件名 |
+| `path` | `str` | 文件路径 |
+| `size` | `int` | 文件大小（字节，默认 0） |
+| `mime_type` | `str` | MIME 类型（默认 `"application/octet-stream"`） |
 
 ### ProcessResult
 

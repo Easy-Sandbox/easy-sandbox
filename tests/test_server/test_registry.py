@@ -138,6 +138,74 @@ class TestCommandDecorator:
         assert cmd is not None
         assert cmd.description == "Echo input"
 
+    def test_decorator_infers_int_float_bool_with_future_annotations(self) -> None:
+        """Under ``from __future__ import annotations`` (PEP 563), the
+        decorator must still resolve int/float/bool annotations to the
+        correct CommandArg types.
+
+        This file already has ``from __future__ import annotations`` at the
+        top, so any function defined here uses deferred (string) annotations.
+        """
+        reg = CommandRegistry()
+
+        @reg.command("add")
+        def add(a: int, b: int) -> int:
+            return a + b
+
+        cmd = reg.get("add")
+        assert cmd is not None
+        assert len(cmd.args) == 2
+        # Both parameters must be correctly detected as "integer", not "string".
+        assert cmd.args[0].type == "integer", f"Expected 'integer', got {cmd.args[0].type!r}"
+        assert cmd.args[1].type == "integer", f"Expected 'integer', got {cmd.args[1].type!r}"
+        # The command should actually work with integer arithmetic.
+        assert cmd.fn(2, 40) == 42
+
+    def test_decorator_infers_float_with_future_annotations(self) -> None:
+        """Float annotation resolved correctly under PEP 563."""
+        reg = CommandRegistry()
+
+        @reg.command("scale")
+        def scale(factor: float, base: float = 1.0) -> float:
+            return factor * base
+
+        cmd = reg.get("scale")
+        assert cmd is not None
+        assert cmd.args[0].type == "float"
+        assert cmd.args[0].required is True
+        assert cmd.args[1].type == "float"
+        assert cmd.args[1].required is False
+        assert cmd.args[1].default == "1.0"
+
+    def test_decorator_infers_bool_with_future_annotations(self) -> None:
+        """Bool annotation resolved correctly under PEP 563."""
+        reg = CommandRegistry()
+
+        @reg.command("toggle")
+        def toggle(flag: bool = False) -> bool:
+            return not flag
+
+        cmd = reg.get("toggle")
+        assert cmd is not None
+        assert cmd.args[0].type == "boolean"
+        assert cmd.args[0].default == "False"
+
+    def test_decorator_mixed_types_with_future_annotations(self) -> None:
+        """Mixed int/str/float/bool annotations resolved correctly."""
+        reg = CommandRegistry()
+
+        @reg.command("mixed")
+        def mixed(name: str, count: int, ratio: float, verbose: bool = True) -> str:
+            return f"{name}:{count}:{ratio}:{verbose}"
+
+        cmd = reg.get("mixed")
+        assert cmd is not None
+        assert len(cmd.args) == 4
+        assert cmd.args[0].type == "string"
+        assert cmd.args[1].type == "integer"
+        assert cmd.args[2].type == "float"
+        assert cmd.args[3].type == "boolean"
+
 
 # ---------------------------------------------------------------------------
 # freeze

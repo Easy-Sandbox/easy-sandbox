@@ -328,25 +328,21 @@ async def _part_b_core() -> None:
         except Exception as exc:  # noqa: BLE001
             record("B", "E2B-04 workflow", "FAIL", _exc_summary(exc))
 
-        # E2B-05 ports capability gate (negative): base falls back to
-        # DEFAULT{shell,files,code} (no "ports") → get_host must be gated.
+        # E2B-05 ports access (positive): after overdesign cleanup, API methods
+        # are always callable — verify get_host returns a valid host string.
+        # (Legacy note: previously expected CapabilityNotSupportedError(E3004)
+        #  when "ports" was not declared; runtime gate removed per ADR 2026-09-23.)
         try:
             host = sb.network.get_host(9000)
+            ok = isinstance(host, str) and len(host) > 0
             record(
                 "B",
-                "E2B-05 ports-gate-neg",
-                "FAIL",
-                f"expected CapabilityNotSupportedError(E3004) but got host={host!r}",
-            )
-        except CapabilityNotSupportedError as exc:
-            record(
-                "B",
-                "E2B-05 ports-gate-neg",
-                "PASS",
-                f"correctly gated: {_exc_summary(exc)} (capability={exc.capability!r})",
+                "E2B-05 ports-access",
+                "PASS" if ok else "FAIL",
+                f"get_host(9000) returned {host!r}",
             )
         except Exception as exc:  # noqa: BLE001
-            record("B", "E2B-05 ports-gate-neg", "FAIL", f"wrong error type: {_exc_summary(exc)}")
+            record("B", "E2B-05 ports-access", "FAIL", f"unexpected error: {_exc_summary(exc)}")
 
         # E2B-08 files directory ops: make_dir → write → list → remove → exists
         try:
@@ -609,7 +605,7 @@ def part_d(api_key_present: bool, template_id: str | None) -> None:
             "BLOCKED",
             f"template {template_id}: {_exc_summary(exc)} "
             f"— expected: legacy POST /templates only creates metadata stub, "
-            f"real build (build-local + Docker + ACR) never completes.",
+            f"real build (template deploy + Docker + ACR) never completes.",
         )
 
 

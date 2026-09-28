@@ -11,11 +11,12 @@ ProcessProtocol 写文件 + shell 执行的模式（与 @sandbox 装饰器同一
 注意：RPC 路径基于 E2B SDK 逆向推断，阿里云官方文档未公开
 Code Interpreter 的底层传输细节。需实测验证。
 """
+
 from __future__ import annotations
 
 import base64
 import time
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 import httpx
@@ -23,11 +24,15 @@ import httpx
 from easy_sandbox.api.capability import check_capability
 from easy_sandbox.models.process import CodeResult, ProcessChunkType
 from easy_sandbox.models.template import DEFAULT_CAPABILITIES
-from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
-from easy_sandbox.protocol.process import ProcessProtocol
-from easy_sandbox.transport.auth import EnvdTokenManager
 from easy_sandbox.utils.async_bridge import make_sync
 from easy_sandbox.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
+    from easy_sandbox.protocol.process import ProcessProtocol
+    from easy_sandbox.transport.auth import EnvdTokenManager
 
 logger = get_logger("api.code")
 
@@ -78,9 +83,7 @@ class CodeContextModule:
         self._envd_token = envd_token
         self._code = code_interpreter_protocol
         self._process = process_protocol
-        self._capabilities = (
-            capabilities if capabilities is not None else set(DEFAULT_CAPABILITIES)
-        )
+        self._capabilities = capabilities if capabilities is not None else set(DEFAULT_CAPABILITIES)
         # Assume CodeInterpreter is available until a 404 proves otherwise.
         self._ci_available = True
 
@@ -116,6 +119,9 @@ class CodeContextModule:
         Returns:
             CodeResult with stdout, stderr, exit_code, and execution_time.
         """
+        # Capability gate — must run BEFORE any CI availability / 404 shell
+        # fallback so that a template without "code" never reaches the code
+        # interpreter or the shell fallback (fail-closed).
         check_capability(self._capabilities, "code")
 
         # Fast path: CI already known unavailable — skip straight to fallback.
@@ -170,9 +176,7 @@ class CodeContextModule:
             stdout=result.get("stdout", ""),
             stderr=result.get("stderr", ""),
             exit_code=result.get("exitCode", result.get("exit_code", 0)),
-            execution_time=result.get(
-                "executionTime", result.get("execution_time", 0.0)
-            ),
+            execution_time=result.get("executionTime", result.get("execution_time", 0.0)),
         )
 
     # ------------------------------------------------------------------
@@ -259,12 +263,14 @@ class CodeContextModule:
             stderr = "".join(stderr_parts)
 
             if on_result:
-                on_result({
-                    "stdout": stdout,
-                    "stderr": stderr,
-                    "exitCode": exit_code,
-                    "executionTime": execution_time,
-                })
+                on_result(
+                    {
+                        "stdout": stdout,
+                        "stderr": stderr,
+                        "exitCode": exit_code,
+                        "executionTime": execution_time,
+                    }
+                )
 
             return CodeResult(
                 text=stdout.strip(),
@@ -345,6 +351,7 @@ class CodeContextModule:
         Returns:
             List of context info dicts.
         """
+        check_capability(self._capabilities, "code")
         self._check_ci_available("list_contexts")
         return await self._code.list_contexts(
             self._sandbox_id,

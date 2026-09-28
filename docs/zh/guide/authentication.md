@@ -34,12 +34,11 @@ export SANDBOX_API_KEY="your-api-key"
 
 当 `E2B_API_KEY` 和 `SANDBOX_API_KEY` 同时存在时，`E2B_API_KEY` 优先。
 
-#### 2. ebx auth login（持久化到本地文件）
+#### 2. ebx config set（持久化到本地文件）
 
 ```bash
-ebx auth login
-# 交互式输入 API Key
-# 保存位置: ~/.ebx/.env
+ebx config set api_key your-api-key
+# 写入到 ~/.ebx/.env
 # 文件权限: 600（仅所有者可读写）
 ```
 
@@ -140,46 +139,42 @@ flowchart TD
 ## CLI 认证管理
 
 ```bash
-# 登录（保存 API Key）
-ebx auth login
+# 设置 API Key
+ebx config set api_key your-api-key
 
-# 查看认证状态
-ebx auth status
-# 输出示例：
-#   API Key: abcd****efgh
-#   Source: /Users/you/.ebx/.env
-#   Auth Mode: api_key
+# 查看当前配置
+ebx config list
+# 输出包含 api_key 的来源（user/default）
 
-# 登出（删除已保存的凭证）
-ebx auth logout
+# 或直接查看 api_key
+ebx config get api_key
 ```
 
 ---
 
-## Keychain 存储（密钥管理）
+## 密钥存储（基于文件）
 
-Easy Sandbox 提供 `ebx secret` 命令组用于安全地管理敏感信息：
+密钥存储在 `~/.ebx/secrets.json` 中，这是一个明文 JSON 文件，通过 `chmod 600` 文件权限保护。仅适合本地开发使用。
+
+> **⚠️ 警告**：`secrets.json` 以**明文**存储密钥。仅依赖 POSIX 文件权限（`chmod 600`）控制访问。生产环境请使用专用密钥管理服务。
+
+通过环境变量或配置命令管理密钥：
 
 ```bash
-# 创建密钥（交互式安全输入）
-ebx secret create MY_TOKEN
+# 通过环境变量设置 API Key（推荐）
+export E2B_API_KEY="your-api-key"
 
-# 列出所有密钥名称（不显示值）
-ebx secret list
-
-# 将密钥注入到运行中的沙箱
-ebx secret inject <sandbox-id> -s MY_TOKEN -s ANOTHER_SECRET
-
-# 删除密钥
-ebx secret delete MY_TOKEN
+# 或通过 ebx config 持久化
+ebx config set api_key your-api-key
 ```
 
-密钥存储策略因平台而异（源码实现见 `src/easy_sandbox/utils/keychain.py`）：
+创建沙箱时通过 `--env` 参数注入密钥：
 
-- **macOS**：使用系统 Keychain，通过 `security` 命令行工具（`security add-generic-password` / `find-generic-password` / `delete-generic-password`）存取密钥。
-- **Linux / 其它平台**：系统 Keychain 不可用，回退到本地文件 `~/.ebx/secrets.json`（纯 JSON 格式），通过 `chmod 600` 文件权限保护。
+```bash
+ebx create --template base --env MY_TOKEN=your-secret-value --env ANOTHER_SECRET=another-value
+```
 
-> **注意**：当前实现未使用 `keyring` Python 库，也未对本地文件做应用层加密。Linux 平台的密钥仅靠文件系统权限保护，请确保 `~/.ebx/` 目录不被其他用户读取。
+> **历史说明**：macOS Keychain 集成已在过度设计清理中移除（ADR 2026-09-23）。`ebx secret` CLI 命令组也已被移除。所有密钥管理现通过环境变量、`.env` 文件或 `ebx config set` 完成。
 
 ---
 

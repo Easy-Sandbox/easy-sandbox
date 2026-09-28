@@ -34,12 +34,11 @@ export SANDBOX_API_KEY="your-api-key"
 
 When both `E2B_API_KEY` and `SANDBOX_API_KEY` are present, `E2B_API_KEY` takes precedence.
 
-#### 2. ebx auth login (persisted to local file)
+#### 2. ebx config set (persisted to local file)
 
 ```bash
-ebx auth login
-# Interactively enter your API Key
-# Saved to: ~/.ebx/.env
+ebx config set api_key your-api-key
+# Writes to ~/.ebx/.env
 # File permissions: 600 (owner read/write only)
 ```
 
@@ -140,46 +139,42 @@ Within the same level, API Key takes precedence over AK/SK:
 ## CLI Authentication Management
 
 ```bash
-# Login (save API Key)
-ebx auth login
+# Set API Key
+ebx config set api_key your-api-key
 
-# View authentication status
-ebx auth status
-# Example output:
-#   API Key: abcd****efgh
-#   Source: /Users/you/.ebx/.env
-#   Auth Mode: api_key
+# View current configuration
+ebx config list
+# Output includes the source of api_key (user/default)
 
-# Logout (delete saved credentials)
-ebx auth logout
+# Or view api_key directly
+ebx config get api_key
 ```
 
 ---
 
-## Keychain Storage (Secret Management)
+## Secret Storage (File-Based)
 
-Easy Sandbox provides the `ebx secret` command group for securely managing sensitive information:
+Secrets are stored in `~/.ebx/secrets.json`, a plaintext JSON file protected by `chmod 600` file permissions. This is suitable for local development only.
+
+> **⚠️ Warning**: `secrets.json` stores secrets in **plaintext**. It relies solely on POSIX file permissions (`chmod 600`) for access control. For production environments, use a dedicated secrets management service.
+
+Manage secrets via environment variables or configuration:
 
 ```bash
-# Create a secret (interactive secure input)
-ebx secret create MY_TOKEN
+# Set API Key via environment variable (recommended)
+export E2B_API_KEY="your-api-key"
 
-# List all secret names (values not displayed)
-ebx secret list
-
-# Inject secrets into a running sandbox
-ebx secret inject <sandbox-id> -s MY_TOKEN -s ANOTHER_SECRET
-
-# Delete a secret
-ebx secret delete MY_TOKEN
+# Or persist via ebx config
+ebx config set api_key your-api-key
 ```
 
-The secret storage strategy varies by platform (implementation in `src/easy_sandbox/utils/keychain.py`):
+Inject secrets when creating a sandbox via `--env` parameters:
 
-- **macOS**: Uses the system Keychain via the `security` CLI tool (`security add-generic-password` / `find-generic-password` / `delete-generic-password`).
-- **Linux / other platforms**: System Keychain unavailable; falls back to the local file `~/.ebx/secrets.json` (plain JSON format), protected by `chmod 600` file permissions.
+```bash
+ebx create --template base --env MY_TOKEN=your-secret-value --env ANOTHER_SECRET=another-value
+```
 
-> **Note**: The current implementation does not use the `keyring` Python library, nor does it apply application-level encryption to the local file. On Linux, secrets are protected only by filesystem permissions — ensure the `~/.ebx/` directory is not readable by other users.
+> **Historical note**: macOS Keychain integration was removed in the overdesign cleanup (ADR 2026-09-23). The `ebx secret` CLI command group has also been removed. All secret management is now done through environment variables, `.env` files, or `ebx config set`.
 
 ---
 

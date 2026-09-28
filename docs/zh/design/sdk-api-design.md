@@ -21,9 +21,13 @@
 
 ## 核心设计理念：自然语言优先
 
-> **用户不需要知道模板名、资源规格、配置参数，只需要描述想做什么，SDK 自动搞定一切。** 这是真正的 AI-First。
+> **⚠️ 设计愿景 — 非当前实现**
+>
+> 本节示例展示的是*长期设计目标*。在**当前实现**中，`Sandbox.create()` 以 `template` 为首个位置参数，`description` 为可选的 keyword-only 参数，仅记录为 hint 日志条目。**通过 LLM 推断模板由 CLI / Agent 层执行，而非 `Sandbox.create()` 自身。** `Sandbox.plan()` 尚未实现。
 
-`Sandbox.create()` 的第一个参数既可以是传统的 `template` 关键字参数，也可以直接传入一段**自然语言描述**。SDK 内部通过「配置推断 Agent」自动解析意图，选择最优模板和资源配置。
+> **用户不需要知道模板名、资源规格、配置参数，只需要描述想做什么，系统自动搞定一切。** 这是真正的 AI-First 愿景。
+
+在设计愿景中，`Sandbox.create()` 的第一个参数可以直接传入一段**自然语言描述**。CLI / Agent 层通过「配置推断 Agent」自动解析意图，选择最优模板和资源配置。
 
 ### 自然语言创建沙箱
 
@@ -44,7 +48,9 @@ sb = await Sandbox.create("运行 python，运行 codex")
 # 推断结果：template=code-interpreter, cpu=2
 ```
 
-### 推断透明化
+### 推断透明化（设计愿景）
+
+> **尚未实现。** 下方展示的 `Sandbox.plan()` API 属于设计路线图。
 
 ```python
 # 查看推断结果（不实际创建）
@@ -64,7 +70,9 @@ sb = await Sandbox.create(plan)                     # 直接使用推断结果
 sb = await Sandbox.create(plan, memory=32768)        # 覆盖部分参数
 ```
 
-### 自然语言 + 文件上下文
+### 自然语言 + 文件上下文（设计愿景）
+
+> **尚未实现。** 下方展示的 `upload=` 和 `project_dir=` 参数属于设计路线图。
 
 ```python
 # 携带本地文件，SDK 自动推断环境需求
@@ -81,11 +89,13 @@ sb = await Sandbox.create(
 )
 ```
 
-### 向后兼容
+### 向后兼容（设计愿景）
 
-自然语言创建与传统 template 参数**完全兼容**，`create()` 智能判断第一个参数：
+在该设计愿景中，自然语言创建与传统 template 参数**完全兼容**，`create()` 智能判断第一个参数：
 - 如果匹配已知模板名（如 `"base"`, `"code-interpreter"`）→ 按模板创建
-- 如果是自然语言描述 → 调用配置推断 Agent
+- 如果是自然语言描述 → CLI / Agent 层调用配置推断 Agent
+
+> **当前行为：** `Sandbox.create(template="code-interpreter")` 是标准 API。通过 `description=` keyword arg 记录提示。
 
 ```python
 # 传统模式 — 100% 兼容 E2B
@@ -442,53 +452,38 @@ class Sandbox:
     @classmethod
     async def create(
         cls,
-        description: str | None = None,      # 自然语言描述（AI-First）
-        *,
         template: str = "base",
+        *,
         timeout: int = 300,
-        metadata: dict | None = None,
-        env: dict[str, str] | None = None,
+        request_timeout: float | None = None,
+        metadata: dict[str, str] | None = None,
+        envs: dict[str, str] | None = None,
         cpu: int | None = None,
-        memory: int | None = None,            # MB，None 时由推断 Agent 决定
-        disk: int | None = None,              # MB
-        gpu: str | None = None,               # GPU 型号或 "auto"
-        persistent: bool = False,
-        hibernate_after: int | None = None,   # 秒
-        region: str | None = None,
-        vpc: VPCConfig | None = None,
-        on_exit: Literal["destroy", "hibernate", "keep"] = "destroy",
-        upload: list[str] | None = None,      # 本地文件自动上传
-        project_dir: str | None = None,       # 项目目录自动部署
+        memory: int | None = None,
+        disk: int | None = None,
+        gpu: str | None = None,
+        description: str | None = None,
+        secure: bool = True,
+        api_key: str | None = None,
+        api_url: str | None = None,
+        domain: str | None = None,
+        access_key_id: str | None = None,
+        access_key_secret: str | None = None,
     ) -> "Sandbox":
         """
         创建沙箱。
 
-        第一个参数 description 支持两种模式：
-        - 传入已知模板名（如 'code-interpreter'）→ 直接按模板创建
-        - 传入自然语言描述 → 调用配置推断 Agent 自动选择模板和资源
-
-        当 description 为自然语言时，显式传入的 template/cpu/memory 等参数
-        将覆盖推断结果（用户意图优先）。
+        Args:
+            template: 沙箱模板名称（默认 "base"）。
+            description: 自然语言提示 — 记录为日志条目。
+                LLM 推断在 CLI / Agent 层执行，而非此方法内部。
         """
         ...
 
     @classmethod
-    async def plan(
-        cls,
-        description: str,
-        **kwargs,
-    ) -> "SandboxPlan":
-        """预览自然语言推断结果，不实际创建沙箱。"""
-        ...
-
-    @classmethod
-    async def connect(cls, sandbox_id: str) -> "Sandbox": ...
+    async def connect(cls, sandbox_id: str, **kwargs) -> "Sandbox": ...
 
     async def kill(self) -> None: ...
-    async def hibernate(self) -> None: ...
-    async def wake_up(self) -> "Sandbox": ...
-    async def snapshot(self, name: str) -> str: ...
-    async def keep_alive(self, duration: int) -> None: ...
 
     # ── 属性 ──────────────────────────────────────────
     
@@ -523,20 +518,45 @@ class Sandbox:
         """
         ...
 
-    def list_commands(self) -> list[dict[str, Any]]:
-        """模板声明的自定义命令，返回 dict 列表（非对象）。
-        每个 dict 形如：
-            {"name": str,
-             "description": str,
-             "args": [{"name": str, "required": bool,
-                       "default": str | None, "description": str}]}
+    async def list_commands(
+        self,
+        *,
+        server_port: int = 9000,
+    ) -> list[dict[str, Any]]:
+        """返回合并的命令目录（模板 + server）。
+        将两个命令源合并为一个列表：
+        * 模板 custom_commands（source="template"）
+        * SandboxServer /commands（source="server"）
+        每个 dict 包含：name, description, args, source, shadowed。
+        同名时模板优先，server 条目标记 shadowed=True。
         """
         ...
 
-    async def run(self, name: str, **args: str) -> ProcessResult:
-        """显式动态派发模板声明的命名命令（非 __getattr__ 魔法）。
-        参数值经 shlex.quote() 转义后填充 {占位符}；
-        name 未声明或缺少 required 参数时报错。
+    async def run(
+        self,
+        cmd: str,
+        *,
+        timeout: int = 60,
+        env: dict[str, str] | None = None,
+        cwd: str = "",
+        user: str = "",
+        background: bool = False,
+    ) -> ProcessResult | StreamReader[ProcessChunk]:
+        """执行裸 shell 命令。等价于 `self.commands.run(cmd, ...)`。
+        这不是命名命令派发，请使用 `custom()` 执行命名命令。
+        """
+        ...
+
+    async def custom(
+        self,
+        name: str,
+        *,
+        server_port: int = 9000,
+        **kwargs: Any,
+    ) -> CommandResult:
+        """执行命名命令，先查模板（A）再回退 server（B）。
+        返回统一的 CommandResult，含 value, stdout, stderr,
+        exit_code, execution_time, source ("template" | "server")。
         """
         ...
 
@@ -614,9 +634,10 @@ class NetworkModule:
 
 SDK 采用**能力驱动 + 类型安全动态**的命令表面：
 
-- **标准能力保留带类型方法**（`sandbox.commands.run` / `sandbox.files.upload` 等），受能力门控；调用不在有效能力集内的标准能力会抛出 `CapabilityNotSupportedError`（E3004）。
-- **自定义命令走显式动态派发** `sandbox.run("name", **args)`——不用 `__getattr__` 魔法属性，以保 mypy + `py.typed` 类型安全。
-- **发现 API**：`sandbox.capabilities` 查看有效能力集，`sandbox.list_commands()` 列出模板声明的自定义命令。
+- **标准能力保留带类型方法**（`sandbox.commands.run` / `sandbox.files.upload` 等）。能力在 `template.yaml` 中声明，用于发现和文档；**仅 `code` 能力在运行时 fail-closed** — `CodeContextModule` 方法在 `code` 不在有效能力集时抛出 `CapabilityNotSupportedError`（E3004）。其他模块（`commands`、`files`、`network`）直接转发请求到沙箱，无运行时门控。
+- **自定义命令走 `sandbox.custom("name", **kwargs)`**——显式派发，A→B 回退（先模板后 server），返回 `CommandResult`。不用 `__getattr__` 魔法属性，以保 mypy + `py.typed` 类型安全。
+- **裸 shell 快捷方式**：`sandbox.run(cmd)` 等价于 `sandbox.commands.run(cmd)`——执行原始 shell 命令，*不是*命名命令派发。
+- **发现 API**：`sandbox.capabilities` 查看有效能力集，`sandbox.list_commands()` 列出合并的命令目录（模板 + server，含 source 和 shadowed 标志）。
 
 ```python
 sb = await Sandbox.create(template="python-base")
@@ -627,20 +648,24 @@ for c in sb.list_commands():          # c 是 dict，不是对象
     print(c["name"], c["description"], c["args"])
     # c["args"] 为 {name, required, default, description} 字典列表
 
-# 标准能力：带类型、受门控
-result = await sb.commands.run("ls -la /app")   # 需 'shell' 能力
-await sb.files.upload("./data.csv", "/app/data.csv")  # 需 'files' 能力
+# 标准能力：带类型、转发到沙箱
+result = await sb.commands.run("ls -la /app")   # 'shell' — 无运行时门控
+await sb.files.upload("./data.csv", "/app/data.csv")  # 'files' — 无运行时门控
 
-# 自定义命令：显式动态派发（参数经 shlex.quote() 转义）
-result = await sb.run("serve", port="9000")
-
-# 调用沙箱不具备的能力 → 明确报错，不静默降级
-from easy_sandbox.errors import CapabilityNotSupportedError
+# code 能力：运行时 fail-closed 门控
+from easy_sandbox.models.errors import CapabilityNotSupportedError
 try:
-    await sb.commands.run("tmux new-session")   # 需 'terminal'，未声明
+    await sb.run_code("print(1)")   # 需 'code' — 缺少时会抛出 E3004
 except CapabilityNotSupportedError as e:
     print(f"[{e.code}] {e.message}")
     print(f"修复建议: {e.suggestion}")   # 提示在 template.yaml 声明该能力
+
+# 自定义命令：A→B 派发，返回 CommandResult
+result = await sb.custom("serve", port="9000")
+print(result.value, result.source)   # source 为 "template" 或 "server"
+
+# 裸 shell 快捷方式（等价于 sb.commands.run(...)）
+result = await sb.run("echo hello")
 ```
 
 > 能力词汇表、默认基线 `DEFAULT_CAPABILITIES = {shell, files, code}` 与门控语义详见 ADR
@@ -911,7 +936,7 @@ classDiagram
 | `E3004` | 执行 | 能力不支持（CapabilityNotSupportedError） | 沙箱未声明该标准能力，在 template.yaml 的 `capabilities` 中声明 |
 | `E4001` | 文件 | 文件不存在 | 确认路径正确，使用 `files.list()` 检查 |
 | `E5001` | 网络 | 连接失败 | 检查网络连通性和防火墙规则 |
-| `E6001` | Session | Session 未找到 | 运行 `ebx session list` 查看可用 Session |
+| `E6001` | Session | Session 未找到 | 检查 ~/.ebx/sessions/ 中的 session 文件或使用 LocalSessionStore().list() |
 
 ### 错误处理示例
 

@@ -98,7 +98,7 @@ sandbox = await Sandbox.create(
 )
 ```
 
-SDK 会通过 LLM 推断最佳模板和资源配置。只有当 `template` 保持默认值 `"base"` 且提供了 `description` 时才会触发推断。
+SDK 会将 `description` 记录为 hint 日志条目。通过 LLM 推断模板发生在 **CLI / Agent 层**，并非 `Sandbox.create()` 自身。只有当 `template` 保持默认值 `"base"` 且提供了 `description` 时才会触发推断。
 
 ---
 
@@ -130,14 +130,14 @@ SDK 会通过 LLM 推断最佳模板和资源配置。只有当 `template` 保�
 
 ## 自定义命令
 
-模板可以定义自定义命令，用户通过 `ebx run` 或 `sandbox.run()` 调用：
+模板可以定义自定义命令，用户通过 `ebx run` 或 `sandbox.custom()` 调用：
 
 ```bash
 # CLI
 ebx run sbx-xxxx dev --arg port=8080
 
 # SDK
-result = await sandbox.run("dev", port="8080")
+result = await sandbox.custom("dev", port="8080")
 ```
 
 查看模板定义的命令：

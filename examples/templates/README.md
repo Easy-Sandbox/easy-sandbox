@@ -41,8 +41,8 @@
 | [`codex`](./codex/) | OpenAI Codex CLI Agent 运行环境 - 支持 AI 驱动的代码生成和执行 | `codex` `openai` `ai-agent` `code-generation` | `ubuntu:22.04` | 2 CPU / 4096 MB<br>端口: 9000 | `shell` `files` `code` `ports` | `run(prompt*)` |
 | [`deepseek-harness`](./deepseek-harness/) | DeepSeek Agent Runtime 运行环境 - DeepSeek 模型驱动的 AI 编程 Agent | `deepseek` `ai-agent` `ai-coding` `code-generation` | `ubuntu:22.04` | 2 CPU / 4096 MB<br>端口: 9000 | `shell` `files` `code` `ports` | `run(script)` |
 | [`hermes-agent`](./hermes-agent/) | Hermes Agent 运行环境 - NousResearch Hermes 系列模型驱动的 AI Agent | `hermes` `nousresearch` `ai-agent` `tool-calling` | `ubuntu:22.04` | 2 CPU / 4096 MB<br>端口: 9000 | `shell` `files` `code` `ports` | `run(script)` |
-| [`node-web`](./node-web/) | Node.js Web 服务运行环境 - 支持 Express、Fastify 等框架的快速开发与部署 | `nodejs` `web` `express` `api` `javascript` | `node:20-slim` | 1 CPU / 2048 MB<br>端口: 3000, 9000 | `shell` `files` `ports` | `dev()` `build()` `start()` |
-| [`openclaw`](./openclaw/) | OpenClaw AI Agent 运行环境 - 开源 AI 编程 Agent 网关与运行时 | `openclaw` `ai-agent` `ai-coding` `gateway` | `ubuntu:22.04` | 2 CPU / 4096 MB<br>端口: 18789, 9000 | `shell` `files` `ports` | `start()` |
+| [`node-web`](./node-web/) | Node.js Web 服务运行环境 - 支持 Express、Fastify 等框架的快速开发与部署 | `nodejs` `web` `express` `api` `javascript` | `node:20-slim` | 1 CPU / 2048 MB<br>端口: 3000, 9000 | `shell` `files` `code` `ports` | `dev()` `build()` `start()` |
+| [`openclaw`](./openclaw/) | OpenClaw AI Agent 运行环境 - 开源 AI 编程 Agent 网关与运行时 | `openclaw` `ai-agent` `ai-coding` `gateway` | `ubuntu:22.04` | 2 CPU / 4096 MB<br>端口: 18789, 9000 | `shell` `files` `code` `ports` | `start()` |
 | [`python-hello`](./python-hello/) | A minimal Python hello world template for testing | `python` `hello-world` `example` | `ubuntu:22.04` | 未声明（平台默认）<br>端口: 9000 | `shell` `files` `code` `ports` | `run(file)` `test(path)` |
 | [`qoder`](./qoder/) | Qoder AI 编程助手运行环境 - 集成 Python 与 Node.js 的智能开发沙箱 | `qoder` `ai-coding` `ai-agent` `development` | `ubuntu:22.04` | 2 CPU / 4096 MB<br>端口: 9000 | `shell` `files` `code` `terminal` `ports` | `run(script)` |
 | [`qwen-code`](./qwen-code/) | 通义千问编码 Agent 运行环境 - 支持 qwen-code 驱动的 AI 自主部署 | `qwen` `qwen-code` `dashscope` `ai-coding` `ai-agent` `deploy` | `ubuntu:22.04` | 2 CPU / 4096 MB<br>端口: 8080, 9000 | `shell` `files` `code` `ports` | `run(script)` `deploy(prompt* max_turns)` |
@@ -201,17 +201,17 @@ from easy_sandbox import Sandbox
 
 sandbox = Sandbox.create(template="node-web")
 
-# 等价于 ebx run
-print(sandbox.list_commands())                 # [{'name': 'dev', 'description': ...}, ...]
-result = sandbox.run("start")                  # 具名自定义命令
-result = sandbox.run("run", script="app.py")   # 带参数填充
+# 等价于 ebx run——执行模板自定义命令
+print(sandbox.list_commands())                   # [{'name': 'dev', 'description': ...}, ...]
+result = sandbox.custom("start")                  # 具名自定义命令，返回 CommandResult
+result = sandbox.custom("run", script="app.py")   # 带参数填充
 
-# 等价于 ebx exec
+# 等价于 ebx exec——裸 shell 命令
 result = sandbox.commands.run("ls -la /app", timeout=30, cwd="/app")
 ```
 
 > `ebx run` 依赖模板声明的 `custom_commands` 能被解析到（见下节 capabilities），
-> 若模板未声明该命令，会报 `Unknown custom command 'xxx'; available commands: ...`。
+> 若模板未声明该命令，会报 `CommandNotFoundError: command 'xxx' not found ...`。
 
 ---
 
@@ -309,15 +309,14 @@ result = sandbox.commands.run("ls -la /app", timeout=30, cwd="/app")
 
 | capabilities | 模板 |
 |--------------|------|
-| `shell` `files` `code` `ports` | `browser-automation`、`codex`、`deepseek-harness`、`hermes-agent`、`python-hello` |
+| `shell` `files` `code` `ports` | `browser-automation`、`codex`、`deepseek-harness`、`hermes-agent`、`node-web`、`openclaw`、`python-hello` |
 | `shell` `files` `code` `terminal` `ports` | `claude-code`、`qoder` |
 | `shell` `files` `code` `ports` | `qwen-code` |
-| `shell` `files` `ports` | `node-web`、`openclaw` |
 
 ### `custom_commands` 结构
 
 `custom_commands` 是 `命令名 -> CustomCommand` 的映射。命令名即 `ebx run <sandbox_id> <命令名>`
-中的 `<命令名>`，也是 SDK `sandbox.run("<命令名>")` 的入参。
+中的 `<命令名>`，也是 SDK `sandbox.custom("<命令名>")` 的入参。
 
 **`CustomCommand`**
 
@@ -339,9 +338,9 @@ result = sandbox.commands.run("ls -la /app", timeout=30, cwd="/app")
 | `required` | `bool` | | `false` | 是否必填 |
 | `description` | `str` | | `""` | 参数说明 |
 
-**运行时填充规则**（`api/sandbox.py::Sandbox.run()`）：
+**运行时填充规则**（`api/sandbox.py::Sandbox.custom()`）：
 
-1. 命令名不在 `custom_commands` 中 → `ValueError: Unknown custom command …`。
+1. 命令名不在 `custom_commands` 中且 SandboxServer 也无该命令 → `CommandNotFoundError`。
 2. `required: true` 且 `default` 为 `null` 且调用方未传 → `ValueError: Required argument … missing`。
 3. 调用方传入值优先，其次 `default`；所有值经 `shlex.quote()` 转义后替换 `{name}`。
 4. 替换完仍有未填充占位符 → `ValueError: Unfilled placeholders in command …`。

@@ -3,15 +3,13 @@
 解析 ``sandbox.yaml`` 文件，提供声明式沙箱配置，
 可与 ``@sandbox`` 装饰器或独立使用。
 """
+
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, Field
-
-if TYPE_CHECKING:
-    pass
 
 
 class SandboxDeclarativeConfig(BaseModel):
@@ -23,7 +21,7 @@ class SandboxDeclarativeConfig(BaseModel):
         envs: 环境变量映射。
         python_packages: 需要预安装的 Python 包列表。
         files: 本地→远程文件映射（key=local, value=remote）。
-        serializer: 序列化模式，可选 json / pickle / msgpack。
+        serializer: 序列化模式，仅支持 ``json``。
         image: 可选的 Image 对象，会先 build 获取 template id。
             如果同时提供了 image 和 template，image 优先。
         cpu: 沙箱 CPU 核数（传递给 Sandbox.create）。

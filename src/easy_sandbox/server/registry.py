@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import dataclasses
 import inspect
+import typing
 from typing import Any
 
 __all__ = [
@@ -200,17 +201,26 @@ class CommandRegistry:
             # If no explicit args were provided, infer from function signature.
             if "args" not in kwargs or kwargs["args"] is None:
                 sig = inspect.signature(fn)
+                # typing.get_type_hints() resolves stringified annotations
+                # (PEP 563 / ``from __future__ import annotations``) back to
+                # real types so that int/float/bool params are correctly
+                # recognised instead of being treated as plain strings.
+                try:
+                    resolved_hints = typing.get_type_hints(fn)
+                except Exception:  # noqa: BLE001
+                    resolved_hints = {}
                 inferred_args: list[CommandArg] = []
                 for param_name, param in sig.parameters.items():
                     arg_type = "string"  # default
-                    # Infer type from annotation
-                    if param.annotation != inspect.Parameter.empty:
+                    # Prefer resolved hint; fall back to raw annotation
+                    annotation = resolved_hints.get(param_name, param.annotation)
+                    if annotation != inspect.Parameter.empty:
                         _annotation_map = {
                             int: "integer",
                             float: "float",
                             bool: "boolean",
                         }
-                        arg_type = _annotation_map.get(param.annotation, "string")
+                        arg_type = _annotation_map.get(annotation, "string")
 
                     required = param.default is inspect.Parameter.empty
                     default = (

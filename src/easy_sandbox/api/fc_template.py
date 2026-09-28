@@ -6,11 +6,16 @@ the official Alibaba Cloud API.
 
 Layer: L3 (API) — may import L0 (models, utils) and L1 (transport).
 """
+
 from __future__ import annotations
 
-from typing import Any
+import time
+from typing import TYPE_CHECKING, Any
 
 from easy_sandbox.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = get_logger("api.fc_template")
 
@@ -19,7 +24,7 @@ logger = get_logger("api.fc_template")
 # ---------------------------------------------------------------------------
 
 _SDK_INSTALL_HINT = (
-    'Official Alibaba Cloud FCSandbox SDK is not installed.\n'
+    "Official Alibaba Cloud FCSandbox SDK is not installed.\n"
     'Install with: pip install "easy-sandbox[alicloud]"'
 )
 
@@ -111,6 +116,7 @@ def get_template(
     access_key_secret: str,
     region: str = "cn-hangzhou",
     endpoint: str | None = None,
+    team_id: str | None = None,
 ) -> dict[str, Any]:
     """Query template status via ``GetTemplate``.
 
@@ -131,8 +137,19 @@ def get_template(
     )
     client = Client(config)
 
+    if not team_id:
+        team_id = get_team_id(
+            access_key_id=access_key_id,
+            access_key_secret=access_key_secret,
+            region=region,
+            endpoint=endpoint,
+        )
+
     try:
-        resp = client.get_template(template_id, sdk_models.GetTemplateRequest())
+        resp = client.get_template(
+            template_id,
+            sdk_models.GetTemplateRequest(team_id=team_id),
+        )
     except Exception as exc:
         from easy_sandbox.models.errors import NetworkError
 
@@ -144,11 +161,143 @@ def get_template(
     body = resp.body
     result: dict[str, Any] = {}
     if body:
-        # Extract all available fields from the response body
         body_map = body.to_map() if hasattr(body, "to_map") else {}
         result.update(body_map)
     result["statusCode"] = resp.status_code
     return result
+
+
+def wait_for_template_ready(
+    template_id: str,
+    *,
+    access_key_id: str,
+    access_key_secret: str,
+    region: str = "cn-hangzhou",
+    endpoint: str | None = None,
+    team_id: str | None = None,
+    timeout: int = 600,
+    poll_interval: float = 5.0,
+    on_poll: Callable[[str, float], None] | None = None,
+) -> dict[str, Any]:
+    """Poll the official API until a template is ready or definitively fails.
+
+    Args:
+        on_poll: Optional callback invoked after each poll with
+            ``(state, elapsed_seconds)`` — used by the CLI to refresh a
+            spinner with the current build state and elapsed time.
+    """
+    from easy_sandbox.models.errors import (
+        TemplateBuildError,
+        TemplateBuildTimeoutError,
+    )
+
+    if not team_id:
+        team_id = get_team_id(
+            access_key_id=access_key_id,
+            access_key_secret=access_key_secret,
+            region=region,
+            endpoint=endpoint,
+        )
+
+    start = time.monotonic()
+    deadline = start + timeout
+    last_state = "unknown"
+    while time.monotonic() < deadline:
+        data = get_template(
+            template_id,
+            access_key_id=access_key_id,
+            access_key_secret=access_key_secret,
+            region=region,
+            endpoint=endpoint,
+            team_id=team_id,
+        )
+        status = data.get("status") or {}
+        state = status.get("state", "unknown") if isinstance(status, dict) else status
+        last_state = str(state).lower()
+        if on_poll is not None:
+            on_poll(last_state, time.monotonic() - start)
+        if last_state == "ready":
+            return data
+        if last_state == "error":
+            reason = status.get("reason", {}) if isinstance(status, dict) else {}
+            message = (
+                reason.get("message", "unknown build error") if isinstance(reason, dict) else reason
+            )
+            raise TemplateBuildError(f"Template '{template_id}' entered error state: {message}")
+        time.sleep(poll_interval)
+
+    raise TemplateBuildTimeoutError(
+        f"Template '{template_id}' did not become ready within {timeout}s "
+        f"(last state: {last_state})."
+    )
+
+
+def list_official_templates(
+    *,
+    access_key_id: str,
+    access_key_secret: str,
+    region: str = "cn-hangzhou",
+    team_id: str | None = None,
+    endpoint: str | None = None,
+    max_results: int = 100,
+) -> list[dict[str, Any]]:
+    """List templates via the official ``ListTemplates`` API (paginated).
+
+    Returns a flat list of template dicts (all pages concatenated). Each item
+    contains at minimum ``templateID``, ``name`` and ``status`` when returned
+    by the platform.
+    """
+    _require_sdk()
+
+    from alibabacloud_fcsandbox20260509 import models as sdk_models
+    from alibabacloud_fcsandbox20260509.client import Client
+    from alibabacloud_tea_openapi.models import Config
+
+    config = Config(
+        access_key_id=access_key_id,
+        access_key_secret=access_key_secret,
+        region_id=region,
+        endpoint=endpoint or f"fcsandbox.{region}.aliyuncs.com",
+    )
+    client = Client(config)
+
+    if not team_id:
+        team_id = get_team_id(
+            access_key_id=access_key_id,
+            access_key_secret=access_key_secret,
+            region=region,
+            endpoint=endpoint,
+        )
+
+    results: list[dict[str, Any]] = []
+    next_token: str | None = None
+    while True:
+        req = sdk_models.ListTemplatesRequest(
+            team_id=team_id,
+            max_results=max_results,
+            next_token=next_token,
+        )
+        try:
+            resp = client.list_templates(req)
+        except Exception as exc:
+            from easy_sandbox.models.errors import NetworkError
+
+            raise NetworkError(
+                f"ListTemplates API call failed: {exc}",
+                suggestion="Check AK/SK, region and network connectivity.",
+            ) from exc
+
+        body = resp.body
+        page = body.templates if body and body.templates else []
+        for tpl in page:
+            item = tpl.to_map() if hasattr(tpl, "to_map") else {}
+            results.append(item)
+
+        next_token = body.next_token if body else None
+        if not next_token:
+            break
+
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -172,7 +321,9 @@ def _find_template_by_name(
     while True:
         try:
             req = sdk_models.ListTemplatesRequest(
-                team_id=team_id, max_results=100, next_token=next_token,
+                team_id=team_id,
+                max_results=100,
+                next_token=next_token,
             )
             resp = client.list_templates(req)
         except Exception:
@@ -181,7 +332,7 @@ def _find_template_by_name(
         templates = resp.body.templates if resp.body and resp.body.templates else []
         for tpl in templates:
             if tpl.name == name:
-                return tpl.template_id  # type: ignore[return-value]
+                return str(tpl.template_id)
 
         next_token = resp.body.next_token if resp.body else None
         if not next_token:
@@ -290,7 +441,9 @@ def _update_existing_template(
 
     logger.info(
         "Calling UpdateTemplate: id=%s, name=%s, image=%s",
-        template_id, name, image,
+        template_id,
+        name,
+        image,
     )
 
     try:
@@ -314,7 +467,8 @@ def _update_existing_template(
 
     logger.info(
         "UpdateTemplate succeeded: templateID=%s, statusCode=%s",
-        template_id, resp.status_code,
+        template_id,
+        resp.status_code,
     )
 
     return result
@@ -398,7 +552,10 @@ def create_official_template(
     if not team_id:
         logger.info("No team_id provided, auto-resolving via ListTeams...")
         team_id = get_team_id(
-            access_key_id, access_key_secret, region, endpoint=endpoint,
+            access_key_id,
+            access_key_secret,
+            region,
+            endpoint=endpoint,
         )
 
     # Auto-detect registry_type
@@ -504,7 +661,12 @@ def create_official_template(
     logger.info(
         "Calling CreateTemplate: name=%s, image=%s, team=%s, region=%s, "
         "envdInject=%s, generation=%d",
-        name, image, team_id, region, envd_inject, generation,
+        name,
+        image,
+        team_id,
+        region,
+        envd_inject,
+        generation,
     )
 
     try:
@@ -514,7 +676,8 @@ def create_official_template(
         # Handle 409 TemplateAlreadyExists by falling back to UpdateTemplate
         if "TemplateAlreadyExists" in exc_str or "409" in exc_str:
             logger.info(
-                "Template '%s' already exists, attempting UpdateTemplate...", name,
+                "Template '%s' already exists, attempting UpdateTemplate...",
+                name,
             )
             return _update_existing_template(
                 client=client,
@@ -559,7 +722,8 @@ def create_official_template(
 
     logger.info(
         "CreateTemplate succeeded: templateID=%s, statusCode=%s",
-        result.get("templateID"), result.get("statusCode"),
+        result.get("templateID"),
+        result.get("statusCode"),
     )
 
     return result
@@ -643,9 +807,9 @@ def build_create_template_request_map(
         copy_action = sdk_models.CreateTemplateCopyAction(
             enabled=True,
             image=image,
-            registry_type=registry_type if registry_type else (
-                "acree" if acr_instance_id else None
-            ),
+            registry_type=registry_type
+            if registry_type
+            else ("acree" if acr_instance_id else None),
             acr_instance_id=acr_instance_id,
             registry_config=copy_rc,
         )
@@ -661,4 +825,4 @@ def build_create_template_request_map(
         build_config=build_config,
     )
     request = sdk_models.CreateTemplateRequest(body=create_input)
-    return request.to_map()
+    return dict(request.to_map())

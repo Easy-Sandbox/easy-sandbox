@@ -1,4 +1,5 @@
 """Tests for @sandbox.register, sandbox.run(), type helpers, and P0 bug fixes."""
+
 from __future__ import annotations
 
 import json
@@ -17,7 +18,7 @@ from easy_sandbox.declarative.decorator import (
     _ServerProxy,
     sandbox,
 )
-from easy_sandbox.models.process import ProcessResult
+from easy_sandbox.models.process import CommandResult, ProcessResult
 from easy_sandbox.models.template import CustomCommandArg
 
 # ---------------------------------------------------------------------------
@@ -42,6 +43,7 @@ class TestAnnotationToTypeStr:
 
     def test_missing_defaults_to_string(self) -> None:
         import inspect
+
         assert _annotation_to_type_str(inspect.Parameter.empty) == "string"
 
     def test_unsupported_type_raises(self) -> None:
@@ -310,7 +312,9 @@ class TestRunRegistered:
     def test_run_basic(self, mock_sandbox_cls: MagicMock) -> None:
         """Run a registered command end-to-end (mocked sandbox HTTP)."""
         mock_sb = AsyncMock()
-        mock_sb.run_command = AsyncMock(return_value="hello=1")
+        mock_sb.custom = AsyncMock(
+            return_value=CommandResult(value="hello=1", source="server")
+        )
         mock_sb.kill = AsyncMock()
         mock_sandbox_cls.create = AsyncMock(return_value=mock_sb)
 
@@ -325,14 +329,14 @@ class TestRunRegistered:
 
         # Sandbox lifecycle
         mock_sandbox_cls.create.assert_awaited_once()
-        mock_sb.run_command.assert_awaited_once_with("demo", x=1, y="hello")
+        mock_sb.custom.assert_awaited_once_with("demo", x=1, y="hello")
         mock_sb.kill.assert_awaited_once()
 
     @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_run_type_coercion(self, mock_sandbox_cls: MagicMock) -> None:
         """String arguments are coerced to declared types."""
         mock_sb = AsyncMock()
-        mock_sb.run_command = AsyncMock(return_value=10)
+        mock_sb.custom = AsyncMock(return_value=CommandResult(value=10, source="server"))
         mock_sb.kill = AsyncMock()
         mock_sandbox_cls.create = AsyncMock(return_value=mock_sb)
 
@@ -346,13 +350,13 @@ class TestRunRegistered:
         assert result == 10
 
         # Verify coerced types were passed via HTTP
-        mock_sb.run_command.assert_awaited_once_with("multiply", a=5, b=2.0)
+        mock_sb.custom.assert_awaited_once_with("multiply", a=5, b=2.0)
 
     @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_run_uses_run_command(self, mock_sandbox_cls: MagicMock) -> None:
-        """Execution goes through Sandbox.run_command (HTTP), not scripts."""
+        """Execution goes through Sandbox.custom (HTTP), not scripts."""
         mock_sb = AsyncMock()
-        mock_sb.run_command = AsyncMock(return_value=None)
+        mock_sb.custom = AsyncMock(return_value=CommandResult(value=None, source="server"))
         mock_sb.kill = AsyncMock()
         mock_sandbox_cls.create = AsyncMock(return_value=mock_sb)
 
@@ -364,8 +368,8 @@ class TestRunRegistered:
 
         factory.run("noop")
 
-        # run_command was called with the command name
-        mock_sb.run_command.assert_awaited_once_with("noop")
+        # custom was called with the command name
+        mock_sb.custom.assert_awaited_once_with("noop")
         # No file write occurred (old script-upload path gone)
         assert not hasattr(mock_sb, "files") or not mock_sb.files.write.called
 
@@ -373,7 +377,7 @@ class TestRunRegistered:
     def test_run_creates_sandbox_with_template(self, mock_sandbox_cls: MagicMock) -> None:
         """Sandbox is created with the code-interpreter-v1 template."""
         mock_sb = AsyncMock()
-        mock_sb.run_command = AsyncMock(return_value="ok")
+        mock_sb.custom = AsyncMock(return_value=CommandResult(value="ok", source="server"))
         mock_sb.kill = AsyncMock()
         mock_sandbox_cls.create = AsyncMock(return_value=mock_sb)
 
@@ -386,16 +390,14 @@ class TestRunRegistered:
         factory.run("echo")
 
         call_kw = mock_sandbox_cls.create.call_args
-        effective_tpl = (
-            call_kw.args[0] if call_kw.args else call_kw.kwargs.get("template")
-        )
+        effective_tpl = call_kw.args[0] if call_kw.args else call_kw.kwargs.get("template")
         assert effective_tpl == "code-interpreter-v1"
 
     @patch("easy_sandbox.api.sandbox.Sandbox", new_callable=lambda: MagicMock)
     def test_run_command_error_raises(self, mock_sandbox_cls: MagicMock) -> None:
-        """RuntimeError from run_command propagates to the caller."""
+        """RuntimeError from custom propagates to the caller."""
         mock_sb = AsyncMock()
-        mock_sb.run_command = AsyncMock(
+        mock_sb.custom = AsyncMock(
             side_effect=RuntimeError("ValueError: some error"),
         )
         mock_sb.kill = AsyncMock()
@@ -430,8 +432,10 @@ def _make_mock_sandbox(
     mock_sb.commands = AsyncMock()
     mock_sb.commands.run = AsyncMock(
         return_value=ProcessResult(
-            stdout=stdout, stderr=stderr,
-            exit_code=exit_code, execution_time=0.1,
+            stdout=stdout,
+            stderr=stderr,
+            exit_code=exit_code,
+            execution_time=0.1,
         ),
     )
     mock_sb.files = AsyncMock()
@@ -521,11 +525,13 @@ class TestSingleton:
 
     def test_import_from_declarative(self) -> None:
         from easy_sandbox.declarative import sandbox as sb
+
         assert isinstance(sb, _SandboxFactory)
         assert callable(sb)
 
     def test_import_from_top(self) -> None:
         from easy_sandbox import sandbox as sb
+
         assert callable(sb)
 
 

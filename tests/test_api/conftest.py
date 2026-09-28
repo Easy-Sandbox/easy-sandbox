@@ -2,41 +2,37 @@
 
 Mocks at the protocol level so we test the API layer in isolation.
 """
+
 from __future__ import annotations
 
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
-from easy_sandbox.models.sandbox import SandboxInfo, SandboxStatus
-from easy_sandbox.models.process import (
-    ProcessResult,
-    ProcessChunk,
-    ProcessChunkType,
-    ProcessInfo,
-    CodeResult,
-)
-from easy_sandbox.models.filesystem import FileInfo, FileType, WatchEvent, WatchEventType
-from easy_sandbox.transport.config import TransportConfig
-from easy_sandbox.transport.http import HttpClient
-from easy_sandbox.transport.auth import (
-    AuthProvider,
-    EnvdTokenManager,
-    ApiKeyAuth,
-)
-from easy_sandbox.protocol.sandbox import SandboxProtocol
-from easy_sandbox.protocol.process import ProcessProtocol
-from easy_sandbox.protocol.filesystem import FilesystemProtocol
-from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
-from easy_sandbox.api.sandbox import Sandbox
+from easy_sandbox.api.capability import ResolvedCapabilities
+from easy_sandbox.api.code import CodeContextModule
 from easy_sandbox.api.commands import CommandsModule
 from easy_sandbox.api.files import FilesModule
 from easy_sandbox.api.network import NetworkModule
-from easy_sandbox.api.code import CodeContextModule
-from easy_sandbox.api.capability import ResolvedCapabilities
-from easy_sandbox.models.template import DEFAULT_CAPABILITIES, STANDARD_CAPABILITIES
-
+from easy_sandbox.api.sandbox import Sandbox
+from easy_sandbox.models.filesystem import FileInfo, FileType
+from easy_sandbox.models.process import (
+    ProcessChunk,
+    ProcessChunkType,
+    ProcessInfo,
+)
+from easy_sandbox.models.sandbox import SandboxInfo, SandboxStatus
+from easy_sandbox.models.template import STANDARD_CAPABILITIES
+from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
+from easy_sandbox.protocol.filesystem import FilesystemProtocol
+from easy_sandbox.protocol.process import ProcessProtocol
+from easy_sandbox.protocol.sandbox import SandboxProtocol
+from easy_sandbox.transport.auth import (
+    AuthProvider,
+    EnvdTokenManager,
+)
+from easy_sandbox.transport.config import TransportConfig
+from easy_sandbox.transport.http import HttpClient
 
 # ---- Constants ----
 
@@ -57,15 +53,17 @@ def make_sandbox_info(
     template: str = "python-base",
 ) -> SandboxInfo:
     """Create a SandboxInfo for testing."""
-    return SandboxInfo.model_validate({
-        "sandboxID": sandbox_id,
-        "status": status.value,
-        "envdUrl": envd_url,
-        "envdAccessToken": envd_access_token,
-        "templateID": template,
-        "timeout": 300,
-        "region": "cn-hangzhou",
-    })
+    return SandboxInfo.model_validate(
+        {
+            "sandboxID": sandbox_id,
+            "status": status.value,
+            "envdUrl": envd_url,
+            "envdAccessToken": envd_access_token,
+            "templateID": template,
+            "timeout": 300,
+            "region": "cn-hangzhou",
+        }
+    )
 
 
 # ---- Async iterable helper for process mocking ----
@@ -73,6 +71,7 @@ def make_sandbox_info(
 
 class _MockStreamReader:
     """A minimal async iterable that mimics StreamReader for testing."""
+
     def __init__(self, chunks):
         self._chunks = list(chunks)
 

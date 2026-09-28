@@ -70,6 +70,7 @@ def _request(
 @pytest.fixture(autouse=True)
 def _reset_groups() -> Any:
     """Reset capability groups before/after each test."""
+
     def _reset() -> None:
         table = default_table()
         for group in CapabilityGroup:
@@ -79,6 +80,7 @@ def _reset_groups() -> Any:
                 table.disable_group(group)
             else:
                 table.enable_group(group)
+
     _reset()
     yield
     _reset()
@@ -138,9 +140,7 @@ class TestFilesList:
             f.write("a")
         with open(os.path.join(child, "b.txt"), "w") as f:
             f.write("b")
-        status, body = _request(
-            server_port, "GET", f"/files/list?path={sub}&recursive=true"
-        )
+        status, body = _request(server_port, "GET", f"/files/list?path={sub}&recursive=true")
         assert status == 200
         names = {e["name"] for e in body["entries"]}
         assert "a.txt" in names
@@ -152,15 +152,11 @@ class TestFilesList:
         assert status == 400
 
     def test_list_nonexistent_dir(self, server_port: int, base: str) -> None:
-        status, body = _request(
-            server_port, "GET", f"/files/list?path={base}/nonexistent"
-        )
+        status, body = _request(server_port, "GET", f"/files/list?path={base}/nonexistent")
         assert status == 404
 
     def test_list_path_traversal(self, server_port: int, base: str) -> None:
-        status, body = _request(
-            server_port, "GET", f"/files/list?path={base}/../../etc"
-        )
+        status, body = _request(server_port, "GET", f"/files/list?path={base}/../../etc")
         assert status == 400
         assert "Path escapes" in body["error"]
 
@@ -185,6 +181,8 @@ class TestFilesStat:
         assert body["size"] == 5
         assert body["permissions"]  # e.g. "644"
         assert body["modified"]  # ISO string
+        assert body["accessed"]  # ISO string — atime
+        assert body["created"]  # ISO string — ctime
 
     def test_stat_directory(self, server_port: int, base: str) -> None:
         dp = os.path.join(base, "mydir")
@@ -195,11 +193,14 @@ class TestFilesStat:
         assert body["type"] == "directory"
 
     def test_stat_nonexistent(self, server_port: int, base: str) -> None:
-        status, body = _request(
-            server_port, "GET", f"/files/stat?path={base}/nope.txt"
-        )
+        status, body = _request(server_port, "GET", f"/files/stat?path={base}/nope.txt")
         assert status == 200
         assert body["exists"] is False
+        # Non-existent files should still include all fields (empty strings).
+        assert "modified" in body
+        assert "accessed" in body
+        assert "created" in body
+        assert "permissions" in body
 
     def test_stat_missing_param(self, server_port: int) -> None:
         status, body = _request(server_port, "GET", "/files/stat")
@@ -216,27 +217,21 @@ class TestFilesMkdir:
 
     def test_mkdir_simple(self, server_port: int, base: str) -> None:
         dp = os.path.join(base, "newdir")
-        status, body = _request(
-            server_port, "POST", "/files/mkdir", body={"path": dp}
-        )
+        status, body = _request(server_port, "POST", "/files/mkdir", body={"path": dp})
         assert status == 200
         assert body["created"] is True
         assert os.path.isdir(dp)
 
     def test_mkdir_nested(self, server_port: int, base: str) -> None:
         dp = os.path.join(base, "a", "b", "c")
-        status, body = _request(
-            server_port, "POST", "/files/mkdir", body={"path": dp}
-        )
+        status, body = _request(server_port, "POST", "/files/mkdir", body={"path": dp})
         assert status == 200
         assert os.path.isdir(dp)
 
     def test_mkdir_exist_ok(self, server_port: int, base: str) -> None:
         dp = os.path.join(base, "existing")
         os.makedirs(dp)
-        status, body = _request(
-            server_port, "POST", "/files/mkdir", body={"path": dp}
-        )
+        status, body = _request(server_port, "POST", "/files/mkdir", body={"path": dp})
         assert status == 200
 
     def test_mkdir_missing_path(self, server_port: int) -> None:
@@ -280,9 +275,7 @@ class TestFilesDelete:
         assert not os.path.exists(dp)
 
     def test_delete_nonexistent(self, server_port: int, base: str) -> None:
-        status, body = _request(
-            server_port, "DELETE", f"/files?path={base}/ghost"
-        )
+        status, body = _request(server_port, "DELETE", f"/files?path={base}/ghost")
         assert status == 404
 
     def test_delete_missing_param(self, server_port: int) -> None:
@@ -341,9 +334,7 @@ class TestFilesMove:
         assert status == 404
 
     def test_move_missing_params(self, server_port: int) -> None:
-        status, body = _request(
-            server_port, "POST", "/files/move", body={}
-        )
+        status, body = _request(server_port, "POST", "/files/move", body={})
         assert status == 400
 
 
@@ -403,9 +394,7 @@ class TestFilesSearch:
         assert len(body["results"]) == 5
 
     def test_search_missing_params(self, server_port: int) -> None:
-        status, body = _request(
-            server_port, "POST", "/files/search", body={}
-        )
+        status, body = _request(server_port, "POST", "/files/search", body={})
         assert status == 400
 
     def test_search_nonexistent_dir(self, server_port: int, base: str) -> None:
@@ -473,9 +462,7 @@ class TestFilesUploadStream:
         )
         assert status == 400
 
-    def test_upload_size_limit(
-        self, server_port: int, base: str, monkeypatch: Any
-    ) -> None:
+    def test_upload_size_limit(self, server_port: int, base: str, monkeypatch: Any) -> None:
         monkeypatch.setenv("EBX_MAX_UPLOAD_SIZE", "10")
         fp = os.path.join(base, "big.bin")
         content = b"x" * 100
@@ -514,9 +501,7 @@ class TestFilesDownloadStream:
         content = b"Download me!"
         with open(fp, "wb") as f:
             f.write(content)
-        status, body = _request(
-            server_port, "GET", f"/files/download-stream?path={fp}"
-        )
+        status, body = _request(server_port, "GET", f"/files/download-stream?path={fp}")
         assert status == 200
         assert base64.b64decode(body["content_base64"]) == content
         assert body["bytes"] == len(content)
@@ -632,9 +617,7 @@ class TestFilesArchive:
         assert status == 400
 
     def test_archive_missing_paths(self, server_port: int) -> None:
-        status, body = _request(
-            server_port, "POST", "/files/archive", body={}
-        )
+        status, body = _request(server_port, "POST", "/files/archive", body={})
         assert status == 400
 
     def test_archive_nonexistent_file(self, server_port: int, base: str) -> None:
@@ -681,8 +664,6 @@ class TestRoundTrip:
         assert status == 200
 
         # Download
-        status, body = _request(
-            server_port, "GET", f"/files/download-stream?path={fp}"
-        )
+        status, body = _request(server_port, "GET", f"/files/download-stream?path={fp}")
         assert status == 200
         assert base64.b64decode(body["content_base64"]) == content

@@ -54,43 +54,26 @@
 
 ## CLI 使用
 
-### 启动会话
+> **注意**：`ebx session` CLI 命令组已从 CLI 中移除，会话功能现已完全通过 SDK API 提供。以下示例仅供参考，实际使用请通过 Python SDK。
 
-```bash
-ebx session start my-project --template base --timeout 600
-ebx session start dev-env --template base --env MY_KEY=value
-```
+### SDK 替代方案
 
-会话启动时会创建一个新沙箱并记录映射关系。
+```python
+from easy_sandbox.session import SessionManager
 
-### 连接会话
+manager = SessionManager()
 
-```bash
-ebx session connect my-project
-# 进入交互式 Shell
-```
+# 启动会话
+await manager.start("my-project", template="base", timeout=600)
 
-### 列出会话
+# 连接会话
+sb = await manager.connect("my-project")
 
-```bash
-ebx session list
-# 显示所有本地会话及其状态
-```
+# 列出会话
+sessions = await manager.list()
 
-### 查看会话信息
-
-```bash
-ebx session info my-project
-```
-
-### 停止会话
-
-```bash
-# 停止并销毁沙箱
-ebx session stop my-project
-
-# 仅取消跟踪，不销毁沙箱
-ebx session stop my-project --keep-alive
+# 停止会话
+await manager.stop("my-project")
 ```
 
 ---

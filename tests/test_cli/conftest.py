@@ -1,13 +1,9 @@
 """Shared fixtures for CLI tests."""
-from __future__ import annotations
 
-from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from __future__ import annotations
 
 import pytest
 from click.testing import CliRunner
-
-from easy_sandbox.cli.main import cli
 
 
 @pytest.fixture

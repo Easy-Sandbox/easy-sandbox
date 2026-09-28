@@ -496,7 +496,7 @@ capabilities:
   - ports                             # 显式加入默认基线之外的能力
 
 # === 自定义命令（custom_commands）===
-# 模板可声明命名命令，供 `ebx run <id> <name> --arg k=v` 与 SDK `sandbox.run("name", **args)` 调用。
+# 模板可声明命名命令，供 `ebx run <id> <name> --arg k=v` 与 SDK `sandbox.custom("name", **kwargs)` 调用。
 # 用户传入的参数经 shlex.quote() 转义后填充 {占位符}，防注入。
 custom_commands:
   serve:
@@ -600,8 +600,8 @@ healthcheck:
 3. **`resources` 默认值语义**：模板声明的是推荐默认值，用户创建沙箱时可通过 SDK 参数或 CLI 选项覆盖
 4. **`skills.bundled` + `skills.recommended`**：让模板和 Skills 系统联动 — `bundled` 随模板自动加载，`recommended` 仅作推荐提示
 5. **`readiness_probe`**：支持 `tcp`（端口探测）和 `exec`（命令执行）两种就绪检测方式，确保沙箱真正可用后才返回
-6. **`capabilities` 能力模型**：命令能力由模板声明，不再假设所有沙箱都具备 shell/upload/download。标准能力词汇表为 `shell` / `files` / `code` / `terminal` / `ports`（可扩展）。系统默认基线为单一常量 `DEFAULT_CAPABILITIES = {shell, files, code}`；模板可显式声明子集或加入 `terminal`/`ports`，省略 `capabilities` 时继承默认基线。调用不在有效能力集内的标准能力会抛出 `CapabilityNotSupportedError`（E3xxx），明确报错、不静默降级，错误信息含 `suggestion`。详见 ADR `2026-09-03-capability-model.md`
-7. **`custom_commands` 自定义命令**：模板可声明命名命令，用户参数经 `shlex.quote()` 转义后填充 `{占位符}` 防注入；通过 CLI `ebx run` 与 SDK `sandbox.run("name", **args)` 分发。详见 ADR `2026-09-03-custom-commands-schema.md`
+6. **`capabilities` 能力模型**：命令能力由模板声明，不再假设所有沙箱都具备 shell/upload/download。标准能力词汇表为 `shell` / `files` / `code` / `terminal` / `ports`（可扩展）。系统默认基线为单一常量 `DEFAULT_CAPABILITIES = {shell, files, code}`；模板可显式声明子集或加入 `terminal`/`ports`，省略 `capabilities` 时继承默认基线。**仅 `code` 能力在运行时强制执行（fail-closed）**：`CodeContextModule` 方法在 `code` 不在有效能力集时抛出 `CapabilityNotSupportedError`（E3004）。其他模块（`commands`、`files`、`network`）直接转发请求，无运行时门控——能力对这些模块仅用于发现和文档。详见 ADR `2026-09-03-capability-model.md`
+7. **`custom_commands` 自定义命令**：模板可声明命名命令，用户参数经 `shlex.quote()` 转义后填充 `{占位符}` 防注入；通过 CLI `ebx run` 与 SDK `sandbox.custom("name", **kwargs)` 分发。详见 ADR `2026-09-03-custom-commands-schema.md`
 
 ### 示例：基于 GitHub 模板的扩展
 

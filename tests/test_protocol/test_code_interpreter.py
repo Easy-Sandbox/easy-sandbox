@@ -1,4 +1,5 @@
 """Tests for protocol.code_interpreter module — Code Interpreter RPC."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -6,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
+from easy_sandbox.protocol.code_interpreter import _HTTP_TIMEOUT_BUFFER, CodeInterpreterProtocol
 from easy_sandbox.transport.auth import EnvdTokenManager
 
 
@@ -37,15 +38,19 @@ class TestRunCode:
     """Test CodeInterpreterProtocol.run_code()."""
 
     async def test_run_code_basic(self, envd_url, envd_token):
-        mock_http = _make_mock_http(envd_request_return={
-            "stdout": "42\n",
-            "stderr": "",
-            "exitCode": 0,
-            "executionTime": 0.05,
-        })
+        mock_http = _make_mock_http(
+            envd_request_return={
+                "stdout": "42\n",
+                "stderr": "",
+                "exitCode": 0,
+                "executionTime": 0.05,
+            }
+        )
         proto = CodeInterpreterProtocol(mock_http)
         result = await proto.run_code(
-            SANDBOX_ID, envd_url, envd_token,
+            SANDBOX_ID,
+            envd_url,
+            envd_token,
             code="print(42)",
             language="python",
         )
@@ -63,7 +68,9 @@ class TestRunCode:
         mock_http = _make_mock_http(envd_request_return={"stdout": "ok\n"})
         proto = CodeInterpreterProtocol(mock_http)
         await proto.run_code(
-            SANDBOX_ID, envd_url, envd_token,
+            SANDBOX_ID,
+            envd_url,
+            envd_token,
             code="x = 1",
             context_id="ctx-123",
         )
@@ -74,25 +81,63 @@ class TestRunCode:
         mock_http = _make_mock_http(envd_request_return={})
         proto = CodeInterpreterProtocol(mock_http)
         await proto.run_code(
-            SANDBOX_ID, envd_url, envd_token,
+            SANDBOX_ID,
+            envd_url,
+            envd_token,
             code="x = 1",
             timeout=120,
         )
         payload = mock_http.envd_request.call_args.kwargs["payload"]
         assert payload["timeout"] == 120
 
+    async def test_run_code_default_timeout_propagates_to_http(self, envd_url, envd_token):
+        """run_code(timeout=30) should pass request_timeout=35.0 to envd_request."""
+        mock_http = _make_mock_http(envd_request_return={})
+        proto = CodeInterpreterProtocol(mock_http)
+        await proto.run_code(
+            SANDBOX_ID,
+            envd_url,
+            envd_token,
+            code="print(1)",
+        )
+        call_kwargs = mock_http.envd_request.call_args.kwargs
+        assert call_kwargs["request_timeout"] == 30.0 + _HTTP_TIMEOUT_BUFFER
+
+    async def test_run_code_custom_timeout_propagates_to_http(self, envd_url, envd_token):
+        """run_code(timeout=300) should pass request_timeout=305.0 to envd_request."""
+        mock_http = _make_mock_http(envd_request_return={})
+        proto = CodeInterpreterProtocol(mock_http)
+        await proto.run_code(
+            SANDBOX_ID,
+            envd_url,
+            envd_token,
+            code="import pandas",
+            timeout=300,
+        )
+        call_kwargs = mock_http.envd_request.call_args.kwargs
+        assert call_kwargs["request_timeout"] == 300.0 + _HTTP_TIMEOUT_BUFFER
+
+    async def test_http_timeout_buffer_is_positive(self):
+        """The buffer constant should be a positive float."""
+        assert _HTTP_TIMEOUT_BUFFER > 0
+        assert isinstance(_HTTP_TIMEOUT_BUFFER, float)
+
 
 class TestCreateContext:
     """Test CodeInterpreterProtocol.create_context()."""
 
     async def test_create_context(self, envd_url, envd_token):
-        mock_http = _make_mock_http(envd_request_return={
-            "contextId": "ctx-new-001",
-            "language": "python",
-        })
+        mock_http = _make_mock_http(
+            envd_request_return={
+                "contextId": "ctx-new-001",
+                "language": "python",
+            }
+        )
         proto = CodeInterpreterProtocol(mock_http)
         result = await proto.create_context(
-            SANDBOX_ID, envd_url, envd_token,
+            SANDBOX_ID,
+            envd_url,
+            envd_token,
             language="python",
         )
         assert result["contextId"] == "ctx-new-001"
@@ -105,12 +150,14 @@ class TestListContexts:
     """Test CodeInterpreterProtocol.list_contexts()."""
 
     async def test_list_contexts(self, envd_url, envd_token):
-        mock_http = _make_mock_http(envd_request_return={
-            "contexts": [
-                {"contextId": "ctx-1", "language": "python"},
-                {"contextId": "ctx-2", "language": "javascript"},
-            ]
-        })
+        mock_http = _make_mock_http(
+            envd_request_return={
+                "contexts": [
+                    {"contextId": "ctx-1", "language": "python"},
+                    {"contextId": "ctx-2", "language": "javascript"},
+                ]
+            }
+        )
         proto = CodeInterpreterProtocol(mock_http)
         result = await proto.list_contexts(SANDBOX_ID, envd_url, envd_token)
         assert len(result) == 2
@@ -124,9 +171,9 @@ class TestListContexts:
         assert result == []
 
     async def test_list_contexts_result_wrapper(self, envd_url, envd_token):
-        mock_http = _make_mock_http(envd_request_return={
-            "result": {"contexts": [{"contextId": "ctx-wrapped"}]}
-        })
+        mock_http = _make_mock_http(
+            envd_request_return={"result": {"contexts": [{"contextId": "ctx-wrapped"}]}}
+        )
         proto = CodeInterpreterProtocol(mock_http)
         result = await proto.list_contexts(SANDBOX_ID, envd_url, envd_token)
         assert len(result) == 1
@@ -137,13 +184,17 @@ class TestRestartContext:
     """Test CodeInterpreterProtocol.restart_context()."""
 
     async def test_restart_context(self, envd_url, envd_token):
-        mock_http = _make_mock_http(envd_request_return={
-            "contextId": "ctx-restarted",
-            "status": "active",
-        })
+        mock_http = _make_mock_http(
+            envd_request_return={
+                "contextId": "ctx-restarted",
+                "status": "active",
+            }
+        )
         proto = CodeInterpreterProtocol(mock_http)
         result = await proto.restart_context(
-            SANDBOX_ID, envd_url, envd_token,
+            SANDBOX_ID,
+            envd_url,
+            envd_token,
             context_id="ctx-restarted",
         )
         assert result["status"] == "active"
@@ -159,7 +210,9 @@ class TestRemoveContext:
         mock_http = _make_mock_http()
         proto = CodeInterpreterProtocol(mock_http)
         await proto.remove_context(
-            SANDBOX_ID, envd_url, envd_token,
+            SANDBOX_ID,
+            envd_url,
+            envd_token,
             context_id="ctx-to-remove",
         )
 

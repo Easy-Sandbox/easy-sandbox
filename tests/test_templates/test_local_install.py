@@ -2,17 +2,20 @@
 
 This module is the **hard gate before publishing**: it drives the real CLI,
 the real reference resolver, the real fetch/cache logic and the real
-``load_template_from_yaml`` → ``to_dockerfile`` pipeline.  Only two boundaries
-are mocked:
+``load_template_from_yaml`` pipeline.  Only one boundary is mocked:
 
-1. the platform build request (``POST /templates``) — needs a live backend;
-2. the GitHub archive download — needs the network.
+1. the GitHub archive download — needs the network.
 
 Everything else runs the production code path, so a template that passes here
 will install identically for a real user.  The whole module is offline: a
 tripwire on ``socket.getaddrinfo`` fails the test suite loudly if anything ever
 tries to resolve a hostname.
+
+Note: ``install`` only fetches template sources into the local cache — it never
+builds or pushes a container image.  Build-and-push is done via
+``ebx template build`` (tested elsewhere).
 """
+
 from __future__ import annotations
 
 import io
@@ -55,6 +58,7 @@ _ARCHIVE_PREFIX = f"{GITHUB_OWNER}-{GITHUB_REPO}-9f8e7d6"
 # Offline guard
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture(autouse=True)
 def _no_network() -> Iterator[None]:
     """Tripwire: any DNS resolution / TCP connect attempt fails the test.
@@ -67,12 +71,12 @@ def _no_network() -> Iterator[None]:
 
     def _blocked(*args: Any, **kwargs: Any) -> None:
         raise RuntimeError(
-            "network access attempted during an offline template test "
-            f"(args={args!r})"
+            f"network access attempted during an offline template test (args={args!r})"
         )
 
-    with patch.object(socket, "getaddrinfo", side_effect=_blocked), patch.object(
-        socket, "create_connection", side_effect=_blocked
+    with (
+        patch.object(socket, "getaddrinfo", side_effect=_blocked),
+        patch.object(socket, "create_connection", side_effect=_blocked),
     ):
         yield
 
@@ -80,6 +84,7 @@ def _no_network() -> Iterator[None]:
 # ---------------------------------------------------------------------------
 # Offline guard self-test
 # ---------------------------------------------------------------------------
+
 
 class TestOfflineGuard:
     """The tripwire itself must work, otherwise 'offline' is just a comment."""
@@ -94,51 +99,8 @@ class TestOfflineGuard:
 
 
 # ---------------------------------------------------------------------------
-# Platform-build boundary mock
+# Helpers
 # ---------------------------------------------------------------------------
-
-@contextmanager
-def _mocked_platform_build(
-    template_id: str = "tpl-test-0001",
-    build_id: str = "bld-test-0001",
-) -> Iterator[MagicMock]:
-    """Mock only the backend ``POST /templates`` boundary; yield the HttpClient.
-
-    ``cli/commands/template.py`` imports these lazily *inside* the command body,
-    so patching the source modules is what the running code picks up (same
-    technique as ``tests/test_cli/test_template_commands.py``).
-    """
-    response = MagicMock()
-    response.json.return_value = {"templateID": template_id, "buildID": build_id}
-
-    http_client = MagicMock()
-    http_client.platform_request = AsyncMock(return_value=response)
-    http_client.close = AsyncMock()
-
-    config = MagicMock()
-    config.api_key = "test-api-key"
-    config.access_key_id = None
-    config.access_key_secret = None
-
-    with patch(
-        "easy_sandbox.transport.config.load_config", return_value=config
-    ), patch(
-        "easy_sandbox.transport.auth.create_auth_provider"
-    ), patch(
-        "easy_sandbox.transport.http.HttpClient", return_value=http_client
-    ):
-        yield http_client
-
-
-def _posted_body(http_client: MagicMock) -> dict[str, Any]:
-    """Extract the JSON body of the ``POST /templates`` build request."""
-    http_client.platform_request.assert_awaited()
-    call = http_client.platform_request.await_args_list[0]
-    assert call.args[0] == "POST"
-    assert call.args[1] == "/templates"
-    body = call.kwargs["json"]
-    assert isinstance(body, dict)
-    return body
 
 
 def _combined_output(result: Any) -> str:
@@ -185,25 +147,33 @@ def _json_objects(output: str) -> list[dict[str, Any]]:
     return objects
 
 
-def _build_payload(output: str) -> dict[str, Any]:
-    """Return the ``POST /templates`` result document from ``--json`` output."""
+def _install_payload(output: str) -> dict[str, Any]:
+    """Return the install-result document from ``--json`` output."""
     for obj in _json_objects(output):
-        if "TemplateID" in obj:
+        if obj.get("Status") == "installed-locally":
             return obj
-    raise AssertionError(f"no build payload in --json output:\n{output}")
+    raise AssertionError(f"no install payload in --json output:\n{output}")
 
 
 # ---------------------------------------------------------------------------
-# Local install — real resolve / fetch / parse / dockerfile pipeline
+# Local install — real resolve / fetch / parse pipeline
 # ---------------------------------------------------------------------------
+
 
 class TestLocalInstall:
-    """``ebx install <path> --registry-type local`` for every catalog template."""
+    """``ebx install <path> --registry-type local`` for every catalog template.
 
-    def test_local_install_succeeds(self, runner: CliRunner, template_dir: Path) -> None:
+    The ``install`` command only fetches template sources into the local cache;
+    it never builds or pushes a container image.
+    """
+
+    def test_local_install_succeeds(
+        self, runner: CliRunner, template_dir: Path, tmp_path: Path
+    ) -> None:
         expected = load_template_from_yaml(template_dir / "template.yaml")
+        cache_dir = tmp_path / "ebx-cache"
 
-        with _mocked_platform_build() as http_client:
+        with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir):
             result = runner.invoke(
                 cli,
                 ["install", str(template_dir), "--registry-type", "local"],
@@ -212,59 +182,54 @@ class TestLocalInstall:
         assert result.exit_code == 0, _combined_output(result)
         assert "Using local template from" in result.output
 
-        body = _posted_body(http_client)
-        dockerfile = body["dockerfile"]
-        assert dockerfile.startswith(f"FROM {expected.base}"), (
-            f"{template_dir.name}: generated Dockerfile does not start from the "
-            f"YAML base image:\n{dockerfile}"
-        )
-        # alias defaults to the template name declared in the YAML
-        assert body["alias"] == expected.name
+        # Template should be cached under the install name (defaults to YAML name)
+        cached = cache_dir / expected.name
+        assert cached.is_dir(), f"template not cached at {cached}"
+        assert (cached / "template.yaml").is_file()
 
-        assert "tpl-test-0001" in result.output
-        assert "bld-test-0001" in result.output
-
-    def test_local_install_dockerfile_reflects_yaml(
-        self, runner: CliRunner, template_dir: Path
+    def test_local_install_caches_template_files(
+        self, runner: CliRunner, template_dir: Path, tmp_path: Path
     ) -> None:
-        """The build request must carry the *YAML-derived* Dockerfile, not the file."""
+        """Cached template must contain the essential files from the source."""
         expected = load_template_from_yaml(template_dir / "template.yaml")
+        cache_dir = tmp_path / "ebx-cache"
 
-        with _mocked_platform_build() as http_client:
+        with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir):
             result = runner.invoke(
-                cli, ["install", str(template_dir), "--registry-type", "local"]
+                cli,
+                ["install", str(template_dir), "--registry-type", "local"],
             )
 
         assert result.exit_code == 0, _combined_output(result)
-        dockerfile = _posted_body(http_client)["dockerfile"]
-        assert dockerfile == expected.to_dockerfile()
-
-        for pkg in expected.system_packages[:1]:
-            assert pkg in dockerfile
-        for pkg in expected.python_packages[:1]:
-            assert pkg in dockerfile
-        for pkg in expected.node_packages[:1]:
-            assert pkg in dockerfile
+        cached = cache_dir / expected.name
+        # The cached template.yaml should be loadable and match the original
+        cached_tmpl = load_template_from_yaml(cached / "template.yaml")
+        assert cached_tmpl.name == expected.name
+        assert cached_tmpl.base == expected.base
 
     def test_local_install_relative_path_autodetected(
-        self, runner: CliRunner, template_dir: Path
+        self, runner: CliRunner, template_dir: Path, tmp_path: Path
     ) -> None:
         """A ``./``-prefixed ref is local even without ``--registry-type``."""
-        relative = f"./{template_dir.relative_to(Path.cwd())}" if _under_cwd(
-            template_dir
-        ) else str(template_dir)
+        relative = (
+            f"./{template_dir.relative_to(Path.cwd())}"
+            if _under_cwd(template_dir)
+            else str(template_dir)
+        )
+        cache_dir = tmp_path / "ebx-cache"
 
-        with _mocked_platform_build() as http_client:
+        with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir):
             result = runner.invoke(cli, ["install", relative])
 
         assert result.exit_code == 0, _combined_output(result)
         assert "Using local template from" in result.output
-        assert _posted_body(http_client)["dockerfile"].startswith("FROM ")
 
     def test_local_install_alias_override(
-        self, runner: CliRunner, template_dir: Path
+        self, runner: CliRunner, template_dir: Path, tmp_path: Path
     ) -> None:
-        with _mocked_platform_build() as http_client:
+        cache_dir = tmp_path / "ebx-cache"
+
+        with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir):
             result = runner.invoke(
                 cli,
                 [
@@ -278,18 +243,23 @@ class TestLocalInstall:
             )
 
         assert result.exit_code == 0, _combined_output(result)
-        assert _posted_body(http_client)["alias"] == f"custom-{template_dir.name}"
         assert f"custom-{template_dir.name}" in result.output
+        # Alias should determine the cache directory name
+        cached = cache_dir / f"custom-{template_dir.name}"
+        assert cached.is_dir(), f"template not cached under alias at {cached}"
 
     def test_local_install_long_form_equivalent(
-        self, runner: CliRunner, template_dir: Path
+        self, runner: CliRunner, template_dir: Path, tmp_path: Path
     ) -> None:
         """``ebx template install`` and ``ebx install`` behave identically."""
-        with _mocked_platform_build() as shortcut_client:
+        cache_dir = tmp_path / "ebx-cache"
+
+        with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir):
             shortcut = runner.invoke(
                 cli, ["install", str(template_dir), "--registry-type", "local"]
             )
-        with _mocked_platform_build() as long_client:
+        cache_dir2 = tmp_path / "ebx-cache-2"
+        with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir2):
             long_form = runner.invoke(
                 cli,
                 ["template", "install", str(template_dir), "--registry-type", "local"],
@@ -297,50 +267,46 @@ class TestLocalInstall:
 
         assert shortcut.exit_code == 0, _combined_output(shortcut)
         assert long_form.exit_code == 0, _combined_output(long_form)
-        assert _posted_body(shortcut_client) == _posted_body(long_client)
 
     def test_local_install_json_output(
-        self, runner: CliRunner, template_dir: Path
+        self, runner: CliRunner, template_dir: Path, tmp_path: Path
     ) -> None:
-        with _mocked_platform_build():
+        expected = load_template_from_yaml(template_dir / "template.yaml")
+        cache_dir = tmp_path / "ebx-cache"
+
+        with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir):
             result = runner.invoke(
                 cli,
                 ["--json", "install", str(template_dir), "--registry-type", "local"],
             )
 
         assert result.exit_code == 0, _combined_output(result)
-        payload = _build_payload(result.output)
-        assert payload["TemplateID"] == "tpl-test-0001"
-        assert payload["BuildID"] == "bld-test-0001"
-        assert payload["Alias"] == template_dir.name
-        assert payload["Status"] == "building"
+        payload = _install_payload(result.output)
+        assert payload["Alias"] == expected.name
+        assert payload["Status"] == "installed-locally"
+        assert "Cached" in payload
+        assert "Source" in payload
 
 
 class TestLocalInstallFailures:
-    """Negative paths must fail loudly rather than silently building garbage."""
+    """Negative paths must fail loudly rather than silently proceeding."""
 
     def test_missing_directory(self, runner: CliRunner, tmp_path: Path) -> None:
         missing = tmp_path / "does-not-exist"
-        with _mocked_platform_build() as http_client:
-            result = runner.invoke(
-                cli, ["install", str(missing), "--registry-type", "local"]
-            )
+        result = runner.invoke(cli, ["install", str(missing), "--registry-type", "local"])
         assert result.exit_code != 0
-        http_client.platform_request.assert_not_awaited()
 
-    def test_directory_without_yaml_or_dockerfile(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_directory_without_yaml_or_dockerfile(self, runner: CliRunner, tmp_path: Path) -> None:
         empty = tmp_path / "empty-template"
         empty.mkdir()
-        with _mocked_platform_build() as http_client:
-            result = runner.invoke(
-                cli, ["install", str(empty), "--registry-type", "local"]
-            )
+        result = runner.invoke(cli, ["install", str(empty), "--registry-type", "local"])
         assert result.exit_code != 0
         combined = _combined_output(result)
-        assert "template.yaml" in combined or "sandbox-template.yaml" in combined or "sandbox.yaml" in combined
-        http_client.platform_request.assert_not_awaited()
+        assert (
+            "template.yaml" in combined
+            or "sandbox-template.yaml" in combined
+            or "sandbox.yaml" in combined
+        )
 
     def test_dockerfile_only_is_accepted_but_has_no_yaml(
         self, runner: CliRunner, tmp_path: Path
@@ -350,15 +316,15 @@ class TestLocalInstallFailures:
         folder.mkdir()
         (folder / "Dockerfile").write_text("FROM ubuntu:22.04\n", encoding="utf-8")
 
-        with _mocked_platform_build() as http_client:
-            result = runner.invoke(
-                cli, ["install", str(folder), "--registry-type", "local"]
-            )
+        result = runner.invoke(cli, ["install", str(folder), "--registry-type", "local"])
 
         assert result.exit_code != 0
         combined = _combined_output(result)
-        assert "template.yaml" in combined or "sandbox-template.yaml" in combined or "sandbox.yaml" in combined
-        http_client.platform_request.assert_not_awaited()
+        assert (
+            "template.yaml" in combined
+            or "sandbox-template.yaml" in combined
+            or "sandbox.yaml" in combined
+        )
 
     def test_invalid_yaml_is_rejected(self, runner: CliRunner, tmp_path: Path) -> None:
         folder = tmp_path / "broken"
@@ -367,13 +333,9 @@ class TestLocalInstallFailures:
             "name: broken\ncapabilities:\n  - not-a-real-capability\n",
             encoding="utf-8",
         )
-        with _mocked_platform_build() as http_client:
-            result = runner.invoke(
-                cli, ["install", str(folder), "--registry-type", "local"]
-            )
+        result = runner.invoke(cli, ["install", str(folder), "--registry-type", "local"])
         assert result.exit_code != 0
         assert "capability" in _combined_output(result).lower()
-        http_client.platform_request.assert_not_awaited()
 
 
 def _under_cwd(path: Path) -> bool:
@@ -387,6 +349,7 @@ def _under_cwd(path: Path) -> bool:
 # ---------------------------------------------------------------------------
 # Mocked GitHub install — real ref parsing, real zip extraction, real cache
 # ---------------------------------------------------------------------------
+
 
 def build_repo_tarball(templates_dir: Path) -> bytes:
     """Build an in-memory GitHub-style tarball (.tar.gz) of the whole catalog.
@@ -410,10 +373,10 @@ def build_repo_tarball(templates_dir: Path) -> bytes:
         tf.addfile(info, io.BytesIO(data))
 
     def _skip(path: Path) -> bool:
-        return any(
-            part == "__pycache__" or part.startswith(".")
-            for part in path.parts
-        ) or path.suffix == ".pyc"
+        return (
+            any(part == "__pycache__" or part.startswith(".") for part in path.parts)
+            or path.suffix == ".pyc"
+        )
 
     buffer = io.BytesIO()
     with tarfile.open(fileobj=buffer, mode="w:gz") as tf:
@@ -426,10 +389,7 @@ def build_repo_tarball(templates_dir: Path) -> bytes:
             for path in sorted(folder.rglob("*")):
                 if not path.is_file() or _skip(path.relative_to(folder)):
                     continue
-                arcname = (
-                    f"{_ARCHIVE_PREFIX}/{folder.name}/"
-                    f"{path.relative_to(folder).as_posix()}"
-                )
+                arcname = f"{_ARCHIVE_PREFIX}/{folder.name}/{path.relative_to(folder).as_posix()}"
                 _add(tf, arcname, path.read_bytes())
     return buffer.getvalue()
 
@@ -442,9 +402,7 @@ def _fake_download(tarball: bytes) -> MagicMock:
 
 
 @contextmanager
-def _mocked_github(
-    tarball: bytes, cache_dir: Path, tag: str = GITHUB_TAG
-) -> Iterator[MagicMock]:
+def _mocked_github(tarball: bytes, cache_dir: Path, tag: str = GITHUB_TAG) -> Iterator[MagicMock]:
     """Patch the GitHub boundary: only the tarball archive bytes.
 
     ``_download_and_extract`` itself stays real, so prefix stripping and
@@ -452,10 +410,9 @@ def _mocked_github(
     lookup anymore — the tarball endpoint is the single network call.
     """
     downloader = AsyncMock(return_value=_fake_download(tarball))
-    with patch(
-        "easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir
-    ), patch(
-        "httpx.AsyncClient.get", new=downloader
+    with (
+        patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir),
+        patch("httpx.AsyncClient.get", new=downloader),
     ):
         yield downloader
 
@@ -471,8 +428,7 @@ class TestMockedGithubInstall:
         ref = f"{GITHUB_REF}//{template_dir.name}@{GITHUB_TAG}"
         expected = load_template_from_yaml(template_dir / "template.yaml")
 
-        with _mocked_github(tarball, cache_dir) as downloader, \
-                _mocked_platform_build() as http_client:
+        with _mocked_github(tarball, cache_dir) as downloader:
             result = runner.invoke(
                 cli,
                 [
@@ -491,20 +447,17 @@ class TestMockedGithubInstall:
 
         # real cache layout: ~/.ebx/templates/<owner>/<repo>/<ref>/<subdir>
         cached = cache_dir / GITHUB_OWNER / GITHUB_REPO / GITHUB_TAG / template_dir.name
-        assert (cached / "template.yaml").is_file(), (
-            f"template was not cached at {cached}"
-        )
+        assert (cached / "template.yaml").is_file(), f"template was not cached at {cached}"
         assert (cached / "Dockerfile").is_file()
         assert (cached / "README.md").is_file()
         # sibling templates must NOT leak into this cache entry
-        assert not any(
-            p.is_dir() for p in cached.iterdir()
-        ), "subdir extraction pulled in unrelated folders"
+        assert not any(p.is_dir() for p in cached.iterdir()), (
+            "subdir extraction pulled in unrelated folders"
+        )
 
-        body = _posted_body(http_client)
-        assert body["dockerfile"] == expected.to_dockerfile()
-        assert body["alias"] == expected.name
-        assert "tpl-test-0001" in result.output
+        # Verify the cached template matches the expected one
+        cached_tmpl = load_template_from_yaml(cached / "template.yaml")
+        assert cached_tmpl.name == expected.name
 
     def test_github_install_uses_cache_on_second_run(
         self, runner: CliRunner, template_dir: Path, tmp_path: Path
@@ -513,14 +466,9 @@ class TestMockedGithubInstall:
         cache_dir = tmp_path / "ebx-cache"
         ref = f"{GITHUB_REF}//{template_dir.name}@{GITHUB_TAG}"
 
-        with _mocked_github(tarball, cache_dir) as downloader, \
-                _mocked_platform_build():
-            first = runner.invoke(
-                cli, ["install", ref, "--registry-type", "github"]
-            )
-            second = runner.invoke(
-                cli, ["install", ref, "--registry-type", "github"]
-            )
+        with _mocked_github(tarball, cache_dir) as downloader:
+            first = runner.invoke(cli, ["install", ref, "--registry-type", "github"])
+            second = runner.invoke(cli, ["install", ref, "--registry-type", "github"])
 
         assert first.exit_code == 0, _combined_output(first)
         assert second.exit_code == 0, _combined_output(second)
@@ -535,11 +483,8 @@ class TestMockedGithubInstall:
         cache_dir = tmp_path / "ebx-cache"
         ref = f"{GITHUB_REF}//{template_dir.name}"
 
-        with _mocked_github(tarball, cache_dir) as downloader, \
-                _mocked_platform_build():
-            result = runner.invoke(
-                cli, ["install", ref, "--registry-type", "github"]
-            )
+        with _mocked_github(tarball, cache_dir) as downloader:
+            result = runner.invoke(cli, ["install", ref, "--registry-type", "github"])
 
         assert result.exit_code == 0, _combined_output(result)
         # no ref → tarball endpoint without a ref segment
@@ -557,14 +502,14 @@ class TestMockedGithubInstall:
         cache_dir = tmp_path / "ebx-cache"
         ref = f"{GITHUB_REF}//{template_dir.name}@{GITHUB_TAG}"
 
-        with _mocked_github(tarball, cache_dir), _mocked_platform_build() as http_client:
+        with _mocked_github(tarball, cache_dir):
             result = runner.invoke(
                 cli,
                 ["install", ref, "--registry-type", "github", "--alias", "gh-alias"],
             )
 
         assert result.exit_code == 0, _combined_output(result)
-        assert _posted_body(http_client)["alias"] == "gh-alias"
+        assert "gh-alias" in result.output
 
     def test_github_install_whole_repo_without_subdir_fails(
         self, runner: CliRunner, tmp_path: Path
@@ -573,7 +518,7 @@ class TestMockedGithubInstall:
         tarball = build_repo_tarball(TEMPLATES_DIR)
         cache_dir = tmp_path / "ebx-cache"
 
-        with _mocked_github(tarball, cache_dir), _mocked_platform_build() as http_client:
+        with _mocked_github(tarball, cache_dir):
             result = runner.invoke(
                 cli,
                 [
@@ -586,16 +531,17 @@ class TestMockedGithubInstall:
 
         assert result.exit_code != 0
         combined = _combined_output(result)
-        assert "template.yaml" in combined or "sandbox-template.yaml" in combined or "sandbox.yaml" in combined
-        http_client.platform_request.assert_not_awaited()
+        assert (
+            "template.yaml" in combined
+            or "sandbox-template.yaml" in combined
+            or "sandbox.yaml" in combined
+        )
 
 
 class TestSandboxYamlAliasInstall:
     """Verify that templates using sandbox.yaml (not template.yaml) install."""
 
-    def test_local_install_sandbox_yaml_only(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_local_install_sandbox_yaml_only(self, runner: CliRunner, tmp_path: Path) -> None:
         """A directory with only sandbox.yaml should install successfully."""
         tmpl_dir = tmp_path / "alias-template"
         tmpl_dir.mkdir()
@@ -611,8 +557,9 @@ class TestSandboxYamlAliasInstall:
         )
         (tmpl_dir / "Dockerfile").write_text("FROM ubuntu:22.04\n", encoding="utf-8")
         (tmpl_dir / "README.md").write_text("# Alias template\n", encoding="utf-8")
+        cache_dir = tmp_path / "ebx-cache"
 
-        with _mocked_platform_build() as http_client:
+        with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir):
             result = runner.invoke(
                 cli,
                 ["install", str(tmpl_dir), "--registry-type", "local"],
@@ -620,10 +567,9 @@ class TestSandboxYamlAliasInstall:
 
         assert result.exit_code == 0, _combined_output(result)
         assert "Using local template from" in result.output
-
-        body = _posted_body(http_client)
-        assert body["dockerfile"].startswith("FROM ubuntu:22.04")
-        assert body["alias"] == "alias-template"
+        # Verify template was cached
+        cached = cache_dir / "alias-template"
+        assert cached.is_dir()
 
     def test_template_yaml_preferred_over_sandbox_yaml(
         self, runner: CliRunner, tmp_path: Path
@@ -652,30 +598,29 @@ class TestSandboxYamlAliasInstall:
             encoding="utf-8",
         )
         (tmpl_dir / "Dockerfile").write_text("FROM python:3.11-slim\n", encoding="utf-8")
+        cache_dir = tmp_path / "ebx-cache"
 
-        with _mocked_platform_build() as http_client:
+        with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir):
             result = runner.invoke(
                 cli,
                 ["install", str(tmpl_dir), "--registry-type", "local"],
             )
 
         assert result.exit_code == 0, _combined_output(result)
-        body = _posted_body(http_client)
-        # The canonical template.yaml should be used (python base, not node)
-        assert body["dockerfile"].startswith("FROM python:3.11-slim")
-        assert body["alias"] == "both-yamls"
+        # The canonical template.yaml name should be used (both-yamls, not both-yamls-alt)
+        assert "both-yamls" in result.output
+        cached = cache_dir / "both-yamls"
+        assert cached.is_dir()
 
 
 class TestMockedGithubInstallFailures:
     """Failure paths for mocked GitHub installs."""
 
-    def test_github_install_missing_subdir_fails(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_github_install_missing_subdir_fails(self, runner: CliRunner, tmp_path: Path) -> None:
         tarball = build_repo_tarball(TEMPLATES_DIR)
         cache_dir = tmp_path / "ebx-cache"
 
-        with _mocked_github(tarball, cache_dir), _mocked_platform_build() as http_client:
+        with _mocked_github(tarball, cache_dir):
             result = runner.invoke(
                 cli,
                 [
@@ -687,7 +632,6 @@ class TestMockedGithubInstallFailures:
             )
 
         assert result.exit_code != 0
-        http_client.platform_request.assert_not_awaited()
 
 
 class TestTarballFixture:

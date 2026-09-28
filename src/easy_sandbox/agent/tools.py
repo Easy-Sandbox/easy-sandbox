@@ -4,13 +4,17 @@
 - TOOL_SCHEMA: MCP Tool schema（name, description, inputSchema）
 - handler 异步函数：接收参数 + sandbox manager，返回 dict 结果
 """
+
 from __future__ import annotations
 
-import traceback
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from easy_sandbox.agent.mcp import SandboxManager
+
+from easy_sandbox.utils.logging import get_logger
+
+logger = get_logger("agent.tools")
 
 # ---------------------------------------------------------------------------
 # Tool schemas (MCP format)
@@ -162,6 +166,7 @@ TOOL_SCHEMA_MAP: dict[str, dict[str, Any]] = {t["name"]: t for t in TOOL_SCHEMAS
 # Tool handler functions
 # ---------------------------------------------------------------------------
 
+
 async def handle_create_sandbox(
     params: dict[str, Any],
     manager: SandboxManager,
@@ -172,7 +177,9 @@ async def handle_create_sandbox(
     envs = params.get("envs") or {}
 
     sandbox = await manager.create_sandbox(
-        template=template, timeout=timeout, envs=envs,
+        template=template,
+        timeout=timeout,
+        envs=envs,
     )
     return {
         "sandbox_id": sandbox.id,
@@ -198,8 +205,7 @@ async def handle_run_code(
         "stderr": result.stderr,
         "exit_code": result.exit_code,
         "output_files": [
-            {"name": f.name, "path": f.path, "size": f.size}
-            for f in result.output_files
+            {"name": f.name, "path": f.path, "size": f.size} for f in result.output_files
         ],
     }
 
@@ -318,9 +324,9 @@ async def dispatch_tool(
     if handler is None:
         raise ValueError(f"Unknown tool: {name}")
     try:
-        return await handler(params, manager)
+        return await handler(params, manager)  # type: ignore[no-any-return]
     except Exception as exc:
+        logger.error("Tool %s failed: %s", name, exc, exc_info=True)
         return {
             "error": str(exc),
-            "traceback": traceback.format_exc(),
         }

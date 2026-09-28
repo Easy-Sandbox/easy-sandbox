@@ -1,14 +1,19 @@
 """Tests for transport.config module."""
+
 from __future__ import annotations
+
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
+from easy_sandbox.transport import config as config_module
 from easy_sandbox.transport.config import (
+    ENVD_PORT,
     TransportConfig,
+    http_timeout_configured,
     load_config,
     reset_config,
-    ENVD_PORT,
 )
 
 
@@ -203,6 +208,66 @@ class TestLoadConfig:
         assert cfg.api_url == "https://e2b.api.com"
 
 
+class TestDotenvIsolation:
+    """Regression tests for the .env / process-env isolation contract.
+
+    Guards against the real repository ``.env`` (discovered via the CWD-relative
+    ``Path(".env")`` candidate) leaking real credentials into tests, while
+    confirming that explicit dotenv paths still load and that process env keeps
+    priority over ``.env`` values. All values used here are fabricated fakes.
+    """
+
+    def setup_method(self):
+        reset_config()
+
+    def teardown_method(self):
+        reset_config()
+
+    def test_repo_dotenv_in_cwd_is_not_read(self, monkeypatch, tmp_path):
+        """A ``.env`` sitting in the CWD must not leak into the loaded config.
+
+        Simulates running the suite from a directory that contains a real
+        ``.env`` full of credentials; the autouse isolation fixture must keep
+        those values out of ``load_config()``.
+        """
+        cwd_env = tmp_path / ".env"
+        cwd_env.write_text(
+            "E2B_API_KEY=fake-should-not-load\n"
+            "ALICLOUD_ACCESS_KEY_ID=fake-ak\n"
+            "ALICLOUD_ACCESS_KEY_SECRET=fake-sk\n",
+            encoding="utf-8",
+        )
+        monkeypatch.chdir(tmp_path)
+        # Sanity: the CWD-relative candidate would resolve to our fake file.
+        assert Path(".env").resolve() == cwd_env.resolve()
+
+        cfg = load_config()
+        assert cfg.api_key is None
+        assert cfg.access_key_id is None
+        assert cfg.access_key_secret is None
+
+    def test_explicit_dotenv_path_is_loaded(self, monkeypatch, tmp_path):
+        """Pointing the candidate list at an explicit ``.env`` still works."""
+        explicit_env = tmp_path / "explicit.env"
+        explicit_env.write_text("SANDBOX_REGION=explicit-region\n", encoding="utf-8")
+        monkeypatch.setattr(config_module, "_ENV_FILE_CANDIDATES", [explicit_env])
+        reset_config()
+
+        cfg = load_config()
+        assert cfg.region == "explicit-region"
+
+    def test_process_env_beats_dotenv(self, monkeypatch, tmp_path):
+        """Process env vars (layer 2) keep priority over ``.env`` (layer 3)."""
+        explicit_env = tmp_path / "explicit.env"
+        explicit_env.write_text("SANDBOX_REGION=from-dotenv\n", encoding="utf-8")
+        monkeypatch.setattr(config_module, "_ENV_FILE_CANDIDATES", [explicit_env])
+        monkeypatch.setenv("SANDBOX_REGION", "from-env")
+        reset_config()
+
+        cfg = load_config()
+        assert cfg.region == "from-env"
+
+
 class TestEnvdPort:
     """Test ENVD_PORT constant and build_envd_url."""
 
@@ -218,3 +283,36 @@ class TestEnvdPort:
         cfg = TransportConfig(domain="custom.domain.com")
         url = cfg.build_envd_url("sbx-xyz")
         assert url == "https://49983-sbx-xyz.custom.domain.com"
+
+
+class TestHttpTimeoutConfigured:
+    """Test http_timeout_configured() source detection (no defaults applied)."""
+
+    def _isolate(self, monkeypatch, tmp_path):
+        """Point all config sources at empty temp locations."""
+        monkeypatch.delenv("SANDBOX_HTTP_TIMEOUT", raising=False)
+        monkeypatch.setattr(config_module, "_ENV_FILE_CANDIDATES", [])
+        cfg_file = tmp_path / "config.toml"
+        monkeypatch.setattr(config_module, "_CONFIG_FILE", cfg_file)
+        return cfg_file
+
+    def test_false_when_nothing_set(self, monkeypatch, tmp_path):
+        self._isolate(monkeypatch, tmp_path)
+        assert http_timeout_configured() is False
+
+    def test_true_when_env_var_set(self, monkeypatch, tmp_path):
+        self._isolate(monkeypatch, tmp_path)
+        monkeypatch.setenv("SANDBOX_HTTP_TIMEOUT", "60")
+        assert http_timeout_configured() is True
+
+    def test_true_when_toml_has_key(self, monkeypatch, tmp_path):
+        cfg_file = self._isolate(monkeypatch, tmp_path)
+        cfg_file.write_text("[transport]\nhttp_timeout = 90.0\n", encoding="utf-8")
+        assert http_timeout_configured() is True
+
+    def test_true_when_dotenv_has_key(self, monkeypatch, tmp_path):
+        self._isolate(monkeypatch, tmp_path)
+        dotenv = tmp_path / ".env"
+        dotenv.write_text("SANDBOX_HTTP_TIMEOUT=75\n", encoding="utf-8")
+        monkeypatch.setattr(config_module, "_ENV_FILE_CANDIDATES", [dotenv])
+        assert http_timeout_configured() is True

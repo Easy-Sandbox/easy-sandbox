@@ -297,8 +297,8 @@ ebx install <owner>/awesome-easy-sandbox-templates//node-web --registry-type git
 剩下任何偏差都是 bug：
 
 ```python
-# 由平台内置镜像 / 在线目录提供，本集合刻意不含文件夹
-PLATFORM_ONLY_TEMPLATES = {"base", "code-interpreter", "python-data-science", "full-stack"}
+# 由平台内置镜像 / 在线目录提供，本集合刻意不含本地文件夹
+PLATFORM_ONLY_TEMPLATES = {"base"}
 
 # 仅作示例与测试夹具，不参与自然语言推断
 EXAMPLE_ONLY_TEMPLATES = {"python-hello"}

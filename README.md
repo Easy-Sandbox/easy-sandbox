@@ -1,12 +1,14 @@
 # Easy Sandbox
 
-<!-- badges — these light up once CI is enabled and the package is published to PyPI -->
+**English** | [中文](README.zh-CN.md)
+
+<!-- badges -->
 [![CI](https://github.com/Easy-Sandbox/easy-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/Easy-Sandbox/easy-sandbox/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/easy-sandbox)](https://pypi.org/project/easy-sandbox/)
 [![Python 3.10+](https://img.shields.io/pypi/pyversions/easy-sandbox)](https://pypi.org/project/easy-sandbox/)
 [![License](https://img.shields.io/github/license/Easy-Sandbox/easy-sandbox)](LICENSE)
 
-> Create, manage, and interact with cloud sandboxes for AI agents.
+> Cloud sandboxes for AI agents — create, execute, and manage isolated environments in seconds.
 
 **Easy Sandbox** is a Python SDK and CLI (`ebx`) for the Alibaba Cloud FC Agent Sandbox service.
 It is **E2B-protocol compatible** with extensions for the Alibaba Cloud ecosystem (OSS, VPC, custom domains).
@@ -15,13 +17,13 @@ It is **E2B-protocol compatible** with extensions for the Alibaba Cloud ecosyste
 
 ## Features
 
-- **Async-first SDK** — `Sandbox.create()`, code execution, file I/O, port forwarding, and WebSocket streaming.
+- **Async-first SDK** — `Sandbox.create()`, shell execution, code interpretation, file I/O, port forwarding, and WebSocket streaming.
+- **Three execution primitives** — `sandbox.run()` (bare shell), `sandbox.run_code()` (code interpreter), `sandbox.custom()` (named commands with A/B resolution).
+- **CLI (`ebx`)** — create, inspect, exec, upload/download, deploy, and manage sandboxes from the terminal.
+- **Template system** — reusable sandbox images (Python, Node, browser automation, AI agent harnesses, …).
+- **MCP server** — expose sandbox operations as MCP tools for LLM agents.
 - **Declarative decorator** — `@sandbox` turns a plain function into a remote sandbox execution with automatic serialisation.
-- **CLI (`ebx`)** — create, inspect, exec, upload/download, and manage sandboxes from the terminal.
-- **Template system** — reusable sandbox images (Python, Node, browser automation, AI agents, …).
-- **MCP server** — expose sandbox operations as an MCP tool server for LLM agents.
-- **Session persistence** — save and restore sandbox state across runs (local or OSS-backed).
-- **Framework integrations** — LangChain, CrewAI, AutoGen adapters (_Coming Soon_).
+- **Session persistence** — save and restore sandbox state across runs.
 - **E2B compatibility layer** — drop-in replacement for projects already using the E2B SDK.
 
 ## Installation
@@ -33,7 +35,7 @@ pip install easy-sandbox
 # With the CLI
 pip install "easy-sandbox[cli]"
 
-# CLI + official template API (build-local / template create)
+# CLI + Alibaba Cloud template API (template deploy / template create)
 pip install "easy-sandbox[cli,alicloud]"
 
 # Everything (CLI + MCP + fast JSON + sessions + declarative + alicloud)
@@ -43,27 +45,72 @@ pip install "easy-sandbox[all]"
 pip install -e ".[dev]"
 ```
 
-## Quick Start — SDK
+## Quick Start
 
 ```python
+import asyncio
 from easy_sandbox import Sandbox
 
 async def main():
-    async with await Sandbox.create(template="python-base") as sb:
-        # Run code
-        result = await sb.run_code("print('Hello from sandbox!')")
-        print(result.text)  # Hello from sandbox!
+    async with await Sandbox.create(template="python-base") as sandbox:
 
-        # File operations
-        await sb.filesystem.write("/tmp/data.txt", b"hello")
-        content = await sb.filesystem.read("/tmp/data.txt")
+        # 1. Bare shell — sandbox.run(cmd)
+        proc = await sandbox.run("echo 'Hello from sandbox!'")
+        print(proc.stdout)          # Hello from sandbox!
+        print(proc.exit_code)       # 0
 
-        # Shell commands
-        proc = await sb.commands.run("ls -la /tmp")
-        print(proc.stdout)
+        # 2. Code interpreter — sandbox.run_code(code)
+        result = await sandbox.run_code("print(2 ** 10)")
+        print(result.text)          # 1024
+
+        # 3. Named command — sandbox.custom(name, **kwargs)
+        #    Resolves template custom_commands (A) then SandboxServer (B)
+        cmd = await sandbox.custom("hello", name="Alice")
+        print(cmd.value)            # return value of the command
+        print(cmd.source)           # "template" or "server"
+
+        # 4. File operations
+        await sandbox.files.write("/tmp/data.txt", "content")
+        content = await sandbox.files.read("/tmp/data.txt")
+
+        # 5. Port access
+        url = sandbox.network.get_url(3000)
+
+asyncio.run(main())
 ```
 
-## Quick Start — CLI
+> **E2B compatibility:** `sandbox.commands.run(cmd)` is the low-level entry that `sandbox.run()` delegates to. Existing E2B code calling `sandbox.commands.run()` continues to work.
+
+## Execution API
+
+Easy Sandbox provides three execution methods, each for a distinct use case:
+
+| Method | Purpose | Returns |
+|--------|---------|---------|
+| `sandbox.run(cmd)` | Execute a bare shell command | `ProcessResult` — `.stdout`, `.stderr`, `.exit_code` |
+| `sandbox.run_code(code)` | Execute code via the code interpreter | `CodeResult` — `.text`, `.stdout`, `.stderr` |
+| `sandbox.custom(name, **kw)` | Execute a named command (template A / server B) | `CommandResult` — `.value`, `.source`, `.exit_code` |
+
+**`sandbox.custom()` — A/B Resolution:**
+
+1. **Template** (mechanism A): Looks up `custom_commands` in `template.yaml`, fills `{placeholder}` tokens from kwargs (shlex-quoted), and runs as a shell command.
+2. **Server** (mechanism B): If not found in the template, sends `POST /commands/{name}` to the in-sandbox SandboxServer.
+
+```python
+# Template command (A) — defined in template.yaml
+result = await sandbox.custom("greet", name="World")
+print(result.value)     # stdout output (stripped)
+print(result.source)    # "template"
+
+# Server command (B) — registered on SandboxServer
+result = await sandbox.custom("analyze", data="input.csv")
+print(result.value)     # Python function return value (JSON)
+print(result.source)    # "server"
+```
+
+> **Environment variables:** envd uses direct exec — shell features (`$VAR`, pipes, redirects) require `sh -c '...'`. Use `printenv VAR` to read a variable. See the [Environment Variables guide (EN)](docs/en/guide/environment-variables.md) | [环境变量指南 (中文)](docs/zh/guide/environment-variables.md) for details.
+
+## CLI (`ebx`)
 
 ```bash
 # Configure credentials
@@ -73,32 +120,25 @@ ebx config set api_key <YOUR_API_KEY>
 ebx create --template python-base       # create a sandbox
 ebx list                                 # list running sandboxes
 ebx info <sandbox-id>                    # inspect a sandbox
-ebx exec <sandbox-id> "echo hello"       # run a command
+ebx exec <sandbox-id> "echo hello"       # run a shell command
 ebx connect <sandbox-id>                 # interactive shell
 
 # File transfer
 ebx upload <sandbox-id> ./local.txt /remote/path.txt
 ebx download <sandbox-id> /remote/path.txt ./local.txt
 
-# Install community templates
+# Template management
+ebx template list                        # list templates
+ebx template info python-base            # template details
 ebx install owner/repo                   # install from GitHub
 
-# Manage templates
-ebx template list
-ebx template info python-base
-
-# Create template from existing image (official API, requires AK/SK + alicloud extra)
-pip install "easy-sandbox[alicloud]"
+# Template deployment (requires alicloud extra)
 ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag --name my-tpl
-
-# Build locally and register template (default: official API, requires AK/SK + alicloud extra)
-pip install "easy-sandbox[alicloud]"   # if not already installed with [cli,alicloud] or [all]
-ebx template build-local ./examples/templates/python-hello \
+ebx template deploy ./examples/templates/python-hello \
     --acr-namespace my-ns --acr-repo python-hello
 
-# Build locally using legacy v3/v2 API
-ebx template build-local ./my-template \
-    --acr-namespace my-ns --legacy-api
+# One-click project deploy (AI agent builds & starts your project)
+ebx deploy ./my-project --description "Start the web server"
 
 # MCP server
 ebx mcp start                            # start MCP tool server
@@ -109,7 +149,7 @@ ebx kill <sandbox-id>
 
 ## Templates
 
-Ready-made sandbox templates live in [`examples/templates/`](examples/templates/):
+Ready-made sandbox templates in [`examples/templates/`](examples/templates/):
 
 | Template | Description |
 |----------|-------------|
@@ -119,101 +159,81 @@ Ready-made sandbox templates live in [`examples/templates/`](examples/templates/
 | `claude-code` | Claude Code agent harness |
 | `codex` | OpenAI Codex agent harness |
 | `qoder` | Qoder agent harness |
-| `qwen-code` | Qwen-Code agent harness _(WIP — template shell only)_ |
+| `qwen-code` | Qwen-Code agent harness |
 | `deepseek-harness` | DeepSeek agent harness |
 | `hermes-agent` | Hermes agent harness |
 | `openclaw` | OpenClaw agent harness |
 
-See each template directory for its `Dockerfile`, `template.yaml`, and `README.md`.
+See each template's `Dockerfile`, `template.yaml`, and `README.md` for details.
 
 ## Architecture
 
 ```mermaid
 graph TB
-    L6["L6 Agent Integration — MCP server, built-in agents"]
-    L5["L5 Declarative API — @sandbox decorator"]
-    L4["L4 High-Level API — Sandbox, Pool, Files, Code"]
+    L6["L6 Agent — MCP server, built-in agents"]
+    L5["L5 Declarative — @sandbox decorator"]
+    L4["L4 API — Sandbox, Files, Code, Commands"]
     L3["L3 Extensions — OSS, VPC, Custom Domains"]
-    L2["L2 Core Protocol — E2B-compat REST + WebSocket"]
-    L1["L1 Transport & Auth — HTTP/2, API Key, AK/SK"]
-    GW["China Region Gateway — Alibaba Cloud FC"]
+    L2["L2 Protocol — E2B-compat REST + WebSocket"]
+    L1["L1 Transport — HTTP/2, API Key, AK/SK"]
+    GW["Alibaba Cloud FC"]
 
     L6 --> L5 --> L4 --> L3 --> L2 --> L1 --> GW
 ```
 
-Lower layers never import upper layers. Full design: [`docs/zh/design/architecture.md`](docs/zh/design/architecture.md) (Chinese).
+Lower layers never import upper layers. Full design: [`docs/en/design/architecture.md`](docs/en/design/architecture.md).
 
 ## Documentation
 
 > Full documentation index: [`docs/README.md`](docs/README.md) (bilingual navigation)
->
-> The documentation is currently in Chinese. English translations are in progress.
-> Links below point to the Chinese versions.
 
-### Tutorials
+### Tutorials & Guides
 
-| Guide | Description |
-|-------|-------------|
-| [Getting Started](docs/zh/guide/getting-started.md) | First steps with Easy Sandbox — install, configure, create a sandbox |
-| [CLI Tutorial](docs/zh/guide/cli-tutorial.md) | End-to-end walkthrough of the `ebx` command-line tool |
-| [SDK Usage](docs/zh/guide/sdk-usage.md) | Using the Python SDK for sandbox operations |
-
-### How-to Guides
-
-| Guide | Description |
-|-------|-------------|
-| [Authentication](docs/zh/guide/authentication.md) | Configure API Key, AK/SK, and credential priority |
-| [Using Templates](docs/zh/guide/using-templates.md) | Discover, install, and launch sandbox templates |
-| [Authoring Templates](docs/zh/guide/authoring-templates.md) | Create and publish your own sandbox templates |
-| [Deploy & Build](docs/zh/guide/deploy-and-build.md) | Build images and deploy sandboxes to production |
-| [Declarative Usage](docs/zh/guide/declarative-usage.md) | Use the `@sandbox` decorator for remote execution |
-| [MCP Integration](docs/zh/guide/mcp-integration.md) | Expose sandbox operations as MCP tools for LLM agents |
-| [Session Persistence](docs/zh/guide/session-persistence.md) | Save and restore sandbox state across runs |
-| [Migrate from E2B](docs/zh/guide/migrate-from-e2b.md) | Drop-in migration guide from the E2B SDK |
-| [Troubleshooting](docs/zh/guide/troubleshooting.md) | Common issues, diagnostics, and fixes |
+| Guide | EN | 中文 |
+|-------|----|------|
+| Getting Started | [EN](docs/en/guide/getting-started.md) | [中文](docs/zh/guide/getting-started.md) |
+| CLI Tutorial | [EN](docs/en/guide/cli-tutorial.md) | [中文](docs/zh/guide/cli-tutorial.md) |
+| SDK Usage | [EN](docs/en/guide/sdk-usage.md) | [中文](docs/zh/guide/sdk-usage.md) |
+| Authentication | [EN](docs/en/guide/authentication.md) | [中文](docs/zh/guide/authentication.md) |
+| Environment Variables | [EN](docs/en/guide/environment-variables.md) | [中文](docs/zh/guide/environment-variables.md) |
+| Using Templates | [EN](docs/en/guide/using-templates.md) | [中文](docs/zh/guide/using-templates.md) |
+| Authoring Templates | [EN](docs/en/guide/authoring-templates.md) | [中文](docs/zh/guide/authoring-templates.md) |
+| Deploy & Build | [EN](docs/en/guide/deploy-and-build.md) | [中文](docs/zh/guide/deploy-and-build.md) |
+| Declarative Usage | [EN](docs/en/guide/declarative-usage.md) | [中文](docs/zh/guide/declarative-usage.md) |
+| MCP Integration | [EN](docs/en/guide/mcp-integration.md) | [中文](docs/zh/guide/mcp-integration.md) |
+| Session Persistence | [EN](docs/en/guide/session-persistence.md) | [中文](docs/zh/guide/session-persistence.md) |
+| Migrate from E2B | [EN](docs/en/guide/migrate-from-e2b.md) | [中文](docs/zh/guide/migrate-from-e2b.md) |
+| Troubleshooting | [EN](docs/en/guide/troubleshooting.md) | [中文](docs/zh/guide/troubleshooting.md) |
 
 ### Reference
 
-| Document | Description |
-|----------|-------------|
-| [API Reference](docs/zh/reference/api-reference.md) | Complete Python SDK API documentation |
-| [CLI Reference](docs/zh/reference/cli-reference.md) | All `ebx` commands, flags, and options |
-| [Configuration](docs/zh/reference/configuration.md) | Config files, environment variables, and defaults |
-| [Error Codes](docs/zh/reference/error-codes.md) | E1xxx–E7xxx error codes with troubleshooting steps |
-| [Template YAML Spec](docs/zh/reference/template-yaml-spec.md) | `template.yaml` schema and field reference |
+| Document | EN | 中文 |
+|----------|----|------|
+| API Reference | [EN](docs/en/reference/api-reference.md) | [中文](docs/zh/reference/api-reference.md) |
+| CLI Reference | [EN](docs/en/reference/cli-reference.md) | [中文](docs/zh/reference/cli-reference.md) |
+| Configuration | [EN](docs/en/reference/configuration.md) | [中文](docs/zh/reference/configuration.md) |
+| Error Codes | [EN](docs/en/reference/error-codes.md) | [中文](docs/zh/reference/error-codes.md) |
+| Template YAML Spec | [EN](docs/en/reference/template-yaml-spec.md) | [中文](docs/zh/reference/template-yaml-spec.md) |
 
-### Explanation
+### Design & Architecture
 
-| Document | Description |
-|----------|-------------|
-| [Architecture Overview](docs/zh/explanation/architecture-overview.md) | SDK, CLI, and Server layered architecture |
-| [E2B Compatibility](docs/zh/explanation/e2b-compatibility.md) | Design decisions behind the E2B compatibility layer |
-| [Sandbox Lifecycle](docs/zh/explanation/sandbox-lifecycle.md) | State machine, timeouts, and cleanup semantics |
+| Document | EN | 中文 |
+|----------|----|------|
+| Design Index | [EN](docs/en/DESIGN.md) | [中文](docs/zh/DESIGN.md) |
+| Architecture | [EN](docs/en/design/architecture.md) | [中文](docs/zh/design/architecture.md) |
+| SDK API Design | [EN](docs/en/design/sdk-api-design.md) | [中文](docs/zh/design/sdk-api-design.md) |
+| CLI Design | [EN](docs/en/design/cli-design.md) | [中文](docs/zh/design/cli-design.md) |
+| Template System | [EN](docs/en/design/template-system.md) | [中文](docs/zh/design/template-system.md) |
 
-### Design
+### Other Resources
 
-| Document | Description |
-|----------|-------------|
-| [Design Index](docs/zh/DESIGN.md) | Entry point for all design documents |
-| [Roadmap](docs/zh/roadmap.md) | Planned features and milestones |
-| [Architecture](docs/zh/design/architecture.md) | Detailed architecture design |
-| [SDK API Design](docs/zh/design/sdk-api-design.md) | SDK public API specification |
-| [CLI Design](docs/zh/design/cli-design.md) | CLI command structure and UX conventions |
-| [Server API](docs/zh/design/server-api.md) | In-sandbox server HTTP endpoint design |
-| [Template System](docs/zh/design/template-system.md) | Template resolution, caching, and registry |
-| [Templates Catalog](docs/zh/design/templates-catalog.md) | Catalog of official and community templates |
-| [MCP Server](docs/zh/design/mcp-server.md) | MCP tool server design |
-| [Built-in Agents](docs/zh/design/built-in-agents.md) | Built-in AI agent harness design |
-| [Skills System](docs/zh/design/skills-system.md) | Pluggable skill system design |
-| [Sandbox Types](docs/zh/design/sandbox-types.md) | Sandbox type taxonomy and capabilities |
-
-### Other
-
-| Resource | Description |
-|----------|-------------|
-| [Changelog](CHANGELOG.md) | Release history and version notes |
-| [Contributing Guide](.github/CONTRIBUTING.md) | How to contribute to Easy Sandbox |
-| [License](LICENSE) | Apache-2.0 license text |
+| Resource | Link |
+|----------|------|
+| Changelog | [CHANGELOG.md](CHANGELOG.md) |
+| Contributing Guide | [CONTRIBUTING.md](.github/CONTRIBUTING.md) |
+| License | [Apache-2.0](LICENSE) |
+| Examples | [examples/](examples/) |
+| Roadmap | [EN](docs/en/roadmap.md) \| [中文](docs/zh/roadmap.md) |
 
 ## Contributing
 

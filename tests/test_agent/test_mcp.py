@@ -1,29 +1,28 @@
 """Tests for MCP Server initialization and request handling."""
+
 from __future__ import annotations
 
 import json
+from unittest.mock import AsyncMock, patch
 
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from easy_sandbox.agent.mcp import (
-    SandboxMCPServer,
-    SandboxManager,
+    INVALID_REQUEST,
     MCP_PROTOCOL_VERSION,
+    METHOD_NOT_FOUND,
     SERVER_NAME,
     SERVER_VERSION,
-    _jsonrpc_response,
+    SandboxManager,
+    SandboxMCPServer,
     _jsonrpc_error,
-    PARSE_ERROR,
-    INVALID_REQUEST,
-    METHOD_NOT_FOUND,
-    INTERNAL_ERROR,
+    _jsonrpc_response,
 )
-
 
 # ---------------------------------------------------------------------------
 # JSON-RPC helper tests
 # ---------------------------------------------------------------------------
+
 
 class TestJsonRpcHelpers:
     """Test JSON-RPC response/error builders."""
@@ -50,6 +49,7 @@ class TestJsonRpcHelpers:
 # ---------------------------------------------------------------------------
 # SandboxManager tests
 # ---------------------------------------------------------------------------
+
 
 class TestSandboxManager:
     """Test SandboxManager lifecycle management."""
@@ -143,6 +143,7 @@ class TestSandboxManager:
 # SandboxMCPServer tests
 # ---------------------------------------------------------------------------
 
+
 class TestSandboxMCPServer:
     """Test MCP Server request handling."""
 
@@ -153,16 +154,18 @@ class TestSandboxMCPServer:
 
     async def test_initialize(self):
         server = SandboxMCPServer()
-        resp = await server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": "initialize",
-            "params": {
-                "protocolVersion": "2024-11-05",
-                "capabilities": {},
-                "clientInfo": {"name": "test", "version": "0.1"},
-            },
-        })
+        resp = await server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "test", "version": "0.1"},
+                },
+            }
+        )
         assert resp is not None
         assert resp["id"] == 1
         result = resp["result"]
@@ -175,21 +178,25 @@ class TestSandboxMCPServer:
     async def test_initialized_notification(self):
         server = SandboxMCPServer()
         # Notification (no id)
-        resp = await server.handle_request({
-            "jsonrpc": "2.0",
-            "method": "notifications/initialized",
-            "params": {},
-        })
+        resp = await server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "method": "notifications/initialized",
+                "params": {},
+            }
+        )
         assert resp is None  # Notifications get no response
 
     async def test_tools_list(self):
         server = SandboxMCPServer()
-        resp = await server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 2,
-            "method": "tools/list",
-            "params": {},
-        })
+        resp = await server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "tools/list",
+                "params": {},
+            }
+        )
         assert resp is not None
         tools = resp["result"]["tools"]
         assert len(tools) == 7
@@ -199,12 +206,14 @@ class TestSandboxMCPServer:
 
     async def test_tools_call_unknown_tool(self):
         server = SandboxMCPServer()
-        resp = await server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 3,
-            "method": "tools/call",
-            "params": {"name": "nonexistent", "arguments": {}},
-        })
+        resp = await server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {"name": "nonexistent", "arguments": {}},
+            }
+        )
         assert resp is not None
         result = resp["result"]
         assert result["isError"] is True
@@ -217,20 +226,28 @@ class TestSandboxMCPServer:
         mock_sb = AsyncMock()
         mock_sb.id = "sbx-t"
         from easy_sandbox.models.process import CodeResult
-        mock_sb.run_code = AsyncMock(return_value=CodeResult(
-            text="ok", stdout="ok\n", stderr="", exit_code=0,
-        ))
+
+        mock_sb.run_code = AsyncMock(
+            return_value=CodeResult(
+                text="ok",
+                stdout="ok\n",
+                stderr="",
+                exit_code=0,
+            )
+        )
         server._manager.get_sandbox = AsyncMock(return_value=mock_sb)
 
-        resp = await server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 4,
-            "method": "tools/call",
-            "params": {
-                "name": "run_code",
-                "arguments": {"code": "print('ok')"},
-            },
-        })
+        resp = await server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {
+                    "name": "run_code",
+                    "arguments": {"code": "print('ok')"},
+                },
+            }
+        )
         assert resp is not None
         result = resp["result"]
         assert result["isError"] is False
@@ -239,35 +256,53 @@ class TestSandboxMCPServer:
 
     async def test_unknown_method(self):
         server = SandboxMCPServer()
-        resp = await server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 5,
-            "method": "unknown/method",
-            "params": {},
-        })
+        resp = await server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 5,
+                "method": "unknown/method",
+                "params": {},
+            }
+        )
         assert resp is not None
         assert "error" in resp
         assert resp["error"]["code"] == METHOD_NOT_FOUND
 
+    @pytest.mark.parametrize(
+        "payload",
+        [[], [{"jsonrpc": "2.0", "id": 1, "method": "ping"}]],
+    )
+    async def test_non_object_request_is_rejected(self, payload):
+        server = SandboxMCPServer()
+        resp = await server.handle_request(payload)
+
+        assert resp is not None
+        assert resp["id"] is None
+        assert resp["error"]["code"] == INVALID_REQUEST
+
     async def test_ping(self):
         server = SandboxMCPServer()
-        resp = await server.handle_request({
-            "jsonrpc": "2.0",
-            "id": 6,
-            "method": "ping",
-            "params": {},
-        })
+        resp = await server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 6,
+                "method": "ping",
+                "params": {},
+            }
+        )
         assert resp is not None
         assert resp["result"] == {}
 
     async def test_unknown_notification_ignored(self):
         server = SandboxMCPServer()
         # Unknown notification (no id) should be silently ignored
-        resp = await server.handle_request({
-            "jsonrpc": "2.0",
-            "method": "some/unknown/notification",
-            "params": {},
-        })
+        resp = await server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "method": "some/unknown/notification",
+                "params": {},
+            }
+        )
         assert resp is None
 
     async def test_shutdown(self):

@@ -1,3 +1,12 @@
+> ⚠️ **SUPERSEDED / 历史快照（HISTORICAL SNAPSHOT）** — 标注追加于 2026-09-24（任务 #122，承接 #109 审计；正文未改写）
+>
+> 本报告是 **2026-09-04 当时状态** 的只读快照。其中出现的下列称谓/结论可能已过时，请勿据此判断当前实现：
+> - 旧品牌 `serverless-sandbox` / 旧 CLI `sbox` → 现为 `easy-sandbox` / `ebx`，见 ADR [`2026-09-09-brand-rename-sbox-to-ebx.md`](../../notes/implemented/architecture/2026-09-09-brand-rename-sbox-to-ebx.md)。
+> - 自此已删除的 CLI 命令组（`auth`/`session`/`secret`/`skill`），见 ADR [`2026-09-23-cli-command-reduction.md`](../../notes/implemented/feature/2026-09-23-cli-command-reduction.md)。
+> - 自此已移除的旧架构（`integrations` 集成层 / 能力门控 / 序列化 / keychain），见 ADR [`2026-09-23-overdesign-cleanup.md`](../../notes/implemented/architecture/2026-09-23-overdesign-cleanup.md)。
+>
+> 当前权威说明以 `AGENTS.md` 与 `docs/` 为准。
+
 # 过度设计 / 合理性 / 优化审计报告
 
 > **审计编号**: #93  

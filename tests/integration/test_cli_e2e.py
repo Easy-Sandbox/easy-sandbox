@@ -5,13 +5,12 @@ verifying the full flow from CLI entry through the Sandbox API layer.
 
 Run with: pytest tests/integration/test_cli_e2e.py -m integration -v
 """
+
 from __future__ import annotations
 
 import json
-from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import click
 import pytest
 from click.testing import CliRunner
 
@@ -24,7 +23,6 @@ from easy_sandbox.models.errors import (
 from easy_sandbox.models.process import ProcessResult
 from easy_sandbox.models.sandbox import SandboxInfo, SandboxStatus
 from easy_sandbox.transport.config import reset_config
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -62,20 +60,27 @@ def _make_mock_sandbox(
     sb.status = status
     sb.is_running = status == SandboxStatus.RUNNING
     sb.url = f"https://{sandbox_id}.envd.fc.aliyuncs.com"
-    sb.info = SandboxInfo.model_validate({
-        "sandboxID": sandbox_id,
-        "templateID": template,
-        "status": status.value,
-        "region": region,
-        "envdUrl": sb.url,
-        "envdAccessToken": ENVD_TOKEN,
-    })
+    sb.info = SandboxInfo.model_validate(
+        {
+            "sandboxID": sandbox_id,
+            "templateID": template,
+            "status": status.value,
+            "region": region,
+            "envdUrl": sb.url,
+            "envdAccessToken": ENVD_TOKEN,
+        }
+    )
 
     # Mock commands sub-module
     sb.commands = MagicMock()
-    sb.commands.run = AsyncMock(return_value=ProcessResult(
-        stdout="hello\n", stderr="", exit_code=0, execution_time=0.1,
-    ))
+    sb.commands.run = AsyncMock(
+        return_value=ProcessResult(
+            stdout="hello\n",
+            stderr="",
+            exit_code=0,
+            execution_time=0.1,
+        )
+    )
 
     # Mock kill
     sb.kill = AsyncMock()
@@ -107,9 +112,9 @@ def test_cli_create_exec_kill(runner: CliRunner):
     """Exercise: ebx create → ebx exec → ebx kill."""
     mock_sb = _make_mock_sandbox()
 
-    with patch(_SANDBOX_CLS) as MockSandbox:
-        MockSandbox.create = AsyncMock(return_value=mock_sb)
-        MockSandbox.connect = AsyncMock(return_value=mock_sb)
+    with patch(_SANDBOX_CLS) as mock_sandbox_cls:
+        mock_sandbox_cls.create = AsyncMock(return_value=mock_sb)
+        mock_sandbox_cls.connect = AsyncMock(return_value=mock_sb)
 
         # --- ebx create ---
         result = runner.invoke(cli, ["create", "--template", "python-base"])
@@ -137,8 +142,8 @@ def test_cli_json_output(runner: CliRunner):
     """Verify --json flag produces valid JSON output."""
     mock_sb = _make_mock_sandbox()
 
-    with patch(_SANDBOX_CLS) as MockSandbox:
-        MockSandbox.create = AsyncMock(return_value=mock_sb)
+    with patch(_SANDBOX_CLS) as mock_sandbox_cls:
+        mock_sandbox_cls.create = AsyncMock(return_value=mock_sb)
 
         result = runner.invoke(cli, ["--json", "create", "--template", "python-base"])
         assert result.exit_code == 0, f"json create failed: {result.output}\n{_safe_stderr(result)}"
@@ -155,8 +160,8 @@ def test_cli_exec_json_output(runner: CliRunner):
     """Verify exec --json produces structured output."""
     mock_sb = _make_mock_sandbox()
 
-    with patch(_SANDBOX_CLS) as MockSandbox:
-        MockSandbox.connect = AsyncMock(return_value=mock_sb)
+    with patch(_SANDBOX_CLS) as mock_sandbox_cls:
+        mock_sandbox_cls.connect = AsyncMock(return_value=mock_sb)
 
         result = runner.invoke(cli, ["--json", "exec", SANDBOX_ID, "echo hello"])
         assert result.exit_code == 0, f"json exec failed: {result.output}\n{_safe_stderr(result)}"
@@ -174,8 +179,8 @@ def test_cli_exec_json_output(runner: CliRunner):
 @pytest.mark.integration
 def test_cli_error_template_not_found(runner: CliRunner):
     """TemplateNotFoundError shows error code and suggestion."""
-    with patch(_SANDBOX_CLS) as MockSandbox:
-        MockSandbox.create = AsyncMock(
+    with patch(_SANDBOX_CLS) as mock_sandbox_cls:
+        mock_sandbox_cls.create = AsyncMock(
             side_effect=TemplateNotFoundError("Template 'bad' not found"),
         )
 
@@ -193,8 +198,8 @@ def test_cli_error_template_not_found(runner: CliRunner):
 @pytest.mark.integration
 def test_cli_error_quota_exceeded(runner: CliRunner):
     """QuotaExceededError shows error code and suggestion."""
-    with patch(_SANDBOX_CLS) as MockSandbox:
-        MockSandbox.create = AsyncMock(
+    with patch(_SANDBOX_CLS) as mock_sandbox_cls:
+        mock_sandbox_cls.create = AsyncMock(
             side_effect=QuotaExceededError("Sandbox quota exceeded"),
         )
 
@@ -211,8 +216,8 @@ def test_cli_error_quota_exceeded(runner: CliRunner):
 @pytest.mark.integration
 def test_cli_error_auth(runner: CliRunner):
     """AuthenticationError shows helpful suggestion."""
-    with patch(_SANDBOX_CLS) as MockSandbox:
-        MockSandbox.create = AsyncMock(
+    with patch(_SANDBOX_CLS) as mock_sandbox_cls:
+        mock_sandbox_cls.create = AsyncMock(
             side_effect=AuthenticationError("Invalid API key"),
         )
 
@@ -228,25 +233,35 @@ def test_cli_error_auth(runner: CliRunner):
 @pytest.mark.integration
 def test_cli_list_sandboxes(runner: CliRunner):
     """ebx list shows sandboxes in table format."""
-    sb1_info = SandboxInfo.model_validate({
-        "sandboxID": "sbx-list-001", "templateID": "python-base",
-        "status": "running", "region": "cn-hangzhou",
-    })
-    sb2_info = SandboxInfo.model_validate({
-        "sandboxID": "sbx-list-002", "templateID": "node-base",
-        "status": "stopped", "region": "cn-shanghai",
-    })
+    sb1_info = SandboxInfo.model_validate(
+        {
+            "sandboxID": "sbx-list-001",
+            "templateID": "python-base",
+            "status": "running",
+            "region": "cn-hangzhou",
+        }
+    )
+    sb2_info = SandboxInfo.model_validate(
+        {
+            "sandboxID": "sbx-list-002",
+            "templateID": "node-base",
+            "status": "stopped",
+            "region": "cn-shanghai",
+        }
+    )
 
     with (
         patch(_LOAD_CONFIG) as mock_cfg,
         patch(_CREATE_AUTH),
         patch(_HTTP_CLIENT),
-        patch(_SANDBOX_PROTO) as MockProto,
+        patch(_SANDBOX_PROTO) as mock_proto_cls,
     ):
         mock_cfg.return_value = MagicMock(
-            api_key="test-key", access_key_id=None, access_key_secret=None,
+            api_key="test-key",
+            access_key_id=None,
+            access_key_secret=None,
         )
-        mock_proto_instance = MockProto.return_value
+        mock_proto_instance = mock_proto_cls.return_value
         mock_proto_instance.list = AsyncMock(return_value=[sb1_info, sb2_info])
 
         result = runner.invoke(cli, ["list"])
@@ -265,8 +280,8 @@ def test_cli_info_command(runner: CliRunner):
     """ebx info <id> shows sandbox details."""
     mock_sb = _make_mock_sandbox()
 
-    with patch(_SANDBOX_CLS) as MockSandbox:
-        MockSandbox.connect = AsyncMock(return_value=mock_sb)
+    with patch(_SANDBOX_CLS) as mock_sandbox_cls:
+        mock_sandbox_cls.connect = AsyncMock(return_value=mock_sb)
 
         result = runner.invoke(cli, ["info", SANDBOX_ID])
         assert result.exit_code == 0, f"info failed: {result.output}\n{_safe_stderr(result)}"
@@ -284,8 +299,8 @@ def test_cli_quiet_mode(runner: CliRunner):
     """ebx --quiet suppresses non-essential output."""
     mock_sb = _make_mock_sandbox()
 
-    with patch(_SANDBOX_CLS) as MockSandbox:
-        MockSandbox.connect = AsyncMock(return_value=mock_sb)
+    with patch(_SANDBOX_CLS) as mock_sandbox_cls:
+        mock_sandbox_cls.connect = AsyncMock(return_value=mock_sb)
 
         result = runner.invoke(cli, ["--quiet", "info", SANDBOX_ID])
         assert result.exit_code == 0
@@ -301,12 +316,17 @@ def test_cli_quiet_mode(runner: CliRunner):
 def test_cli_exec_nonzero_exit(runner: CliRunner):
     """ebx exec propagates non-zero exit code."""
     mock_sb = _make_mock_sandbox()
-    mock_sb.commands.run = AsyncMock(return_value=ProcessResult(
-        stdout="", stderr="command not found\n", exit_code=127, execution_time=0.05,
-    ))
+    mock_sb.commands.run = AsyncMock(
+        return_value=ProcessResult(
+            stdout="",
+            stderr="command not found\n",
+            exit_code=127,
+            execution_time=0.05,
+        )
+    )
 
-    with patch(_SANDBOX_CLS) as MockSandbox:
-        MockSandbox.connect = AsyncMock(return_value=mock_sb)
+    with patch(_SANDBOX_CLS) as mock_sandbox_cls:
+        mock_sandbox_cls.connect = AsyncMock(return_value=mock_sb)
 
         result = runner.invoke(cli, ["exec", SANDBOX_ID, "nonexistent_cmd"])
         assert result.exit_code == 127

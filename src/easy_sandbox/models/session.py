@@ -2,9 +2,10 @@
 
 注意：Session 管理为 SDK 扩展功能，阿里云官方文档中未定义此概念。
 """
+
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime  # noqa: TC003  # Pydantic needs at runtime
 
 from pydantic import BaseModel, Field
 
@@ -16,9 +17,7 @@ class SessionConfig(BaseModel):
     description: str = ""
     sandbox_template: str = "base"
     auto_connect: bool = True
-    ttl: int = Field(
-        default=86400, ge=0, description="Session TTL in seconds, 0=infinite"
-    )
+    ttl: int = Field(default=86400, ge=0, description="Session TTL in seconds, 0=infinite")
     envs: dict[str, str] = Field(default_factory=dict)
     metadata: dict[str, str] = Field(default_factory=dict)
 

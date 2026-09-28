@@ -13,6 +13,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import os
 import subprocess  # noqa: S404
 import time
 from typing import Any
@@ -60,7 +61,26 @@ def _parse_bool_query(request: ServerRequest, key: str, default: bool = False) -
 
 
 def _validate_git_path(path: str) -> ServerResponse | None:
-    """Reject path-traversal attempts (``..``)."""
+    """Validate *path* using :func:`_resolve_safe_path` logic.
+
+    When ``EBX_SERVER_BASE_DIR`` is set the path must stay within that
+    directory.  Otherwise only basic symlink resolution and ``..``
+    rejection are applied.
+    """
+    _BASE_DIR_ENV_VAR = "EBX_SERVER_BASE_DIR"  # noqa: N806
+    base_dir_raw = os.environ.get(_BASE_DIR_ENV_VAR)
+    resolved = os.path.realpath(os.path.normpath(path))
+
+    if base_dir_raw:
+        base_dir = os.path.realpath(base_dir_raw)
+        if resolved != base_dir and not resolved.startswith(base_dir + os.sep):
+            return ServerResponse.error(
+                400,
+                "Path escapes base directory",
+                error_type="ValueError",
+            )
+
+    # Always reject explicit ".." segments (defence-in-depth).
     if ".." in path.split("/"):
         return ServerResponse.error(
             400,
@@ -78,6 +98,14 @@ def _validate_git_path(path: str) -> ServerResponse | None:
 def handle_code_run(request: ServerRequest) -> ServerResponse:
     """Execute code in a subprocess and return stdout/stderr/exit_code.
 
+    .. warning:: Security model
+
+       This endpoint executes user-supplied code via ``bash -c`` (or the
+       equivalent for the chosen language).  **Security relies on container
+       isolation, not application-level restrictions.**  The sandbox
+       container itself is the security boundary — there is no attempt to
+       sandbox the subprocess further at the application level.
+
     Expected JSON body::
 
         {"code": "print('hello')", "language": "python", "timeout": 30}
@@ -94,7 +122,9 @@ def handle_code_run(request: ServerRequest) -> ServerResponse:
     code = body.get("code")
     if not code or not isinstance(code, str):
         return ServerResponse.error(
-            400, "Missing or invalid 'code'", error_type="ValueError",
+            400,
+            "Missing or invalid 'code'",
+            error_type="ValueError",
         )
 
     language: str = str(body.get("language", "python")).lower()
@@ -143,13 +173,18 @@ def handle_code_run(request: ServerRequest) -> ServerResponse:
 
     elapsed_ms = (time.monotonic_ns() - start_ns) / 1_000_000
 
-    return ServerResponse.ok({
-        "stdout": proc.stdout,
-        "stderr": proc.stderr,
-        "exit_code": proc.returncode,
-        "language": language,
-        "execution_time_ms": round(elapsed_ms, 2),
-    })
+    return ServerResponse.ok(
+        {
+            "stdout": proc.stdout,
+            "stderr": proc.stderr,
+            "exit_code": proc.returncode,
+            "language": language,
+            "execution_time_ms": round(elapsed_ms, 2),
+            "_security_note": (
+                "Security relies on container isolation, not application-level restrictions"
+            ),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -232,11 +267,15 @@ def handle_git_status(request: ServerRequest) -> ServerResponse:
         )
     except FileNotFoundError:
         return ServerResponse.error(
-            500, "git is not installed", error_type="FileNotFoundError",
+            500,
+            "git is not installed",
+            error_type="FileNotFoundError",
         )
     except subprocess.TimeoutExpired:
         return ServerResponse.error(
-            408, "git status timed out", error_type="TimeoutError",
+            408,
+            "git status timed out",
+            error_type="TimeoutError",
         )
     except Exception as exc:  # noqa: BLE001
         return ServerResponse.error(500, str(exc), error_type=type(exc).__name__)
@@ -349,11 +388,15 @@ def handle_git_diff(request: ServerRequest) -> ServerResponse:
         )
     except FileNotFoundError:
         return ServerResponse.error(
-            500, "git is not installed", error_type="FileNotFoundError",
+            500,
+            "git is not installed",
+            error_type="FileNotFoundError",
         )
     except subprocess.TimeoutExpired:
         return ServerResponse.error(
-            408, "git diff timed out", error_type="TimeoutError",
+            408,
+            "git diff timed out",
+            error_type="TimeoutError",
         )
     except Exception as exc:  # noqa: BLE001
         return ServerResponse.error(500, str(exc), error_type=type(exc).__name__)
@@ -372,10 +415,12 @@ def handle_git_diff(request: ServerRequest) -> ServerResponse:
 
     stats = _parse_diff_stat(stat_proc.stdout)
 
-    return ServerResponse.ok({
-        "diff": diff_text,
-        "stats": stats,
-    })
+    return ServerResponse.ok(
+        {
+            "diff": diff_text,
+            "stats": stats,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -384,14 +429,23 @@ def handle_git_diff(request: ServerRequest) -> ServerResponse:
 
 _table = default_table()
 _table.register(
-    "POST", "/code/run", handle_code_run,
-    group=CapabilityGroup.DEV_TOOLS, name="code_run",
+    "POST",
+    "/code/run",
+    handle_code_run,
+    group=CapabilityGroup.DEV_TOOLS,
+    name="code_run",
 )
 _table.register(
-    "GET", "/git/status", handle_git_status,
-    group=CapabilityGroup.DEV_TOOLS, name="git_status",
+    "GET",
+    "/git/status",
+    handle_git_status,
+    group=CapabilityGroup.DEV_TOOLS,
+    name="git_status",
 )
 _table.register(
-    "GET", "/git/diff", handle_git_diff,
-    group=CapabilityGroup.DEV_TOOLS, name="git_diff",
+    "GET",
+    "/git/diff",
+    handle_git_diff,
+    group=CapabilityGroup.DEV_TOOLS,
+    name="git_diff",
 )

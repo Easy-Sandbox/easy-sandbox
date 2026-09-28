@@ -40,10 +40,13 @@ class Sandbox:
 #   await sandbox.files.upload(local, remote) # requires "files"
 ```
 
-> **MCP 工具按 capabilities 过滤 = Phase 2 延后**：当前 MCP Server 暴露的 7 个 P0 工具
-> 仅依赖默认能力（shell / files / code），**不**按 `capabilities` 动态过滤工具列表。
-> 当沙箱能力受限时，由 `dispatch_tool` 捕获 `CapabilityNotSupportedError` 并返回结构化
-> error（而非崩溃或静默缺失）。按 capabilities 动态过滤 MCP 工具集留待 Phase 2。
+> **MCP tools filtered by capabilities = deferred to Phase 2**: the MCP Server
+> currently exposes 7 P0 tools that rely only on the default capabilities
+> (shell / files / code) and does **not** dynamically filter the tool list by
+> `capabilities`. When a sandbox has restricted capabilities, `dispatch_tool`
+> catches `CapabilityNotSupportedError` and returns a structured error (rather
+> than crashing or silently omitting the tool). Dynamically filtering the MCP
+> tool set by capabilities is left for Phase 2.
 
 ## Alternatives considered
 - **`__getattr__` magic methods** (`sandbox.serve(port=9000)`) — Invisible to static type checkers, breaks `py.typed`, no autocomplete, surprising failure modes. Rejected; see the capability-model-alternatives rejected ADR.

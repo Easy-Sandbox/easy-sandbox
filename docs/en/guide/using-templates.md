@@ -98,7 +98,7 @@ sandbox = await Sandbox.create(
 )
 ```
 
-The SDK infers the best template and resource configuration via LLM. Inference is triggered only when `template` is left at the default value `"base"` and `description` is provided.
+The SDK records the `description` as a hint log entry. Template inference via LLM happens at the **CLI / Agent layer**, not inside `Sandbox.create()` itself. Inference is triggered only when `template` is left at the default value `"base"` and `description` is provided.
 
 ---
 
@@ -130,14 +130,14 @@ When a template does not declare `capabilities`, the default capability set `{sh
 
 ## Custom Commands
 
-Templates can define custom commands, invoked by users via `ebx run` or `sandbox.run()`:
+Templates can define custom commands, invoked by users via `ebx run` or `sandbox.custom()`:
 
 ```bash
 # CLI
 ebx run sbx-xxxx dev --arg port=8080
 
 # SDK
-result = await sandbox.run("dev", port="8080")
+result = await sandbox.custom("dev", port="8080")
 ```
 
 View commands defined by a template:

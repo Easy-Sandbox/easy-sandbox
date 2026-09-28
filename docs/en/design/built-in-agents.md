@@ -1,6 +1,6 @@
 # Built-in Agent High-Level API Design
 
-> Easy Sandbox built-in agents adopt a minimalist architecture: AI CLI tools (Codex, Qwen CLI, etc.) are pre-installed in sandbox templates, and the SDK Agent API is simply syntactic sugar wrapping `commands.run()`. The SDK has zero LLM dependencies, keeping it lightweight.
+> Easy Sandbox built-in agents adopt a minimalist architecture: AI CLI tools (Codex, etc.) are pre-installed in sandbox templates, and the SDK Agent API is simply syntactic sugar wrapping `commands.run()`. The SDK has zero LLM dependencies, keeping it lightweight.
 
 ---
 
@@ -42,7 +42,7 @@ Destroy sandbox
 
 1. **SDK Zero LLM Dependencies**: The SDK does not introduce any LLM client libraries (no dependency on openai / anthropic / dashscope), keeping it lightweight
 2. **Agent API = Syntactic Sugar**: `sb.agent.code("task")` is essentially a wrapper around `sb.commands.run(f"codex {shlex.quote(task)}")`
-3. **AI Capabilities Live in Templates**: AI CLI tools (Codex, Qwen CLI) are pre-installed in sandbox templates; authentication info is injected via sandbox environment variables
+3. **AI Capabilities Live in Templates**: AI CLI tools (Codex) are pre-installed in sandbox templates; authentication info is injected via sandbox environment variables
 4. **Users Choose Templates**: Codex template / Qwen template / custom templates — flexibly switch between different AI backends
 5. **Hot-Updatable**: Upgrading the AI CLI version in the template gives you new capabilities without upgrading the SDK
 
@@ -56,12 +56,8 @@ Destroy sandbox
 graph LR
     A1["sb.agent.code('fix bug')"] --> B1["commands.run('codex fix bug')"]
     B1 --> C1[codex CLI execution]
-    A2["sb.agent.browse('take screenshot')"] --> B2["commands.run('qwen-cli browse take screenshot')"]
-    B2 --> C2[qwen-cli execution]
     A3["sb.agent.shell('install nginx')"] --> B3["commands.run('codex install nginx...')"]
     B3 --> C3[codex CLI execution]
-    A4["sb.agent.analyze('analyze data')"] --> B4["commands.run('qwen-cli analyze analyze data')"]
-    B4 --> C4[qwen-cli execution]
 ```
 
 ### Why This Design?
@@ -96,17 +92,14 @@ Custom Agent framework               Users extend via custom templates
 | Agent Method | Actual Execution | Template Used |
 |-------------|-----------------|---------------|
 | `sb.agent.code("fix bug")` | `sb.commands.run("codex 'fix bug'")` | `codex` |
-| `sb.agent.browse("open Baidu")` | `sb.commands.run("qwen-cli browse 'open Baidu'")` | `qwen-browser` |
 | `sb.agent.shell("install nginx")` | `sb.commands.run("codex 'install nginx and configure'")` | `codex` |
-| `sb.agent.analyze("analyze data")` | `sb.commands.run("qwen-cli analyze 'analyze data'")` | `qwen-code` |
 
 ### Template and Agent Capability Mapping
 
 | Template | Supported Agent Methods | Pre-installed Tools | Typical Scenarios |
-|----------|------------------------|--------------------|--------------------|
+|----------|------------------------|--------------------|--------------------||
 | `codex` | `code()`, `shell()` | OpenAI Codex CLI | Code generation/fixing, Shell automation |
-| `qwen-browser` | `browse()` | Qwen CLI + Playwright | Browser automation, web screenshots |
-| `qwen-code` | `code()`, `analyze()`, `shell()` | Qwen CLI + multi-language runtimes | Code analysis, data analysis |
+| `qwen-code` | `code()`, `shell()` | Qwen Code runtime | Code generation, AI-driven deployment |
 
 ---
 
@@ -115,10 +108,9 @@ Custom Agent framework               Users extend via custom templates
 ### Official Agent Templates
 
 | Template | Description | Pre-installed Tools | Default Resources |
-|----------|-------------|--------------------|--------------------|
+|----------|-------------|--------------------|--------------------||
 | `codex` | Codex CLI Code Agent | OpenAI Codex CLI | 2C/4G/20G |
-| `qwen-browser` | Qwen Browser Agent | Qwen CLI + Playwright | 2C/4G/15G |
-| `qwen-code` | Qwen Code Agent | Qwen CLI + multi-language runtimes | 2C/4G/20G |
+| `qwen-code` | Qwen Code Agent | Qwen Code runtime | 2C/4G/20G |
 
 > **Note**: AI CLI tool authentication in Agent templates is pre-configured (injected via sandbox environment variables); users do not need to configure API Keys separately.
 
@@ -128,18 +120,13 @@ Agent templates essentially pre-install AI CLI tools on top of base templates:
 
 ```
 codex template:
-  base: code-interpreter
+  base: base
   pre-installed: OpenAI Codex CLI
   env vars: OPENAI_API_KEY (platform-injected)
 
-qwen-browser template:
-  base: browser-automation
-  pre-installed: Qwen CLI + Playwright + Chromium
-  env vars: DASHSCOPE_API_KEY (platform-injected)
-
 qwen-code template:
-  base: code-interpreter
-  pre-installed: Qwen CLI + multi-language runtimes
+  base: base
+  pre-installed: Qwen Code runtime
   env vars: DASHSCOPE_API_KEY (platform-injected)
 ```
 
@@ -194,19 +181,9 @@ class AgentModule:
         cmd = self._build_command("code", task, context)
         return await self._execute(cmd, timeout)
 
-    async def browse(self, task: str, *, timeout: int = 120) -> AgentResult:
-        """Browser automation"""
-        cmd = self._build_command("browse", task)
-        return await self._execute(cmd, timeout)
-
     async def shell(self, task: str, *, timeout: int = 120) -> AgentResult:
         """Shell automation"""
         cmd = self._build_command("shell", task)
-        return await self._execute(cmd, timeout)
-
-    async def analyze(self, task: str, *, timeout: int = 120) -> AgentResult:
-        """Data analysis"""
-        cmd = self._build_command("analyze", task)
         return await self._execute(cmd, timeout)
 
     def _build_command(self, action: str, task: str, context: dict | None = None) -> str:
@@ -214,7 +191,6 @@ class AgentModule:
 
         Mapping logic:
           codex template      → codex '{task}'
-          qwen-* template     → qwen-cli {action} '{task}'
           custom template     → read template agent config
         """
         template = self._sandbox._template_name
@@ -222,8 +198,6 @@ class AgentModule:
 
         if template.startswith("codex"):
             return f"codex {safe_task}"
-        elif template.startswith("qwen-"):
-            return f"qwen-cli {action} {safe_task}"
         else:
             # Custom template: try to read command pattern from template config
             return self._build_custom_command(action, safe_task)
@@ -272,31 +246,11 @@ result = await sb.commands.run("codex 'Analyze the complexity of /app/main.py an
 print(result.stdout)
 ```
 
-### Browser Agent
-
-```python
-sb = await Sandbox.create(template="qwen-browser")
-result = await sb.agent.browse("Visit https://example.com and take a screenshot of the homepage")
-print(result.output)
-
-# Equivalent to:
-result = await sb.commands.run("qwen-cli browse 'Visit https://example.com and take a screenshot of the homepage'")
-```
-
 ### Shell Automation
 
 ```python
 sb = await Sandbox.create(template="codex")
 result = await sb.agent.shell("Install nginx and configure reverse proxy to port 8080")
-print(result.output)
-```
-
-### Data Analysis
-
-```python
-sb = await Sandbox.create(template="qwen-code")
-await sb.files.write("/app/data.csv", csv_content)
-result = await sb.agent.analyze("Perform trend analysis on this CSV and generate charts")
 print(result.output)
 ```
 
@@ -351,10 +305,8 @@ Natural language sandbox creation inference logic is no longer implemented by an
 ```mermaid
 graph TD
     NL[Natural Language Description] --> Server["Server-side AI Inference API - Best Accuracy"]
-    NL --> Local["Qwen CLI / DashScope API - Fallback"]
     NL --> Rules["Keyword Rule Matching (Fully Offline) - Final Fallback"]
     Server --> Plan["SandboxPlan<br/>template, cpu, memory, gpu, confidence, reasoning"]
-    Local --> Plan
     Rules --> Plan
 ```
 
@@ -362,7 +314,6 @@ graph TD
 
 | Keywords | Inferred Template | Inferred Resources |
 |----------|------------------|--------------------|
-| python, pandas, data analysis, CSV | python-data-science | 2C/4G |
 | node, web, frontend, react, vue | node-web | 1C/2G |
 | playwright, browser, crawler, screenshot | browser-automation | 2C/4G |
 | GPU, CUDA, tensorflow, pytorch | ml-gpu | 4C/16G+GPU |
@@ -370,19 +321,21 @@ graph TD
 
 ### SDK API
 
+> **⚠️ Design Vision — Not Current Implementation.** `Sandbox.create()` currently takes `template` as its first positional parameter; `description` is keyword-only. `Sandbox.plan()` is not yet implemented.
+
 ```python
 from easy_sandbox import Sandbox
 
-# Natural language creation
+# Natural language creation (design vision — not current API)
 sb = await Sandbox.create("Run a python data analysis environment, need GPU")
 # → Inferred: template=python-data-science, gpu=auto, memory=8192
 
-# Preview inference result (without actually creating)
+# Preview inference result (design vision — not yet implemented)
 plan = await Sandbox.plan("Need an environment that can run TensorFlow")
 print(plan)
 # SandboxPlan(template='ml-gpu', cpu=4, memory=16384, gpu='A10', confidence=0.92, ...)
 
-# Override inference results
+# Override inference results (design vision)
 sb = await Sandbox.create(plan, memory=32768)
 ```
 
@@ -403,30 +356,6 @@ tools = get_tool_schema(format="openai")
 # Export as LangChain format
 tools = get_tool_schema(format="langchain")
 ```
-
-### LangChain Adapter
-
-```python
-from easy_sandbox.integrations import LangChainToolkit
-
-toolkit = LangChainToolkit(sandbox_config={"template": "code-interpreter"})
-tools = toolkit.get_tools()
-
-# Use in a LangChain Agent
-from langchain.agents import AgentExecutor
-agent = AgentExecutor(tools=tools, llm=llm)
-```
-
-### CrewAI Adapter
-
-```python
-from easy_sandbox.integrations import CrewAIToolkit
-
-toolkit = CrewAIToolkit()
-tools = toolkit.get_tools()
-```
-
-> **Note**: The framework integration layer only exports Tool Schemas and provides adapters; it does not include LLM Provider adaptation. LLM selection and configuration are handled by users within their respective Agent frameworks. The SDK itself does not depend on any LLM library.
 
 ---
 

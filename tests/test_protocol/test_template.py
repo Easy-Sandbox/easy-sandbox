@@ -1,17 +1,16 @@
 """Tests for protocol.template module — Platform API template management."""
+
 from __future__ import annotations
 
 import json
-from unittest.mock import AsyncMock, patch
 
-import httpx
 import pytest
 
 from easy_sandbox.models.errors import SandboxError
 from easy_sandbox.protocol.template import (
-    TemplateProtocol,
     TemplateBuildError,
     TemplateBuildTimeoutError,
+    TemplateProtocol,
 )
 from easy_sandbox.transport.auth import ApiKeyAuth
 from easy_sandbox.transport.config import TransportConfig
@@ -231,9 +230,7 @@ class TestWaitForBuild:
             json=_BUILD_STATUS_ERROR,
         )
         with pytest.raises(TemplateBuildError, match="Dockerfile syntax error"):
-            await protocol.wait_for_build(
-                "tpl-abc123", "bld-xyz789", timeout=10, poll_interval=1
-            )
+            await protocol.wait_for_build("tpl-abc123", "bld-xyz789", timeout=10, poll_interval=1)
 
     @pytest.mark.httpx_mock(assert_all_responses_were_requested=False)
     async def test_wait_timeout(self, protocol, httpx_mock):
@@ -245,6 +242,4 @@ class TestWaitForBuild:
                 json=_BUILD_STATUS_BUILDING,
             )
         with pytest.raises(TemplateBuildTimeoutError, match="timed out"):
-            await protocol.wait_for_build(
-                "tpl-abc123", "bld-xyz789", timeout=2, poll_interval=1
-            )
+            await protocol.wait_for_build("tpl-abc123", "bld-xyz789", timeout=2, poll_interval=1)

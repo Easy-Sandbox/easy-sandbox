@@ -270,20 +270,25 @@ graph LR
 
 **启动方式**：IDE 配置中指定命令，IDE 自动启动进程。
 
-### HTTP + SSE — 远程多客户端
+### Streamable HTTP — 远程部署（FC）
+
+> **状态：** Streamable HTTP 传输层 (`mcp_http.py`) 已实现。`ebx mcp deploy` CLI 命令**尚未实现**。
 
 ```mermaid
 graph LR
-    A["Client A - Cursor"] <-->|"HTTP POST / SSE Stream"| MCP["MCP Server<br/>HTTP Mode"]
-    B["Client B - Claude"] <-->|"HTTP POST / SSE Stream"| MCP
-    C["Client C - Web App"] <-->|"HTTP POST / SSE Stream"| MCP
-    MCP --> SM["每个客户端独立<br/>Session Manager"]
+    A["Client A - Cursor"] <-->|"Streamable HTTP<br/>POST /mcp"| MCP["MCP Server<br/>FC 函数"]
+    B["Client B - Claude"] <-->|"Streamable HTTP<br/>POST /mcp"| MCP
+    MCP --> SM["会话管理器<br/>按 Mcp-Session-Id 分派"]
     SM --> FC[阿里云 FC]
 ```
 
 **适用场景**：远程服务、团队共享、多客户端同时使用。
 
-**启动方式**：`ebx mcp start --transport http --port 8765`
+**协议**：MCP Streamable HTTP（规范 2025-06-18）。通过 `Mcp-Session-Id` 响应头实现会话亲和；阿里云 FC 原生支持 MCP 会话路由。
+
+**启动方式**：通过 `ebx mcp deploy` 部署（规划中），或本地运行 `ebx mcp start --transport http --port 8765`。
+
+> **注意：** 旧版 HTTP+SSE 传输（MCP 规范 2024-11-05）已被 Streamable HTTP 规范取代。现有 SSE 端点仍可运行，但新部署应使用 Streamable HTTP。
 
 ---
 
@@ -412,22 +417,72 @@ $ ebx mcp install --target cursor
 ### HTTP 模式配置（远程服务）
 
 ```bash
-# 启动 HTTP MCP Server
+# 本地启动 Streamable HTTP MCP Server
 ebx mcp start --transport http --port 8765 --host 0.0.0.0
 
 # 客户端连接
-# SSE endpoint: http://server:8765/sse
-# POST endpoint: http://server:8765/messages
+# Streamable HTTP 端点: http://server:8765/mcp
 ```
 
 ```json
-// 远程 MCP 配置
+// 远程 MCP 配置 (Streamable HTTP)
 {
   "mcpServers": {
     "easy-sandbox-remote": {
-      "url": "http://your-server:8765/sse",
-      "transport": "sse"
+      "url": "http://your-server:8765/mcp"
     }
   }
 }
+```
+
+---
+
+## 7. FC 部署
+
+> **状态：** Streamable HTTP 传输层 (`mcp_http.py`) 已实现。`ebx mcp deploy` CLI 命令**尚未实现**。
+
+### 架构
+
+MCP Server 可部署到阿里云函数计算 (FC) 作为 Streamable HTTP 端点，利用 FC 原生的 MCP 会话亲和路由。
+
+```mermaid
+graph TB
+    CLI["ebx mcp deploy → 打包 → FC CreateFunction + CreateTrigger"]
+    FC["FC 函数: easy-sandbox-mcp-server"]
+    Sandbox["Envd 沙箱（另一个 FC 实例）"]
+
+    CLI --> FC
+    FC --> Sandbox
+
+    subgraph FC_Function ["FC 函数"]
+        ASGI["easy_sandbox.agent.mcp_http:asgi_app"]
+        Trigger["HTTP 触发器: POST/GET/DELETE /mcp"]
+        Session["会话亲和: Mcp-Session-Id"]
+        Env["环境变量: EBX_API_KEY / EBX_API_URL / EBX_TEMPLATE"]
+    end
+```
+
+### 关键设计要点
+
+- **协议**：Streamable HTTP（MCP 规范 2025-06-18）
+- **会话亲和**：委托 FC 平台层通过 `Mcp-Session-Id` 头实现 — 无需应用层粘性路由
+- **认证**：双层 — 客户端→MCP 使用 `Authorization: Bearer <token>`；MCP→沙箱使用 FC 环境变量中的 `E2B_API_KEY`
+- **生命周期**：沙箱按 MCP 会话懒创建；`DELETE /mcp` 触发清理；idle timer 作为安全网
+- **冷启动**：FC 冷启动 (~1–3s) 可能与 MCP initialize 超时冲突；生产环境建议使用预留实例
+
+### CLI 命令（规划中）
+
+```bash
+ebx mcp deploy \
+  --name easy-sandbox-mcp \
+  --region cn-hangzhou \
+  --template python-base \
+  --memory 512 --timeout 600 \
+  --generate-token \
+  --enable-session-affinity
+```
+
+产出：FC 函数 ARN、HTTP 触发器 URL 和 IDE 配置片段。
+
+详见 [CLI 设计 — mcp deploy](cli-design.md#mcp-deploy) 获取完整参数参考。
 ```

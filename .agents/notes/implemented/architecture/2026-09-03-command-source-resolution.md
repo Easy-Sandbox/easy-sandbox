@@ -44,17 +44,26 @@ Directory discovery uses a plain walk of `~/.ebx/templates` (no index file).
 - Directory walk discovers templates without any index file.
 
 ## Implementation status
-- **已实现（本地优先）**：`resolve_capabilities()` 从 `~/.ebx/templates` 下本地缓存的
-  `template.yaml` 解析声明的 capabilities / custom_commands；本地缺失时回落
-  `DEFAULT_CAPABILITIES` 并打 `warn`。
-- **线上 metadata 兜底 = Phase 2 延后**：`GET /templates/{id}` 的在线元数据兜底尚未接入，
-  明确延后到 Phase 2（等后端 endpoint 就绪）。当前仅本地优先链路生效。
+- **Implemented (local-first)**: `resolve_capabilities()` parses the declared
+  capabilities / custom_commands from the locally cached `template.yaml` under
+  `~/.ebx/templates`; when the local copy is missing it falls back to
+  `DEFAULT_CAPABILITIES` and emits a `warn`.
+- **Online metadata fallback = deferred to Phase 2**: the online metadata fallback
+  via `GET /templates/{id}` is not yet wired in and is explicitly deferred to
+  Phase 2 (once the backend endpoint is ready). Only the local-first path is active today.
 
-### 已知限制 — 平台内置模板
-平台内置模板（`base` / `code-interpreter` 等）**不带本地 `template.yaml`**，因此
-`resolve_capabilities()` 回落到 `DEFAULT_CAPABILITIES = {shell, files, code}`。它们的
-`terminal` / `ports` 能力在 Phase 2 线上 metadata 兜底就绪前**不可用**；需要 `ports` /
-`terminal` 的场景应改用**显式声明这些能力**的模板。
+### Known limitation — platform built-in templates
+Platform built-in templates (`base` / `code-interpreter`, etc.) **do not ship a
+local `template.yaml`**, so `resolve_capabilities()` falls back to
+`DEFAULT_CAPABILITIES = {shell, files, code}`. Their `terminal` / `ports`
+capabilities are **unavailable** until the Phase 2 online metadata fallback is
+ready; scenarios that need `ports` / `terminal` should use a template that
+**explicitly declares those capabilities**.
+
+## Acceptance criteria
+- A locally cached `template.yaml` resolves its declared capabilities and custom_commands
+- Missing local cache with the backend unavailable falls back to `DEFAULT_CAPABILITIES`, empty custom_commands, and a warning
+- Template discovery works via directory walk with no `index.json` present
 
 ## Consequences
 - Works offline and before the backend metadata endpoint lands.

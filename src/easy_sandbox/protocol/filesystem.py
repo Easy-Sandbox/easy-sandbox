@@ -12,18 +12,19 @@ HTTP file API（非 Connect RPC，已实测验证）:
 - POST /files?path={path}&username=user (multipart) — Upload file → 201
 - GET /files?path={path}&username=user — Download file → 200
 """
+
 from __future__ import annotations
 
-import base64
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from easy_sandbox.models.filesystem import FileInfo, FileType, WatchEvent, WatchEventType
-from easy_sandbox.models.errors import FileOperationError, FileNotFoundError_
-from easy_sandbox.transport.auth import EnvdTokenManager
 from easy_sandbox.transport.codec import ConnectCodec
-from easy_sandbox.transport.http import HttpClient
 from easy_sandbox.transport.streaming import StreamReader
 from easy_sandbox.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from easy_sandbox.transport.auth import EnvdTokenManager
+    from easy_sandbox.transport.http import HttpClient
 
 logger = get_logger("protocol.filesystem")
 
@@ -38,11 +39,40 @@ _MOVE = _codec.build_rpc_path("filesystem", "Filesystem", "Move")
 _WATCH_DIR = _codec.build_rpc_path("filesystem", "Filesystem", "WatchDir")
 
 
+def _name_from_path(path: str) -> str:
+    """Extract the last valid path segment from *path*.
+
+    Handles Unix paths, Windows-style back-slashes, trailing separators,
+    and root-only paths.  Returns ``""`` when no meaningful segment exists
+    (e.g. ``"/"`` or ``""`` or ``"C:\\``).
+    """
+    if not path:
+        return ""
+    stripped = path.rstrip("/\\")
+    if not stripped:
+        # Root-only path (e.g. "/", "//", "\\")
+        return ""
+    last_sep = max(stripped.rfind("/"), stripped.rfind("\\"))
+    return stripped[last_sep + 1 :] if last_sep >= 0 else stripped
+
+
 def _parse_file_info(data: dict[str, Any]) -> FileInfo:
-    """Parse a file info dict from the API response."""
-    file_type = FileType.DIRECTORY if data.get("isDir", data.get("type") == "directory") else FileType.FILE
+    """Parse a file info dict from the API response.
+
+    * **name**: prefers an explicit non-empty ``name`` from the server;
+      falls back to the last path segment of ``path``.
+    * **type**: classified as DIRECTORY when *either* ``isDir`` is truthy
+      *or* ``type == "directory"``.
+    """
+    is_dir = bool(data.get("isDir")) or data.get("type") == "directory"
+    file_type = FileType.DIRECTORY if is_dir else FileType.FILE
+
+    name = data.get("name") or ""
+    if not name:
+        name = _name_from_path(data.get("path", ""))
+
     return FileInfo(
-        name=data.get("name", ""),
+        name=name,
         path=data.get("path", ""),
         type=file_type,
         size=data.get("size", 0),
@@ -96,7 +126,8 @@ class FilesystemProtocol:
         POST envd_url + /filesystem.Filesystem/Stat（已实测验证）
         """
         response = await self._http.envd_request(
-            envd_url, _STAT,
+            envd_url,
+            _STAT,
             payload={"path": path},
             envd_token=envd_token,
         )
@@ -115,7 +146,8 @@ class FilesystemProtocol:
         POST envd_url + /filesystem.Filesystem/ListDir（已实测验证）
         """
         response = await self._http.envd_request(
-            envd_url, _LIST_DIR,
+            envd_url,
+            _LIST_DIR,
             payload={"path": path},
             envd_token=envd_token,
         )
@@ -135,7 +167,8 @@ class FilesystemProtocol:
         POST envd_url + /filesystem.Filesystem/MakeDir（已实测验证）
         """
         await self._http.envd_request(
-            envd_url, _MAKE_DIR,
+            envd_url,
+            _MAKE_DIR,
             payload={"path": path},
             envd_token=envd_token,
         )
@@ -152,7 +185,8 @@ class FilesystemProtocol:
         POST envd_url + /filesystem.Filesystem/Remove（已实测验证）
         """
         await self._http.envd_request(
-            envd_url, _REMOVE,
+            envd_url,
+            _REMOVE,
             payload={"path": path},
             envd_token=envd_token,
         )
@@ -170,7 +204,8 @@ class FilesystemProtocol:
         POST envd_url + /filesystem.Filesystem/Move（已实测验证）
         """
         await self._http.envd_request(
-            envd_url, _MOVE,
+            envd_url,
+            _MOVE,
             payload={"source": source, "destination": destination},
             envd_token=envd_token,
         )
@@ -187,7 +222,8 @@ class FilesystemProtocol:
         POST envd_url + /filesystem.Filesystem/WatchDir (Connect streaming, 已实测验证)
         """
         raw_stream = self._http.envd_stream(
-            envd_url, _WATCH_DIR,
+            envd_url,
+            _WATCH_DIR,
             payload={"path": path},
             envd_token=envd_token,
         )
@@ -295,10 +331,7 @@ class FilesystemProtocol:
         content: str | bytes,
     ) -> None:
         """Write content to a file via HTTP upload API."""
-        if isinstance(content, str):
-            raw_bytes = content.encode("utf-8")
-        else:
-            raw_bytes = content
+        raw_bytes = content.encode("utf-8") if isinstance(content, str) else content
         await self.upload_file(envd_url, envd_token, path=path, content=raw_bytes)
 
     async def rename(

@@ -11,23 +11,32 @@ RPC endpoints（已实测验证）:
 - /process.Process/SendInput — Send stdin to a process
 - /process.Process/SendSignal — Send signal to a process
 """
+
 from __future__ import annotations
 
 import base64
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from easy_sandbox.models.process import (
     ProcessChunk,
     ProcessChunkType,
     ProcessInfo,
 )
-from easy_sandbox.transport.auth import EnvdTokenManager
 from easy_sandbox.transport.codec import ConnectCodec
-from easy_sandbox.transport.http import HttpClient
 from easy_sandbox.transport.streaming import StreamReader
 from easy_sandbox.utils.logging import get_logger
 
+if TYPE_CHECKING:
+    from easy_sandbox.transport.auth import EnvdTokenManager
+    from easy_sandbox.transport.http import HttpClient
+
 logger = get_logger("protocol.process")
+
+# Extra seconds added to the process-level timeout to derive the HTTP read
+# timeout.  This avoids the HTTP layer timing out *before* the server-side
+# process timeout fires, which would produce a misleading ReadTimeout
+# instead of a clean process-timeout error.
+_HTTP_TIMEOUT_BUFFER: float = 5.0
 
 _codec = ConnectCodec()
 
@@ -144,10 +153,17 @@ class ProcessProtocol:
 
         payload: dict[str, Any] = {"process": process_obj}
 
+        # Derive the HTTP read timeout from the process-level timeout so
+        # that long-running commands (e.g. ``pip install``) are not killed
+        # prematurely by the HTTP layer's default 30 s timeout.
+        http_timeout = float(timeout) + _HTTP_TIMEOUT_BUFFER
+
         raw_stream = self._http.envd_stream(
-            envd_url, _START,
+            envd_url,
+            _START,
             payload=payload,
             envd_token=envd_token,
+            request_timeout=http_timeout,
         )
 
         return StreamReader(raw_stream, _parse_process_chunk)
@@ -162,7 +178,8 @@ class ProcessProtocol:
         POST envd_url + /process.Process/List (Connect unary, 已实测验证)
         """
         response = await self._http.envd_request(
-            envd_url, _LIST,
+            envd_url,
+            _LIST,
             payload={},
             envd_token=envd_token,
         )
@@ -182,7 +199,8 @@ class ProcessProtocol:
         POST envd_url + /process.Process/Connect (Connect streaming, 已实测验证)
         """
         raw_stream = self._http.envd_stream(
-            envd_url, _CONNECT,
+            envd_url,
+            _CONNECT,
             payload={"pid": pid},
             envd_token=envd_token,
         )
@@ -202,7 +220,8 @@ class ProcessProtocol:
         """
         payload: dict[str, Any] = {"pid": pid, **kwargs}
         return await self._http.envd_request(
-            envd_url, _UPDATE,
+            envd_url,
+            _UPDATE,
             payload=payload,
             envd_token=envd_token,
         )
@@ -220,7 +239,8 @@ class ProcessProtocol:
         POST envd_url + /process.Process/SendInput (Connect unary, 已实测验证)
         """
         await self._http.envd_request(
-            envd_url, _SEND_INPUT,
+            envd_url,
+            _SEND_INPUT,
             payload={"pid": pid, "data": data},
             envd_token=envd_token,
         )
@@ -238,7 +258,8 @@ class ProcessProtocol:
         POST envd_url + /process.Process/SendSignal (Connect unary, 已实测验证)
         """
         await self._http.envd_request(
-            envd_url, _SEND_SIGNAL,
+            envd_url,
+            _SEND_SIGNAL,
             payload={"pid": pid, "signal": signal},
             envd_token=envd_token,
         )

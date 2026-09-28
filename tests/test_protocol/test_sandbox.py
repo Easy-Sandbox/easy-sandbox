@@ -1,15 +1,16 @@
 """Tests for protocol.sandbox module — Platform API sandbox lifecycle."""
+
 from __future__ import annotations
 
 import json
+from unittest.mock import AsyncMock, MagicMock
 
-import httpx
 import pytest
 
 from easy_sandbox.models.errors import (
+    QuotaExceededError,
     SandboxCreationError,
     TemplateNotFoundError,
-    QuotaExceededError,
 )
 from easy_sandbox.models.sandbox import SandboxConfig, SandboxInfo, SandboxStatus
 from easy_sandbox.protocol.sandbox import SandboxProtocol
@@ -137,6 +138,45 @@ class TestCreate:
         with pytest.raises(SandboxCreationError):
             await protocol.create(config)
 
+    async def test_create_forwards_request_timeout(self):
+        """create(request_timeout=120) forwards it to platform_request."""
+        mock_http = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.json.return_value = _SANDBOX_RESPONSE
+        mock_http.platform_request.return_value = mock_response
+        proto = SandboxProtocol(mock_http)
+
+        await proto.create(SandboxConfig(template="python3"), request_timeout=120.0)
+
+        assert mock_http.platform_request.call_args.kwargs["request_timeout"] == 120.0
+
+    async def test_create_default_request_timeout_none(self):
+        """create() without an override forwards request_timeout=None."""
+        mock_http = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.json.return_value = _SANDBOX_RESPONSE
+        mock_http.platform_request.return_value = mock_response
+        proto = SandboxProtocol(mock_http)
+
+        await proto.create(SandboxConfig(template="python3"))
+
+        assert mock_http.platform_request.call_args.kwargs["request_timeout"] is None
+
+    async def test_list_and_kill_do_not_send_request_timeout(self):
+        """Non-create platform calls must not carry a request_timeout override."""
+        mock_http = AsyncMock()
+        mock_response = MagicMock()
+        mock_response.json.return_value = []
+        mock_http.platform_request.return_value = mock_response
+        proto = SandboxProtocol(mock_http)
+
+        await proto.list()
+        assert "request_timeout" not in mock_http.platform_request.call_args.kwargs
+
+        mock_http.platform_request.reset_mock()
+        await proto.kill("sbx-abc123")
+        assert "request_timeout" not in mock_http.platform_request.call_args.kwargs
+
 
 class TestList:
     """Test SandboxProtocol.list()."""
@@ -237,6 +277,7 @@ class TestSetTimeout:
 
 class TestKeepAlive:
     """TestKeepAlive — removed: keep_alive has been removed from SandboxProtocol."""
+
     pass
 
 

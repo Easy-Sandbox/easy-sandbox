@@ -1,4 +1,5 @@
 """Tests for capability model, gating, custom commands, and resolver."""
+
 from __future__ import annotations
 
 import textwrap
@@ -11,7 +12,6 @@ from pydantic import ValidationError
 import easy_sandbox.api.capability as capability_mod
 from easy_sandbox.api.capability import (
     ResolvedCapabilities,
-    check_capability,
     resolve_capabilities,
 )
 from easy_sandbox.api.code import CodeContextModule
@@ -21,6 +21,7 @@ from easy_sandbox.api.network import NetworkModule
 from easy_sandbox.api.sandbox import Sandbox
 from easy_sandbox.models.errors import (
     CapabilityNotSupportedError,
+    CommandNotFoundError,
     TemplateParseError,
 )
 from easy_sandbox.models.process import (
@@ -51,6 +52,7 @@ if TYPE_CHECKING:
 # =====================================================================
 # 1. Template / Capability Model tests
 # =====================================================================
+
 
 class TestStandardCapabilities:
     """Verify the vocabulary and default baseline constants."""
@@ -103,6 +105,7 @@ class TestSandboxTemplateCapabilities:
 # 2. CapabilityNotSupportedError
 # =====================================================================
 
+
 class TestCapabilityNotSupportedError:
     def test_error_code_and_message(self) -> None:
         err = CapabilityNotSupportedError("terminal")
@@ -122,64 +125,21 @@ class TestCapabilityNotSupportedError:
 
 
 # =====================================================================
-# 3. Capability gating
+# 3. Allowed-path smoke tests (gating removed; verify modules work)
 # =====================================================================
 
-class TestCheckCapability:
-    """Test the check_capability helper."""
 
-    def test_passes_when_present(self) -> None:
-        check_capability({"shell", "files"}, "shell")  # no error
-
-    def test_raises_when_missing(self) -> None:
-        with pytest.raises(CapabilityNotSupportedError) as exc_info:
-            check_capability({"shell"}, "terminal")
-        assert exc_info.value.capability == "terminal"
-
-
-class TestCommandsGating:
-    """Verify commands.run/stream/start require 'shell'."""
-
-    @pytest.mark.asyncio
-    async def test_run_blocked_without_shell(self) -> None:
-        mod = CommandsModule(
-            envd_url=TEST_ENVD_URL,
-            envd_token=EnvdTokenManager(TEST_ENVD_TOKEN),
-            process_protocol=AsyncMock(),
-            capabilities={"files", "code"},
-        )
-        with pytest.raises(CapabilityNotSupportedError, match="shell"):
-            await mod.run("echo hi")
-
-    @pytest.mark.asyncio
-    async def test_stream_blocked_without_shell(self) -> None:
-        mod = CommandsModule(
-            envd_url=TEST_ENVD_URL,
-            envd_token=EnvdTokenManager(TEST_ENVD_TOKEN),
-            process_protocol=AsyncMock(),
-            capabilities={"files"},
-        )
-        with pytest.raises(CapabilityNotSupportedError, match="shell"):
-            async for _ in mod.stream("ls"):
-                pass
-
-    @pytest.mark.asyncio
-    async def test_start_blocked_without_shell(self) -> None:
-        mod = CommandsModule(
-            envd_url=TEST_ENVD_URL,
-            envd_token=EnvdTokenManager(TEST_ENVD_TOKEN),
-            process_protocol=AsyncMock(),
-            capabilities={"files"},
-        )
-        with pytest.raises(CapabilityNotSupportedError, match="shell"):
-            await mod.start("ls")
+class TestCommandsAllowedPath:
+    """Verify commands.run works (no gating)."""
 
     @pytest.mark.asyncio
     async def test_run_allowed_with_shell(self) -> None:
         proto = AsyncMock()
-        proto.start.return_value = _MockStreamReader([
-            ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
-        ])
+        proto.start.return_value = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
         mod = CommandsModule(
             envd_url=TEST_ENVD_URL,
             envd_token=EnvdTokenManager(TEST_ENVD_TOKEN),
@@ -190,135 +150,8 @@ class TestCommandsGating:
         assert isinstance(result, ProcessResult)
 
 
-class TestFilesGating:
-    """Verify files.read/write/... require 'files'."""
-
-    @pytest.mark.asyncio
-    async def test_read_blocked_without_files(self) -> None:
-        mod = FilesModule(
-            envd_url=TEST_ENVD_URL,
-            envd_token=EnvdTokenManager(TEST_ENVD_TOKEN),
-            filesystem_protocol=AsyncMock(),
-            capabilities={"shell"},
-        )
-        with pytest.raises(CapabilityNotSupportedError, match="files"):
-            await mod.read("/app/x.py")
-
-    @pytest.mark.asyncio
-    async def test_write_blocked_without_files(self) -> None:
-        mod = FilesModule(
-            envd_url=TEST_ENVD_URL,
-            envd_token=EnvdTokenManager(TEST_ENVD_TOKEN),
-            filesystem_protocol=AsyncMock(),
-            capabilities={"shell"},
-        )
-        with pytest.raises(CapabilityNotSupportedError, match="files"):
-            await mod.write("/app/x.py", "content")
-
-    @pytest.mark.asyncio
-    async def test_upload_url_blocked_without_files(self) -> None:
-        mod = FilesModule(
-            envd_url=TEST_ENVD_URL,
-            envd_token=EnvdTokenManager(TEST_ENVD_TOKEN),
-            filesystem_protocol=AsyncMock(),
-            capabilities={"shell"},
-        )
-        with pytest.raises(CapabilityNotSupportedError, match="files"):
-            await mod.upload_url("/app/x.py")
-
-    @pytest.mark.asyncio
-    async def test_download_url_blocked_without_files(self) -> None:
-        mod = FilesModule(
-            envd_url=TEST_ENVD_URL,
-            envd_token=EnvdTokenManager(TEST_ENVD_TOKEN),
-            filesystem_protocol=AsyncMock(),
-            capabilities={"shell"},
-        )
-        with pytest.raises(CapabilityNotSupportedError, match="files"):
-            await mod.download_url("/app/x.py")
-
-
-class TestCodeGating:
-    """Verify code.run requires 'code'."""
-
-    @pytest.mark.asyncio
-    async def test_run_blocked_without_code(self) -> None:
-        mod = CodeContextModule(
-            sandbox_id="sbx-1",
-            envd_url=TEST_ENVD_URL,
-            envd_token=EnvdTokenManager(TEST_ENVD_TOKEN),
-            code_interpreter_protocol=AsyncMock(),
-            capabilities={"shell", "files"},
-        )
-        with pytest.raises(CapabilityNotSupportedError, match="code"):
-            await mod.run("print(1)")
-
-    @pytest.mark.asyncio
-    async def test_create_context_blocked_without_code(self) -> None:
-        mod = CodeContextModule(
-            sandbox_id="sbx-1",
-            envd_url=TEST_ENVD_URL,
-            envd_token=EnvdTokenManager(TEST_ENVD_TOKEN),
-            code_interpreter_protocol=AsyncMock(),
-            capabilities={"shell", "files"},
-        )
-        with pytest.raises(CapabilityNotSupportedError, match="code"):
-            await mod.create_context()
-
-    @pytest.mark.asyncio
-    async def test_restart_context_blocked_without_code(self) -> None:
-        mod = CodeContextModule(
-            sandbox_id="sbx-1",
-            envd_url=TEST_ENVD_URL,
-            envd_token=EnvdTokenManager(TEST_ENVD_TOKEN),
-            code_interpreter_protocol=AsyncMock(),
-            capabilities={"shell", "files"},
-        )
-        with pytest.raises(CapabilityNotSupportedError, match="code"):
-            await mod.restart_context("ctx-001")
-
-    @pytest.mark.asyncio
-    async def test_remove_context_blocked_without_code(self) -> None:
-        mod = CodeContextModule(
-            sandbox_id="sbx-1",
-            envd_url=TEST_ENVD_URL,
-            envd_token=EnvdTokenManager(TEST_ENVD_TOKEN),
-            code_interpreter_protocol=AsyncMock(),
-            capabilities={"shell", "files"},
-        )
-        with pytest.raises(CapabilityNotSupportedError, match="code"):
-            await mod.remove_context("ctx-001")
-
-
-class TestNetworkGating:
-    """Verify network.get_host/get_url/get_access_headers require 'ports'."""
-
-    def test_get_host_blocked_without_ports(self) -> None:
-        mod = NetworkModule(
-            sandbox_id="sbx-1",
-            domain="example.com",
-            capabilities={"shell"},
-        )
-        with pytest.raises(CapabilityNotSupportedError, match="ports"):
-            mod.get_host(8080)
-
-    def test_get_url_blocked_without_ports(self) -> None:
-        mod = NetworkModule(
-            sandbox_id="sbx-1",
-            domain="example.com",
-            capabilities={"shell"},
-        )
-        with pytest.raises(CapabilityNotSupportedError, match="ports"):
-            mod.get_url(3000)
-
-    def test_get_access_headers_blocked_without_ports(self) -> None:
-        mod = NetworkModule(
-            sandbox_id="sbx-1",
-            domain="example.com",
-            capabilities={"shell"},
-        )
-        with pytest.raises(CapabilityNotSupportedError, match="ports"):
-            mod.get_access_headers()
+class TestNetworkAllowedPath:
+    """Verify network.get_host works (no gating)."""
 
     def test_allowed_with_ports(self) -> None:
         mod = NetworkModule(
@@ -330,44 +163,10 @@ class TestNetworkGating:
         assert "8080" in host
 
 
-class TestSandboxGating:
-    """Verify Sandbox.run_code / get_terminal check capabilities."""
-
-    @pytest.mark.asyncio
-    async def test_run_code_blocked_without_code(self) -> None:
-        info = make_sandbox_info()
-        resolved = ResolvedCapabilities(capabilities={"shell", "files"})
-        sb = Sandbox(
-            info=info,
-            config=MagicMock(),
-            http_client=AsyncMock(),
-            auth=AsyncMock(),
-            envd_token=EnvdTokenManager(TEST_ENVD_TOKEN),
-            code_interpreter_protocol=AsyncMock(),
-            resolved_capabilities=resolved,
-        )
-        with pytest.raises(CapabilityNotSupportedError, match="code"):
-            await sb.run_code("print(1)")
-
-    @pytest.mark.asyncio
-    async def test_get_terminal_blocked_without_terminal(self) -> None:
-        info = make_sandbox_info()
-        resolved = ResolvedCapabilities(capabilities={"shell", "files", "code"})
-        sb = Sandbox(
-            info=info,
-            config=MagicMock(),
-            http_client=AsyncMock(),
-            auth=AsyncMock(),
-            envd_token=EnvdTokenManager(TEST_ENVD_TOKEN),
-            resolved_capabilities=resolved,
-        )
-        with pytest.raises(CapabilityNotSupportedError, match="terminal"):
-            await sb.get_terminal()
-
-
 # =====================================================================
 # 4. Sandbox.capabilities / list_commands / run
 # =====================================================================
+
 
 class TestSandboxCapabilitiesProperty:
     """Test Sandbox.capabilities property."""
@@ -402,7 +201,8 @@ class TestSandboxCapabilitiesProperty:
 class TestSandboxListCommands:
     """Test Sandbox.list_commands()."""
 
-    def test_returns_command_catalogue(self) -> None:
+    @pytest.mark.asyncio
+    async def test_returns_command_catalogue(self) -> None:
         info = make_sandbox_info()
         resolved = ResolvedCapabilities(
             capabilities=ALL_CAPABILITIES,
@@ -430,14 +230,20 @@ class TestSandboxListCommands:
             envd_token=EnvdTokenManager(TEST_ENVD_TOKEN),
             resolved_capabilities=resolved,
         )
-        cmds = sb.list_commands()
+        # No SandboxServer reachable in this unit test — only template (A)
+        # commands should be returned.
+        sb._fetch_server_commands = AsyncMock(return_value=[])  # type: ignore[method-assign]
+        cmds = await sb.list_commands()
         assert len(cmds) == 2
         by_name = {c["name"]: c for c in cmds}
         assert set(by_name) == {"build", "test"}
 
-        # Contract: each entry carries name/description/args including type.
+        # Contract: each entry carries name/description/args including type,
+        # plus the new source/shadowed keys.
         build = by_name["build"]
         assert build["description"] == "Build it"
+        assert build["source"] == "template"
+        assert build["shadowed"] is False
         assert isinstance(build["args"], list)
         assert len(build["args"]) == 1
         arg = build["args"][0]
@@ -452,13 +258,17 @@ class TestSandboxListCommands:
         # A command with no declared args yields an empty args list.
         assert by_name["test"]["args"] == []
 
-    def test_requires_shell_capability(self) -> None:
-        """list_commands() raises when shell capability is missing."""
-        from easy_sandbox.models.errors import CapabilityNotSupportedError
-
+    @pytest.mark.asyncio
+    async def test_merges_server_commands_and_marks_shadowed(self) -> None:
+        """Server (B) commands are merged in; a name that also exists as a
+        template (A) command is flagged ``shadowed=True`` rather than hidden."""
         info = make_sandbox_info()
-        # No shell capability
-        resolved = ResolvedCapabilities(capabilities={"files", "code"})
+        resolved = ResolvedCapabilities(
+            capabilities=ALL_CAPABILITIES,
+            custom_commands={
+                "build": CustomCommand(cmd="npm run build", description="Build it"),
+            },
+        )
         sb = Sandbox(
             info=info,
             config=MagicMock(),
@@ -467,10 +277,24 @@ class TestSandboxListCommands:
             envd_token=EnvdTokenManager(TEST_ENVD_TOKEN),
             resolved_capabilities=resolved,
         )
-        with pytest.raises(CapabilityNotSupportedError):
-            sb.list_commands()
+        sb._fetch_server_commands = AsyncMock(  # type: ignore[method-assign]
+            return_value=[
+                {"name": "deploy", "description": "Deploy", "args": []},
+                {"name": "build", "description": "server build", "args": []},
+            ]
+        )
+        cmds = await sb.list_commands()
+        by_source = {(c["name"], c["source"]): c for c in cmds}
 
-    def test_requires_auth(self) -> None:
+        # Template build present and never shadowed.
+        assert by_source[("build", "template")]["shadowed"] is False
+        # Server deploy is unique → not shadowed.
+        assert by_source[("deploy", "server")]["shadowed"] is False
+        # Server build overlaps a template command → surfaced as shadowed.
+        assert by_source[("build", "server")]["shadowed"] is True
+
+    @pytest.mark.asyncio
+    async def test_requires_auth(self) -> None:
         """list_commands() raises when envd token is not set."""
         from easy_sandbox.models.errors import TokenExpiredError
 
@@ -485,14 +309,14 @@ class TestSandboxListCommands:
             resolved_capabilities=resolved,
         )
         with pytest.raises(TokenExpiredError):
-            sb.list_commands()
+            await sb.list_commands()
 
 
 class TestSandboxRunCustomCommand:
-    """Test Sandbox.run() custom command dispatch."""
+    """Test Sandbox.custom() named-command dispatch (template mechanism A)."""
 
     @pytest.mark.asyncio
-    async def test_run_unknown_command(self) -> None:
+    async def test_custom_unknown_command(self) -> None:
         info = make_sandbox_info()
         resolved = ResolvedCapabilities(capabilities=ALL_CAPABILITIES)
         sb = Sandbox(
@@ -504,8 +328,11 @@ class TestSandboxRunCustomCommand:
             process_protocol=AsyncMock(),
             resolved_capabilities=resolved,
         )
-        with pytest.raises(ValueError, match="Unknown custom command"):
-            await sb.run("nonexistent")
+        # Not a template command and the SandboxServer is unreachable
+        # (probe already marked failed) → CommandNotFoundError.
+        sb._server_probe_failed = True
+        with pytest.raises(CommandNotFoundError):
+            await sb.custom("nonexistent")
 
     @pytest.mark.asyncio
     async def test_run_missing_required_arg(self) -> None:
@@ -529,16 +356,18 @@ class TestSandboxRunCustomCommand:
             resolved_capabilities=resolved,
         )
         with pytest.raises(ValueError, match="Required argument"):
-            await sb.run("deploy")
+            await sb.custom("deploy")
 
     @pytest.mark.asyncio
     async def test_run_fills_placeholders_with_shlex_quote(self) -> None:
         info = make_sandbox_info()
         mock_proto = AsyncMock()
-        mock_proto.start.return_value = _MockStreamReader([
-            ProcessChunk(type=ProcessChunkType.STDOUT, data="ok\n"),
-            ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
-        ])
+        mock_proto.start.return_value = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.STDOUT, data="ok\n"),
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
         resolved = ResolvedCapabilities(
             capabilities=ALL_CAPABILITIES,
             custom_commands={
@@ -557,7 +386,7 @@ class TestSandboxRunCustomCommand:
             process_protocol=mock_proto,
             resolved_capabilities=resolved,
         )
-        await sb.run("greet", msg="hello world; rm -rf /")
+        await sb.custom("greet", msg="hello world; rm -rf /")
         # The argument should be shlex-quoted in the cmd string to
         # prevent injection.  After _parse_cmd (shlex.split), the
         # dangerous payload is a single atomic arg, not a separate command.
@@ -571,9 +400,11 @@ class TestSandboxRunCustomCommand:
     async def test_run_uses_default_arg(self) -> None:
         info = make_sandbox_info()
         mock_proto = AsyncMock()
-        mock_proto.start.return_value = _MockStreamReader([
-            ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
-        ])
+        mock_proto.start.return_value = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
         resolved = ResolvedCapabilities(
             capabilities=ALL_CAPABILITIES,
             custom_commands={
@@ -592,7 +423,7 @@ class TestSandboxRunCustomCommand:
             process_protocol=mock_proto,
             resolved_capabilities=resolved,
         )
-        await sb.run("run")
+        await sb.custom("run")
         # Should have used default "main.py" → shlex-quoted
         call_kwargs = mock_proto.start.call_args[1]
         reconstructed = f"{call_kwargs['cmd']} {' '.join(call_kwargs['args'])}"
@@ -607,9 +438,11 @@ class TestSandboxRunCustomCommand:
         template only)."""
         info = make_sandbox_info()
         mock_proto = AsyncMock()
-        mock_proto.start.return_value = _MockStreamReader([
-            ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
-        ])
+        mock_proto.start.return_value = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
         resolved = ResolvedCapabilities(
             capabilities=ALL_CAPABILITIES,
             custom_commands={
@@ -629,7 +462,7 @@ class TestSandboxRunCustomCommand:
             resolved_capabilities=resolved,
         )
         # Should NOT raise ValueError about unfilled placeholders.
-        await sb.run("render", tpl="{id}")
+        await sb.custom("render", tpl="{id}")
         call_args = mock_proto.start.call_args[1]["args"]
         assert call_args == ["{id}"]
 
@@ -639,9 +472,11 @@ class TestSandboxRunCustomCommand:
         placeholder must NOT be re-expanded into extra argv tokens."""
         info = make_sandbox_info()
         mock_proto = AsyncMock()
-        mock_proto.start.return_value = _MockStreamReader([
-            ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
-        ])
+        mock_proto.start.return_value = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
         resolved = ResolvedCapabilities(
             capabilities=ALL_CAPABILITIES,
             custom_commands={
@@ -663,7 +498,7 @@ class TestSandboxRunCustomCommand:
             process_protocol=mock_proto,
             resolved_capabilities=resolved,
         )
-        await sb.run("x", a="{b}", b="; rm -rf /")
+        await sb.custom("x", a="{b}", b="; rm -rf /")
         # After shlex.split, a's value stays a SINGLE token "{b}" — it was
         # not re-scanned/re-expanded into b's payload, and b's payload stays
         # one atomic token (no injected extra argv).
@@ -694,12 +529,13 @@ class TestSandboxRunCustomCommand:
             resolved_capabilities=resolved,
         )
         with pytest.raises(ValueError, match="Unexpected argument"):
-            await sb.run("greet", msg="hi", bogus="x")
+            await sb.custom("greet", msg="hi", bogus="x")
 
 
 # =====================================================================
 # 5. Resolver tests
 # =====================================================================
+
 
 class TestResolveCapabilities:
     """Test resolve_capabilities from local YAML."""
@@ -737,7 +573,8 @@ class TestResolveCapabilities:
 
     @pytest.mark.asyncio
     async def test_resolve_none_capabilities_uses_defaults(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """A template with no capabilities field uses DEFAULT_CAPABILITIES."""
         yaml_content = textwrap.dedent("""\
@@ -754,7 +591,8 @@ class TestResolveCapabilities:
 
     @pytest.mark.asyncio
     async def test_malformed_local_yaml_fails_closed(
-        self, tmp_path: Path,
+        self,
+        tmp_path: Path,
     ) -> None:
         """A matched template whose capabilities fail validation must NOT
         silently fall back to DEFAULT_CAPABILITIES (permission widening)."""
@@ -775,7 +613,9 @@ class TestResolveCapabilities:
 
     @pytest.mark.asyncio
     async def test_malformed_scanned_template_fails_closed(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """Scanning ~/.ebx/templates: a matched-but-malformed template
         raises instead of falling back to defaults."""
@@ -795,7 +635,9 @@ class TestResolveCapabilities:
 
     @pytest.mark.asyncio
     async def test_unreadable_scanned_template_skipped(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A non-dict / unreadable document cannot match, so it is skipped
         and resolution falls back to defaults (no fail-closed)."""
@@ -809,7 +651,9 @@ class TestResolveCapabilities:
 
     @pytest.mark.asyncio
     async def test_match_by_alias_field(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A template referenced by its ``alias`` field must be matched
         (previously only ``name`` was compared → wrongful DEFAULT fallback)."""
@@ -831,7 +675,9 @@ class TestResolveCapabilities:
 
     @pytest.mark.asyncio
     async def test_match_by_aliases_list(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         cache = tmp_path / "templates"
         (cache / "dir").mkdir(parents=True)
@@ -852,7 +698,9 @@ class TestResolveCapabilities:
 
     @pytest.mark.asyncio
     async def test_match_by_directory_name(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+        self,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """A template referenced by its containing directory name matches."""
         cache = tmp_path / "templates"
@@ -874,6 +722,7 @@ class TestResolveCapabilities:
 # =====================================================================
 # 6. Default capabilities in default-constructed modules
 # =====================================================================
+
 
 class TestDefaultCapabilities:
     """Modules get DEFAULT_CAPABILITIES when none are passed."""

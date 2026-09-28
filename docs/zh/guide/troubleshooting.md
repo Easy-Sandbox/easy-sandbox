@@ -45,11 +45,11 @@
 
 **解决**：
 ```bash
-# 检查认证状态
-ebx auth status
+# 检查配置状态
+ebx config get api_key
 
-# 重新登录
-ebx auth login
+# 重新设置 API Key
+ebx config set api_key your-api-key
 
 # 或设置环境变量
 export E2B_API_KEY="your-api-key"

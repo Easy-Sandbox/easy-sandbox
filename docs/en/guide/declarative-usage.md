@@ -52,9 +52,9 @@ def my_func():
 |-----------|------|---------|-------------|
 | `template` | `str` | `"code-interpreter-v1"` | Sandbox template name |
 | `timeout` | `int` | `300` | Sandbox timeout in seconds |
-| `envs` | `dict` | `None` | Injected environment variables |
+| `envs` | `dict` | `None` | Injected environment variables (envd scope; see [Environment Variables Guide](environment-variables.md)) |
 | `packages` | `list[str]` | `None` | pip packages to pre-install remotely |
-| `serializer` | `str` | `"json"` | Serialization mode (`json`/`pickle`/`msgpack`) |
+| `serializer` | `str` | `"json"` | Serialization mode (only `json` is supported) |
 | `sandbox_id` | `str` | `None` | Reuse an existing sandbox ID |
 | `keep_alive` | `bool` | `False` | Do not destroy the sandbox after execution |
 | `api_key` | `str` | `None` | API Key override |
@@ -68,19 +68,13 @@ def my_func():
 
 ## Serialization Rules
 
-The `serializer` parameter controls how function arguments and return values are serialized:
+The `serializer` parameter controls how function arguments and return values are serialized. Currently only JSON mode is supported.
 
 | Mode | Extra Dependencies | Supported Types | Description |
 |------|-------------------|-----------------|-------------|
 | `json` (default) | None | JSON-serializable types | Safest, cross-language compatible |
-| `pickle` | `cloudpickle` | Any Python object | Supports complex objects, but has security risks |
-| `msgpack` | `msgpack` | msgpack-compatible types | Binary format, more compact |
 
 **JSON mode**: Arguments are serialized via `json.dumps`, and results are deserialized via `json.loads`. Unsupported types fall back to `default=str`.
-
-**Pickle mode**: Uses `cloudpickle` for serialization and base64-encoded transport. Supports lambdas, closures, and other complex objects. Requires `cloudpickle` to be installed in the remote sandbox (via the `packages` parameter).
-
-**Msgpack mode**: Uses `msgpack` for serialization and base64-encoded transport. Requires `msgpack` to be installed in the remote sandbox.
 
 ---
 
@@ -188,11 +182,11 @@ sandbox.server.start(port=9000, host="0.0.0.0")
 
 ## Limitations
 
-1. **Parameter serialization**: Function arguments and return values must be processable by the selected serializer
+1. **Parameter serialization**: Function arguments and return values must be JSON-serializable (non-serializable types fall back to `str`)
 2. **Function source code**: The decorator obtains function source via `inspect.getsource()` — lambdas and dynamically generated functions are not supported
 3. **Imports**: Libraries needed in the remote sandbox must be pre-installed via the `packages` parameter or already included in the template
 4. **Registered command parameter types**: `@sandbox.register` only supports scalar types (`str`/`int`/`float`/`bool`) — complex types are not supported
-5. **Closure variables**: External variables referenced in the function are not automatically serialized (unless using the `pickle` serializer and the variables are serializable)
+5. **Closure variables**: External variables referenced in the function are not automatically serialized — use explicit parameter passing instead
 6. **Execution environment isolation**: The decorated function runs in an independent remote Python process and does not share state with the local process
 
 ---

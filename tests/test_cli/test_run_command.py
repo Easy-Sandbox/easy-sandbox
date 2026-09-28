@@ -1,4 +1,5 @@
 """Tests for `ebx run` CLI command."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -7,7 +8,7 @@ import pytest
 from click.testing import CliRunner
 
 from easy_sandbox.cli.main import cli
-from easy_sandbox.models.process import ProcessResult
+from easy_sandbox.models.process import CommandResult
 
 
 @pytest.fixture
@@ -34,14 +35,16 @@ class TestRunCommand:
 
     def test_run_dispatches_custom_command(self, runner: CliRunner) -> None:
         """Basic happy-path: ebx run sbx-1 build."""
-        mock_result = ProcessResult(
+        mock_result = CommandResult(
+            value="built!",
             stdout="built!\n",
             stderr="",
             exit_code=0,
             execution_time=1.2,
+            source="template",
         )
         mock_sandbox = MagicMock()
-        mock_sandbox.run = AsyncMock(return_value=mock_result)
+        mock_sandbox.custom = AsyncMock(return_value=mock_result)
 
         with _make_run_patches(mock_sandbox):
             result = runner.invoke(cli, ["run", "sbx-1", "build"])
@@ -51,14 +54,16 @@ class TestRunCommand:
 
     def test_run_with_args(self, runner: CliRunner) -> None:
         """ebx run sbx-1 deploy --arg target=staging."""
-        mock_result = ProcessResult(
+        mock_result = CommandResult(
+            value="deployed",
             stdout="deployed\n",
             stderr="",
             exit_code=0,
             execution_time=2.0,
+            source="template",
         )
         mock_sandbox = MagicMock()
-        mock_sandbox.run = AsyncMock(return_value=mock_result)
+        mock_sandbox.custom = AsyncMock(return_value=mock_result)
 
         with _make_run_patches(mock_sandbox):
             result = runner.invoke(
@@ -79,14 +84,16 @@ class TestRunCommand:
 
     def test_run_json_output(self, runner: CliRunner) -> None:
         """ebx --json run sbx-1 test."""
-        mock_result = ProcessResult(
+        mock_result = CommandResult(
+            value="pass",
             stdout="pass\n",
             stderr="",
             exit_code=0,
             execution_time=0.5,
+            source="template",
         )
         mock_sandbox = MagicMock()
-        mock_sandbox.run = AsyncMock(return_value=mock_result)
+        mock_sandbox.custom = AsyncMock(return_value=mock_result)
 
         with _make_run_patches(mock_sandbox):
             result = runner.invoke(cli, ["--json", "run", "sbx-1", "test"])

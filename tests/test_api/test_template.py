@@ -1,15 +1,15 @@
 """Tests for api.template module — TemplateManager high-level API."""
+
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock
 
 import pytest
 
 from easy_sandbox.api.template import TemplateManager
-from easy_sandbox.models.template import TemplateInfo, BuildStatus
-from easy_sandbox.protocol.template import TemplateProtocol, TemplateBuildError
+from easy_sandbox.models.template import BuildStatus, TemplateInfo
+from easy_sandbox.protocol.template import TemplateProtocol
 from easy_sandbox.transport.http import HttpClient
-
 
 # --- Sample data ---
 
@@ -89,9 +89,7 @@ class TestBuildInBackground:
     """Test TemplateManager.build_in_background()."""
 
     async def test_returns_ids(self, manager, mock_protocol):
-        template_id, build_id = await manager.build_in_background(
-            "FROM python:3.11"
-        )
+        template_id, build_id = await manager.build_in_background("FROM python:3.11")
         assert template_id == "tpl-abc123"
         assert build_id == "bld-xyz789"
         mock_protocol.create.assert_called_once()
@@ -137,6 +135,4 @@ class TestGetBuildStatus:
     async def test_get_build_status(self, manager, mock_protocol):
         result = await manager.get_build_status("tpl-abc123", "bld-xyz789")
         assert result["status"] == "ready"
-        mock_protocol.get_build_status.assert_called_once_with(
-            "tpl-abc123", "bld-xyz789"
-        )
+        mock_protocol.get_build_status.assert_called_once_with("tpl-abc123", "bld-xyz789")

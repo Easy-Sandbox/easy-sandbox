@@ -40,13 +40,13 @@ cli = [
 ]
 mcp = [
     "mcp>=1.0.0",
+    "starlette>=0.37",
+    "uvicorn>=0.29",
 ]
 fast = [
     "orjson>=3.9",
 ]
 declarative = [
-    "cloudpickle>=3.0",
-    "msgpack>=1.0",
     "pyyaml>=6.0",
 ]
 session = [
@@ -121,3 +121,15 @@ python_version = "3.10"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
+
+# Optional third-party dependencies that ship no type stubs (alicloud SDK)
+# or are only present as a fallback on older interpreters (tomli, used when
+# the stdlib ``tomllib`` is unavailable before Python 3.11).
+[[tool.mypy.overrides]]
+module = [
+    "alibabacloud_fcsandbox20260509",
+    "alibabacloud_fcsandbox20260509.*",
+    "alibabacloud_tea_openapi.*",
+    "tomli",
+]
+ignore_missing_imports = true

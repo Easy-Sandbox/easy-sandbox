@@ -9,6 +9,7 @@
 
 MCP 协议版本: 2024-11-05
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -17,8 +18,8 @@ import sys
 from typing import Any
 
 from easy_sandbox.agent.tools import (
-    TOOL_SCHEMAS,
     TOOL_SCHEMA_MAP,
+    TOOL_SCHEMAS,
     dispatch_tool,
 )
 from easy_sandbox.utils.logging import get_logger
@@ -36,6 +37,7 @@ SERVER_VERSION = "0.1.0"
 # Sandbox Manager — manages sandbox lifecycle for MCP sessions
 # ---------------------------------------------------------------------------
 
+
 class SandboxManager:
     """Manage sandbox instances for an MCP session.
 
@@ -50,7 +52,7 @@ class SandboxManager:
         api_key: str | None = None,
         api_url: str | None = None,
         domain: str | None = None,
-        template: str = "code-interpreter-v1",
+        template: str = "base",
     ) -> None:
         self._api_key = api_key
         self._api_url = api_url
@@ -156,6 +158,7 @@ class SandboxManager:
 # JSON-RPC 2.0 helpers
 # ---------------------------------------------------------------------------
 
+
 def _jsonrpc_response(id_: Any, result: Any) -> dict[str, Any]:
     """Build a JSON-RPC 2.0 success response."""
     return {"jsonrpc": "2.0", "id": id_, "result": result}
@@ -181,6 +184,7 @@ INTERNAL_ERROR = -32603
 # SandboxMCPServer
 # ---------------------------------------------------------------------------
 
+
 class SandboxMCPServer:
     """沙箱 MCP Server — 自包含 JSON-RPC 2.0 over STDIO 实现。
 
@@ -193,7 +197,7 @@ class SandboxMCPServer:
         api_key: str | None = None,
         api_url: str | None = None,
         domain: str | None = None,
-        template: str = "code-interpreter-v1",
+        template: str = "base",
     ) -> None:
         self._manager = SandboxManager(
             api_key=api_key,
@@ -281,8 +285,15 @@ class SandboxMCPServer:
         "ping": "_handle_ping",
     }
 
-    async def handle_request(self, request: dict[str, Any]) -> dict[str, Any] | None:
-        """Process a single JSON-RPC request and return a response (or None for notifications)."""
+    async def handle_request(self, request: Any) -> dict[str, Any] | None:
+        """Process one JSON-RPC object and return its response.
+
+        Non-object JSON values and JSON-RPC batches are rejected because this
+        minimal server intentionally supports one request object per message.
+        """
+        if not isinstance(request, dict):
+            return _jsonrpc_error(None, INVALID_REQUEST, "Request must be a JSON object")
+
         method = request.get("method", "")
         params = request.get("params", {})
         req_id = request.get("id")  # None for notifications
@@ -319,11 +330,13 @@ class SandboxMCPServer:
 
         reader = asyncio.StreamReader()
         protocol = asyncio.StreamReaderProtocol(reader)
-        await asyncio.get_event_loop().connect_read_pipe(lambda: protocol, sys.stdin)
+        loop = asyncio.get_running_loop()
+        await loop.connect_read_pipe(lambda: protocol, sys.stdin)
 
         # Use stdout for writing
-        transport, _ = await asyncio.get_event_loop().connect_write_pipe(
-            asyncio.BaseProtocol, sys.stdout,
+        transport, _ = await loop.connect_write_pipe(
+            asyncio.BaseProtocol,
+            sys.stdout,
         )
 
         try:
@@ -345,7 +358,8 @@ class SandboxMCPServer:
 
                 response = await self.handle_request(request)
                 if response is not None:
-                    transport.write((json.dumps(response, ensure_ascii=False) + "\n").encode("utf-8"))
+                    encoded = (json.dumps(response, ensure_ascii=False) + "\n").encode("utf-8")
+                    transport.write(encoded)
         except (asyncio.CancelledError, KeyboardInterrupt):
             pass
         finally:
@@ -361,6 +375,7 @@ class SandboxMCPServer:
 # Module-level entry point for ``python -m easy_sandbox.agent.mcp``
 # ---------------------------------------------------------------------------
 
+
 def main() -> None:
     """Entry point for running MCP server directly."""
     import os
@@ -368,7 +383,7 @@ def main() -> None:
     api_key = os.environ.get("E2B_API_KEY") or os.environ.get("SANDBOX_API_KEY")
     api_url = os.environ.get("E2B_API_URL") or os.environ.get("SANDBOX_API_BASE_URL")
     domain = os.environ.get("E2B_DOMAIN")
-    template = os.environ.get("SANDBOX_TEMPLATE", "code-interpreter-v1")
+    template = os.environ.get("SANDBOX_TEMPLATE", "base")
 
     server = SandboxMCPServer(
         api_key=api_key,

@@ -1,62 +1,65 @@
 """Public data models for Easy Sandbox SDK."""
+
+from easy_sandbox.models.config import GlobalConfig
 from easy_sandbox.models.errors import (
-    SandboxError,
     AuthenticationError,
+    CapabilityNotSupportedError,
+    CodeExecutionError,
+    CommandNotFoundError,
+    CommandTimeoutError,
+    ConnectionError_,
+    ExecutionError,
+    FileNotFoundError_,
+    FileOperationError,
     InvalidAPIKeyError,
-    TokenExpiredError,
     InvalidCredentialsError,
-    SandboxCreationError,
-    TemplateNotFoundError,
+    NetworkError,
+    PermissionDeniedError,
+    ProcessError,
     QuotaExceededError,
     RegionUnavailableError,
-    TemplateParseError,
-    ExecutionError,
-    CommandTimeoutError,
-    ProcessError,
-    CodeExecutionError,
-    CapabilityNotSupportedError,
-    FileOperationError,
-    FileNotFoundError_,
-    PermissionDeniedError,
-    NetworkError,
-    ConnectionError_,
+    SandboxCreationError,
+    SandboxError,
     TemplateBuildError,
     TemplateBuildTimeoutError,
-)
-from easy_sandbox.models.sandbox import (
-    SandboxStatus,
-    SandboxConfig,
-    SandboxInfo,
-)
-from easy_sandbox.models.process import (
-    ProcessChunkType,
-    ProcessChunk,
-    ProcessResult,
-    CodeResult,
-    OutputFile,
-    ProcessInfo,
+    TemplateNotFoundError,
+    TemplateParseError,
+    TokenExpiredError,
 )
 from easy_sandbox.models.filesystem import (
-    FileType,
     FileInfo,
-    WatchEventType,
+    FileType,
     WatchEvent,
+    WatchEventType,
+)
+from easy_sandbox.models.process import (
+    CodeResult,
+    CommandResult,
+    OutputFile,
+    ProcessChunk,
+    ProcessChunkType,
+    ProcessInfo,
+    ProcessResult,
+)
+from easy_sandbox.models.sandbox import (
+    SandboxConfig,
+    SandboxInfo,
+    SandboxStatus,
 )
 from easy_sandbox.models.session import (
     SessionConfig,
     SessionInfo,
 )
-from easy_sandbox.models.config import GlobalConfig
 from easy_sandbox.models.template import (
-    STANDARD_CAPABILITIES,
     DEFAULT_CAPABILITIES,
-    BuildStatus,
-    TemplateInfo,
+    STANDARD_CAPABILITIES,
     BuildInfo,
-    SandboxTemplate,
-    TemplateRef,
-    CustomCommandArg,
+    BuildStatus,
     CustomCommand,
+    CustomCommandArg,
+    SandboxTemplate,
+    TemplateInfo,
+    TemplateRef,
 )
 
 __all__ = [
@@ -76,6 +79,7 @@ __all__ = [
     "ProcessError",
     "CodeExecutionError",
     "CapabilityNotSupportedError",
+    "CommandNotFoundError",
     "FileOperationError",
     "FileNotFoundError_",
     "PermissionDeniedError",
@@ -91,6 +95,7 @@ __all__ = [
     "ProcessChunkType",
     "ProcessChunk",
     "ProcessResult",
+    "CommandResult",
     "CodeResult",
     "OutputFile",
     "ProcessInfo",

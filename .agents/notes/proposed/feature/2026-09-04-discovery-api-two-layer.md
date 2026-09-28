@@ -1,51 +1,102 @@
-# Decision: Discovery API 两层模型（本地静态 + 远程鉴权）
+# Decision: Discovery API two-layer model (local static + remote authenticated)
 
 Status: proposed
 Task: #103, #105, #118
 
 ## Problem
-SDK 的 `Sandbox.list_commands()` 已实现基础的命令发现（`api/sandbox.py` 返回 plain dicts），但存在三个缺口：(1) 只能发现本地 YAML 声明的命令，完全无法发现项目内 `@sandbox.register` 注册的 Python 命令；(2) 零鉴权零门控（是全仓库唯一不做 `check_capability` 的公开 API 之二）；(3) 参数缺少 `type` 字段。需要定义清晰的两层发现模型。
+The SDK's `Sandbox.list_commands()` already implements basic command discovery
+(`api/sandbox.py` returns plain dicts), but there are three gaps: (1) it can only
+discover commands declared in local YAML and cannot see Python commands
+registered in-project via `@sandbox.register`; (2) zero authentication, zero
+gating (one of only two public APIs across the whole repo that skips
+`check_capability`); (3) argument entries are missing a `type` field. A clean
+two-layer discovery model needs to be defined.
 
 ## Decision
-采用**两层发现模型**：Layer 1 本地静态发现 + Layer 2 server 远程发现。
+Adopt a **two-layer discovery model**: Layer 1 local static discovery + Layer 2
+server remote discovery.
 
-### Layer 1：本地静态发现（无需鉴权、无需连服务器）
+### Layer 1: local static discovery (no auth, no server needed)
 
-1. **YAML 分支（已实现）**：`api/capability.py` 的 `_find_local_template()` 扫描 `~/.ebx/templates/**/template.yaml`，解析 `custom_commands:` + `capabilities:`。由 `resolve_capabilities()` 在 `Sandbox.create()`/`Sandbox.connect()` 时触发。
-2. **Python 命令模块内省（缺口，由 @sandbox.register 填补）**：装饰器在导入时产出 `CustomCommand` 对象，注入同一个 `custom_commands` 字典。CLI 内省只需 `import` 用户模块即可发现。
-3. **权限**：纯本地操作，只需读 `~/.ebx/templates` 目录或导入 Python 模块。不需要、也不应该要求鉴权。
+1. **YAML branch (already implemented)**: `_find_local_template()` in
+   `api/capability.py` scans `~/.ebx/templates/**/template.yaml` and parses
+   `custom_commands:` + `capabilities:`. Triggered by `resolve_capabilities()`
+   during `Sandbox.create()` / `Sandbox.connect()`.
+2. **Python command module introspection (gap, filled by @sandbox.register)**:
+   the decorator produces `CustomCommand` objects at import time and injects
+   them into the same `custom_commands` dict. CLI introspection only needs to
+   `import` the user module to discover them.
+3. **Permissions**: purely local — only reads the `~/.ebx/templates` directory
+   or imports Python modules. Auth is neither required nor desirable.
 
-### Layer 2：server 远程发现（运行时注册的命令）
+### Layer 2: server remote discovery (runtime-registered commands)
 
-> **⚠ 关键变更（2026-09-05）**：原 ADR 仅考虑平台 `GET /templates/{id}` 作为远程发现来源，并将"用户自建 server 暴露发现端点"列为 Rejected。此决策已推翻。新增的 `easy_sandbox.server` 模块（见 `2026-09-05-sandbox-server-module.md`）提供 `GET /commands` 发现端点，成为 Layer 2 的主要来源。
+> **⚠ Key change (2026-09-05)**: the original ADR considered only the platform's
+> `GET /templates/{id}` as a remote discovery source and listed "user-built server
+> exposing a discovery endpoint" as Rejected. That decision has been overturned.
+> The new `easy_sandbox.server` module (see `2026-09-05-sandbox-server-module.md`)
+> provides a `GET /commands` discovery endpoint and becomes the primary source
+> for Layer 2.
 
-4. **server 模块提供 `GET /commands` 发现端点**：`easy_sandbox.server` 启动后，`GET https://{port}-{sandbox_id}.{domain}/commands` 返回所有已注册命令及其参数 schema。这是运行时注册命令的标准发现方式。
-5. **平台模板发现（辅助）**：`protocol/template.py` 的 `GET /templates/{id}` + `transport/http.py:84` 的 `auth_headers = await self._auth.get_headers()` 自动注入 L1 凭证。`ebx template info` 是活的端到端实证。接线缺口：`api/capability.py:196` 仅一行 `# 3. TODO(Phase2): online fallback`。
-6. **鉴权复用**：
-   - Platform 平面 → `AuthProvider.get_headers()`（`transport/auth.py` 的 `ApiKeyAuth` 或 `AkSkAuth`）
-   - envd 平面 → `EnvdTokenManager.get_headers()`（4 header）
-   - server 模块发现端点 → 与命令执行共用同一传输认证（`X-Access-Token`）
-   - **不是** `NetworkModule.get_access_headers()`。后者被 `ports` 能力门控（`api/network.py:63`），且 `ports` ∉ `DEFAULT_CAPABILITIES`。用它做发现鉴权 = 给发现强加绝大多数沙箱不具备的能力前置条件，**直接违反"发现权限 ⊆ 执行权限"原则**。
+4. **The server module provides a `GET /commands` discovery endpoint**: once
+   `easy_sandbox.server` is up, `GET https://{port}-{sandbox_id}.{domain}/commands`
+   returns every registered command with its argument schema. This is the
+   standard discovery path for runtime-registered commands.
+5. **Platform template discovery (auxiliary)**: `GET /templates/{id}` in
+   `protocol/template.py` plus `auth_headers = await self._auth.get_headers()`
+   at `transport/http.py:84` injects L1 credentials automatically. `ebx template
+   info` is a live end-to-end proof point. The wiring gap: `api/capability.py:196`
+   is a one-liner `# 3. TODO(Phase2): online fallback`.
+6. **Auth reuse**:
+   - Platform plane → `AuthProvider.get_headers()` (`ApiKeyAuth` or `AkSkAuth`
+     in `transport/auth.py`).
+   - envd plane → `EnvdTokenManager.get_headers()` (4 headers).
+   - Server module discovery endpoint → shares the same transport auth as
+     command execution (`X-Access-Token`).
+   - **Not** `NetworkModule.get_access_headers()`. That one is gated by the
+     `ports` capability (`api/network.py:63`), and `ports` ∉
+     `DEFAULT_CAPABILITIES`. Using it for discovery auth would impose a
+     capability prerequisite that most sandboxes lack, **directly violating the
+     "discovery permission ⊆ execution permission" principle**.
 
-### 鉴权原则
+### Auth principle
 
-7. **发现权限 ⊆ 执行权限**：
-   - **身份级**：接入 Layer 2 后**自动成立**。发现与执行共用同一 L1 身份；token 无效则 `platform_request` 的 `raise_for_status()` 先抛。
-   - **命令级（细粒度）**：今天不成立，且我们**无法单方面实现**。平台返回的是模板级清单，细粒度需服务端按 caller 身份过滤（超出协议客户端能力范围）。V1 明确标注"只保证身份级鉴权，不保证命令级最小可见性"。
-   - **现状**（Layer 1 only）：零鉴权，泄露面仅限本地 `~/.ebx/templates`，方向安全（发现比执行更宽）。
+7. **Discovery permission ⊆ execution permission**:
+   - **Identity-level**: **automatically holds** once Layer 2 is wired. Discovery
+     and execution share the same L1 identity; an invalid token causes
+     `platform_request`'s `raise_for_status()` to trip first.
+   - **Command-level (fine-grained)**: does not hold today and we **cannot**
+     unilaterally make it hold. The platform returns a template-level manifest;
+     fine-grained filtering requires the server to filter by caller identity
+     (outside the protocol client's control). V1 explicitly states "only
+     identity-level auth is guaranteed; per-command least-visibility is not".
+   - **Current state** (Layer 1 only): zero auth, leak surface confined to local
+     `~/.ebx/templates`, direction is safe (discovery broader than execution).
 
-### 现有 list_commands() 缺陷
+### Current list_commands() defects
 
-8. **缺参数 `type` 字段**：`CustomCommandArg`（`models/template.py`）无 `type`，`list_commands()` 输出的 args 只有 `name/required/default/description`。由 `@sandbox.register` ADR 的 M1 补齐。
-9. **零鉴权是正确的设计（Layer 1）**：它是同步方法、读本地字典、不发网络请求——不应也不能加鉴权。Layer 2 接线时，鉴权由 `platform_request` 自动处理。
+8. **Missing argument `type` field**: `CustomCommandArg` (`models/template.py`)
+   has no `type`; `list_commands()` outputs args with only `name/required/
+   default/description`. To be completed by the M1 milestone of the
+   `@sandbox.register` ADR.
+9. **Zero auth is the correct design (Layer 1)**: it is a sync method reading a
+   local dict without any network call — auth neither should nor can be added.
+   Once Layer 2 is wired, `platform_request` handles auth automatically.
 
-### O5 平台 custom_commands 承载
+### O5 platform custom_commands carriage
 
-10. **`GET /templates/{id}` 响应是否携带 `custom_commands` 待验证**。`models/template.py` 的 `TemplateInfo` 无该字段，只有泛型 `metadata: dict[str, Any]`。`custom_commands` 是本仓库的客户端侧 YAML 扩展，不是 E2B/FC 模板模型的一部分。**需 #103 的真实 E2E 验证**：`ebx template info <id> --json` 看响应是否含 `metadata`/`customCommands`。此验证直接决定 M6b（远程发现接线）是"一次函数调用"还是"需平台侧支持"。
+10. **Whether `GET /templates/{id}` responses carry `custom_commands` is TBD**.
+    `TemplateInfo` in `models/template.py` has no such field, only a generic
+    `metadata: dict[str, Any]`. `custom_commands` is a client-side YAML
+    extension in this repo, not part of the E2B/FC template model. **Real E2E
+    verification is required (#103)**: run `ebx template info <id> --json` and
+    inspect whether the response contains `metadata` / `customCommands`. This
+    validation directly determines whether M6b (remote discovery wiring) is
+    "one function call" or "requires platform-side support".
 
 ## API Design
 ```python
-# Layer 1: 本地发现（已实现，待增强）
+# Layer 1: local discovery (implemented, to be enhanced)
 commands = sandbox.list_commands()
 # → [{"name": "demo", "description": "...",
 #     "args": [{"name": "x", "type": "int", "required": True,
@@ -54,43 +105,60 @@ commands = sandbox.list_commands()
 capabilities = sandbox.capabilities
 # → frozenset({"shell", "files", "code"})
 
-# Layer 2: 远程发现（待接线）
-# resolve_capabilities() 第 3 顺位：
+# Layer 2: remote discovery (to be wired)
+# resolve_capabilities() 3rd fallback:
 #   template_info = await template_protocol.get(template_id)  # GET /templates/{id}
-#   # auth_headers 由 platform_request 自动注入 Authorization: Bearer
+#   # auth_headers auto-injected by platform_request (Authorization: Bearer)
 #   return parse_metadata(template_info.metadata)
 ```
 
 ## Alternatives considered
-- **envd 暴露命令清单端点** — 结构性不可行。envd 端点面封闭且已完整枚举（Process/Filesystem/CodeInterpreter/File/Terminal），E2B OpenAPI 的 `Envd` tag 只有 health/stats/envs，envd 版本由镜像掌控。Rejected。
-- **`process.Process/List` 当发现 API** — 语义错误，它返回的是"当前运行的 OS 进程"（PID 级运行时状态），不是"支持哪些命名命令 + 参数 schema"。Rejected。
-- **用户自建 server 暴露发现端点** — ~~原标为 Rejected~~。**已采纳（2026-09-05）**：`easy_sandbox.server` 模块提供 `GET /commands` 发现端点，需 `ports` 能力门控。这成为 Layer 2 运行时发现的主要方式。
-- **用 `NetworkModule.get_access_headers()` 做鉴权** — 被 `ports` 门控 + `secure=False` 返回空 dict，会让发现权限小于执行权限。Rejected。
+- **Expose a command-list endpoint on envd** — structurally infeasible. envd's
+  endpoint surface is closed and fully enumerated (Process / Filesystem /
+  CodeInterpreter / File / Terminal); the `Envd` tag in the E2B OpenAPI only
+  covers health / stats / envs; envd's version is controlled by the image.
+  Rejected.
+- **Use `process.Process/List` as the discovery API** — semantic mismatch: it
+  returns "currently running OS processes" (PID-level runtime state), not
+  "which named commands are supported and their argument schema". Rejected.
+- **User-built server exposing a discovery endpoint** — ~~originally
+  Rejected~~. **Adopted (2026-09-05)**: the `easy_sandbox.server` module
+  provides a `GET /commands` discovery endpoint, gated by the `ports`
+  capability. This becomes the primary way of Layer 2 runtime discovery.
+- **Use `NetworkModule.get_access_headers()` for auth** — gated by `ports`
+  and returns an empty dict when `secure=False`, which would make discovery
+  permission narrower than execution permission. Rejected.
 
 ## Dependencies
 - `api/capability.py` (`resolve_capabilities`, `_find_local_template`)
 - `protocol/template.py` (`TemplateProtocol.get()`)
 - `transport/auth.py` (`AuthProvider`, `EnvdTokenManager`)
-- `transport/http.py` (`platform_request` 自动注入 L1)
-- `2026-09-03-sdk-capability-surface.md` (Discovery API 定义)
-- `2026-09-03-command-source-resolution.md` (解析顺位 + Phase 2 TODO)
-- `2026-09-04-sandbox-register-command.md` (M1 补 `type` 字段)
-- `2026-09-05-sandbox-server-module.md` (server 模块提供 `GET /commands` 发现端点)
+- `transport/http.py` (`platform_request` auto-injects L1)
+- `2026-09-03-sdk-capability-surface.md` (Discovery API definition)
+- `2026-09-03-command-source-resolution.md` (resolution order + Phase 2 TODO)
+- `2026-09-04-sandbox-register-command.md` (M1 adds the `type` field)
+- `2026-09-05-sandbox-server-module.md` (server module provides `GET /commands`)
 
 ## Test Strategy
-- Layer 1：本地 YAML 发现，`list_commands()` 返回含 `type` 的 args。
-- Layer 1：`@sandbox.register` 的命令在 `list_commands()` 中可见。
-- Layer 2（接线后）：无 L1 凭证时 `resolve_capabilities` 回落 `DEFAULT_CAPABILITIES` + warn，不抛异常。
-- Layer 2：有效凭证时能取到远程模板的 capabilities + custom_commands。
-- 鉴权：Layer 2 必须走 `platform_request`（自动注入 `Authorization: Bearer`），禁止另建 `httpx.AsyncClient`。
+- Layer 1: local YAML discovery, `list_commands()` returns args including `type`.
+- Layer 1: commands registered via `@sandbox.register` are visible in
+  `list_commands()`.
+- Layer 2 (once wired): missing L1 credentials → `resolve_capabilities` falls
+  back to `DEFAULT_CAPABILITIES` with a warning, no exception raised.
+- Layer 2: with valid credentials, remote template capabilities + custom_commands
+  are retrieved.
+- Auth: Layer 2 must go through `platform_request` (which auto-injects
+  `Authorization: Bearer`); creating a separate `httpx.AsyncClient` is forbidden.
 
 ## Acceptance criteria
-- `list_commands()` 输出的 args 包含 `type` 字段。
-- Layer 1 本地发现零鉴权、可离线。
-- Layer 2 接线后，鉴权由 `AuthProvider.get_headers()` / `EnvdTokenManager.get_headers()` 提供（不用 `get_access_headers`）。
-- O5 验证完成后，更新此 ADR 的 Layer 2 状态。
-- 实现后，此 ADR 从 `proposed/` 移至 `implemented/`。
+- `list_commands()` output args include the `type` field.
+- Layer 1 local discovery is auth-free and works offline.
+- Once Layer 2 is wired, auth is supplied by `AuthProvider.get_headers()` /
+  `EnvdTokenManager.get_headers()` (not `get_access_headers`).
+- After the O5 verification is completed, update this ADR's Layer 2 status.
+- Once implemented, move this ADR from `proposed/` to `implemented/`.
 
 ## Evidence
 - `.agents/evidence/research/2026-09-04-container-serve-boundary.md` §6.4
-- `.agents/evidence/research/2026-09-04-fc-claude-code-image-inspection.md`（确认 Gateway routeDynamic 支持动态端口路由）
+- `.agents/evidence/research/2026-09-04-fc-claude-code-image-inspection.md`
+  (confirms Gateway routeDynamic supports dynamic port routing)

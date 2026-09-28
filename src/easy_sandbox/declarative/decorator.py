@@ -25,6 +25,7 @@
     # 启动容器内 HTTP server
     sandbox.server.start(port=9000)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -39,6 +40,8 @@ from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from easy_sandbox.models.template import CustomCommandArg
+from easy_sandbox.utils.coerce import coerce_kwargs as _coerce_kwargs
+from easy_sandbox.utils.coerce import parse_scalar as _parse_scalar  # noqa: F401  re-exported
 
 from .serializer import Serializer, SerializerType
 
@@ -59,9 +62,6 @@ _SCALAR_TYPE_MAP: dict[type, str] = {
     bool: "boolean",
 }
 
-_BOOL_TRUE: frozenset[str] = frozenset({"true", "yes", "1"})
-_BOOL_FALSE: frozenset[str] = frozenset({"false", "no", "0"})
-
 
 def _annotation_to_type_str(annotation: Any) -> str:
     """Map a Python type annotation to a :class:`CustomCommandArg` type string.
@@ -74,40 +74,14 @@ def _annotation_to_type_str(annotation: Any) -> str:
     if annotation in _SCALAR_TYPE_MAP:
         return _SCALAR_TYPE_MAP[annotation]
     raise TypeError(
-        f"Unsupported parameter type {annotation!r}; "
-        f"only str, int, float, bool are allowed"
+        f"Unsupported parameter type {annotation!r}; only str, int, float, bool are allowed"
     )
 
 
-def _parse_scalar(value: Any, type_str: str) -> Any:
-    """Parse / coerce *value* according to its declared *type_str*.
-
-    Bool parsing uses a whitelist (``true/false/yes/no/1/0``) to avoid the
-    ``bool("False") == True`` pitfall.
-    """
-    if type_str == "string":
-        return str(value)
-    if type_str == "integer":
-        if isinstance(value, int) and not isinstance(value, bool):
-            return value
-        return int(value)
-    if type_str == "float":
-        if isinstance(value, float):
-            return value
-        return float(value)
-    if type_str == "boolean":
-        if isinstance(value, bool):
-            return value
-        s = str(value).lower()
-        if s in _BOOL_TRUE:
-            return True
-        if s in _BOOL_FALSE:
-            return False
-        raise ValueError(
-            f"Cannot parse {value!r} as boolean; "
-            f"accepted values: true/false/yes/no/1/0"
-        )
-    raise ValueError(f"Unknown type: {type_str!r}")
+# ``_parse_scalar`` and ``_coerce_kwargs`` are imported from
+# ``easy_sandbox.utils.coerce`` (canonical shared implementation).
+# They are re-imported at the top of this file so existing callers
+# (including tests) can still use them via this module.
 
 
 # ---------------------------------------------------------------------------
@@ -209,9 +183,7 @@ class _RegisterProxy:
                     name=pname,
                     type=arg_type,
                     required=not has_default,
-                    default=(
-                        str(param.default) if has_default else None
-                    ),
+                    default=(str(param.default) if has_default else None),
                 )
             )
         cmd = _RegisteredCommand(
@@ -354,7 +326,7 @@ class _SandboxFactory:
             timeout: 沙箱超时时间（秒）。
             envs: 环境变量映射。
             packages: 远程需要预安装的 pip 包。
-            serializer: 序列化模式 (``json`` / ``pickle`` / ``msgpack``)。
+            serializer: 序列化模式 (``json``)。
             sandbox_id: 复用已有沙箱 ID，不为 ``None`` 时跳过创建。
             keep_alive: 执行后不销毁沙箱。
             api_key: API key 覆盖。
@@ -368,6 +340,13 @@ class _SandboxFactory:
         """
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            if serializer != "json":
+                raise ValueError(
+                    f"@sandbox now only supports serializer='json', "
+                    f"got serializer={serializer!r}. "
+                    f"Non-JSON results should be converted to dict/list/str before returning. "
+                    f"(pickle/msgpack support was removed in ADR 2026-09-23)"
+                )
             ser = Serializer(SerializerType(serializer))
 
             @functools.wraps(func)
@@ -382,9 +361,7 @@ class _SandboxFactory:
                     import concurrent.futures
 
                     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                        future = pool.submit(
-                            asyncio.run, _execute(func, args, kwargs)
-                        )
+                        future = pool.submit(asyncio.run, _execute(func, args, kwargs))
                         return future.result()
                 return asyncio.run(_execute(func, args, kwargs))
 
@@ -437,15 +414,12 @@ class _SandboxFactory:
                     # 2. 安装依赖
                     if packages:
                         pip_cmd = (
-                            f"{py_cmd} -m pip install "
-                            f"{' '.join(shlex.quote(p) for p in packages)}"
+                            f"{py_cmd} -m pip install {' '.join(shlex.quote(p) for p in packages)}"
                         )
                         await sb.commands.run(pip_cmd)
 
                     # 3. 序列化参数
-                    args_data = ser.serialize(
-                        {"args": list(args), "kwargs": kwargs}
-                    )
+                    args_data = ser.serialize({"args": list(args), "kwargs": kwargs})
 
                     # 4. 生成执行脚本
                     func_source = _get_function_source(fn)
@@ -459,15 +433,11 @@ class _SandboxFactory:
                     # 5. 上传并执行（UUID 唯一路径）
                     script_path = f"/tmp/_ebx_{uuid4().hex}.py"
                     await sb.files.write(script_path, script)
-                    result = await sb.commands.run(
-                        f"{py_cmd} {script_path}"
-                    )
+                    result = await sb.commands.run(f"{py_cmd} {script_path}")
 
                     # 清理临时脚本
                     with contextlib.suppress(Exception):
-                        await sb.commands.run(
-                            f"rm -f {shlex.quote(script_path)}"
-                        )
+                        await sb.commands.run(f"rm -f {shlex.quote(script_path)}")
 
                     if result.exit_code != 0:
                         raise RuntimeError(
@@ -578,10 +548,7 @@ class _SandboxFactory:
     def _get_registered(self, name: str) -> _RegisteredCommand:
         if name not in self._registry:
             available = ", ".join(sorted(self._registry)) or "(none)"
-            raise ValueError(
-                f"Unknown registered command {name!r}; "
-                f"available: {available}"
-            )
+            raise ValueError(f"Unknown registered command {name!r}; available: {available}")
         return self._registry[name]
 
     async def _execute_registered(
@@ -594,7 +561,8 @@ class _SandboxFactory:
         Creates a sandbox whose template runs a persistent
         :mod:`easy_sandbox.server`, then sends
         ``POST /commands/{name}`` with *coerced_kwargs* as the JSON body
-        via :meth:`~easy_sandbox.api.sandbox.Sandbox.run_command`.
+        via :meth:`~easy_sandbox.api.sandbox.Sandbox.custom` (mechanism B),
+        returning the command's raw JSON value.
         """
         from easy_sandbox.api.sandbox import Sandbox
 
@@ -603,7 +571,8 @@ class _SandboxFactory:
             timeout=300,
         )
         try:
-            return await sb.run_command(cmd.name, **coerced_kwargs)
+            result = await sb.custom(cmd.name, **coerced_kwargs)
+            return result.value
         finally:
             await sb.kill()
 
@@ -617,28 +586,9 @@ sandbox = _SandboxFactory()
 # ---------------------------------------------------------------------------
 
 
-def _coerce_kwargs(
-    args: list[CustomCommandArg],
-    kwargs: dict[str, Any],
-) -> dict[str, Any]:
-    """Validate *kwargs* against declared *args* and coerce types."""
-    declared = {arg.name for arg in args}
-    undeclared = sorted(k for k in kwargs if k not in declared)
-    if undeclared:
-        raise ValueError(
-            f"Unexpected argument(s) {undeclared}; "
-            f"declared: {sorted(declared) or '(none)'}"
-        )
-
-    coerced: dict[str, Any] = {}
-    for arg in args:
-        if arg.name in kwargs:
-            coerced[arg.name] = _parse_scalar(kwargs[arg.name], arg.type)
-        elif arg.required:
-            raise ValueError(f"Required argument {arg.name!r} missing")
-        elif arg.default is not None:
-            coerced[arg.name] = _parse_scalar(arg.default, arg.type)
-    return coerced
+# ``_coerce_kwargs`` is now the shared ``coerce_kwargs`` imported from
+# ``easy_sandbox.utils.coerce`` at the top of this module.  The alias
+# ``_coerce_kwargs`` preserves internal call-sites unchanged.
 
 
 async def _detect_python_cmd(sb: Any) -> str:
@@ -677,10 +627,6 @@ def _build_execution_script(
     """
     if serializer_type == "json":
         return _build_json_script(func_name, func_source, args_data)
-    if serializer_type == "pickle":
-        return _build_pickle_script(func_name, func_source, args_data)
-    if serializer_type == "msgpack":
-        return _build_msgpack_script(func_name, func_source, args_data)
     raise ValueError(f"Unknown serializer type: {serializer_type}")  # pragma: no cover
 
 
@@ -697,40 +643,4 @@ kwargs = args_data["kwargs"]
 
 result = {func_name}(*args, **kwargs)
 print(json.dumps(result, default=str))
-"""
-
-
-def _build_pickle_script(func_name: str, func_source: str, args_data: str) -> str:
-    return f"""\
-import base64
-import json
-import sys
-import cloudpickle
-
-args_data = cloudpickle.loads(base64.b64decode({repr(args_data)}))
-args = args_data["args"]
-kwargs = args_data["kwargs"]
-
-{func_source}
-
-result = {func_name}(*args, **kwargs)
-print(base64.b64encode(cloudpickle.dumps(result)).decode())
-"""
-
-
-def _build_msgpack_script(func_name: str, func_source: str, args_data: str) -> str:
-    return f"""\
-import base64
-import json
-import sys
-import msgpack
-
-args_data = msgpack.unpackb(base64.b64decode({repr(args_data)}), raw=False)
-args = args_data["args"]
-kwargs = args_data["kwargs"]
-
-{func_source}
-
-result = {func_name}(*args, **kwargs)
-print(base64.b64encode(msgpack.packb(result, use_bin_type=True)).decode())
 """

@@ -1,4 +1,5 @@
 """Configuration management CLI commands: get, set, list, reset."""
+
 from __future__ import annotations
 
 import sys
@@ -19,6 +20,7 @@ _ALLOWED_KEYS: dict[str, str] = {
     "api_url": "Platform API URL (e.g. https://api.cn-hangzhou.e2b.fc.aliyuncs.com)",
     "region": "Default region (e.g. cn-hangzhou, cn-shanghai)",
     "http_timeout": "HTTP request timeout in seconds",
+    "http2": "Enable HTTP/2 for platform connections (true/false)",
     "max_retries": "Maximum retry attempts",
     "domain": "Envd domain",
     "llm_api_key": "LLM API Key for NL inference",
@@ -38,12 +40,12 @@ def _load_config_dict() -> dict[str, Any]:
         return {}
     try:
         try:
-            import tomllib
+            import tomllib  # type: ignore[import-not-found]
         except ImportError:
-            import tomli as tomllib  # type: ignore[no-redef]
+            import tomli as tomllib
         with open(_CONFIG_FILE, "rb") as f:
             data = tomllib.load(f)
-        return data.get("transport", data)
+        return data.get("transport", data)  # type: ignore[no-any-return]
     except Exception:
         return {}
 
@@ -122,6 +124,7 @@ def get(ctx: click.Context, key: str) -> None:
         value = _read_env_api_key()
         if value is None:
             import os
+
             value = os.environ.get("E2B_API_KEY")
         if value:
             fmt.print_data(_mask_value(value))
@@ -135,6 +138,7 @@ def get(ctx: click.Context, key: str) -> None:
     if value is None:
         # Fall back to TransportConfig defaults
         from easy_sandbox.transport.config import TransportConfig
+
         defaults = TransportConfig()
         value = getattr(defaults, key, None)
 
@@ -180,6 +184,15 @@ def set_value(ctx: click.Context, key: str, value: str) -> None:
         except ValueError:
             fmt.print_error(f"Invalid integer value: {value!r}")
             sys.exit(2)
+    elif key in ("http2",):
+        lowered = value.strip().lower()
+        if lowered in ("true", "1", "yes", "on"):
+            data[key] = True
+        elif lowered in ("false", "0", "no", "off"):
+            data[key] = False
+        else:
+            fmt.print_error(f"Invalid boolean value: {value!r} (expected true/false)")
+            sys.exit(2)
     else:
         data[key] = value
 
@@ -200,7 +213,25 @@ def list_config(ctx: click.Context) -> None:
 
     # Get defaults
     from easy_sandbox.transport.config import TransportConfig
+
     defaults = TransportConfig()
+
+    # BUG-02: In JSON mode, output pure values without source annotations.
+    if fmt.use_json:
+        result_json: dict[str, Any] = {}
+        api_key = _read_env_api_key()
+        result_json["api_key"] = _mask_value(api_key) if api_key else None
+        for key, _desc in sorted(_ALLOWED_KEYS.items()):
+            if key == "api_key":
+                continue
+            value = user_data.get(key)
+            if value is not None:
+                result_json[key] = _mask_value(str(value)) if key in _SENSITIVE_KEYS else value
+            else:
+                default_val = getattr(defaults, key, None)
+                result_json[key] = default_val if default_val != "" else None
+        fmt.print_dict(result_json)
+        return
 
     result: dict[str, str] = {}
     # Show api_key (masked)
@@ -210,7 +241,7 @@ def list_config(ctx: click.Context) -> None:
     else:
         result["api_key"] = "(not set)"
 
-    for key, desc in sorted(_ALLOWED_KEYS.items()):
+    for key, _desc in sorted(_ALLOWED_KEYS.items()):
         if key == "api_key":
             continue  # already handled above
         value = user_data.get(key)
@@ -235,8 +266,16 @@ def reset(ctx: click.Context, yes: bool) -> None:
     if not yes:
         click.confirm("Reset all configuration to defaults?", abort=True)
 
+    cleaned = False
     if _CONFIG_FILE.is_file():
         _CONFIG_FILE.unlink()
-        fmt.print_success("Configuration reset to defaults.")
+        cleaned = True
+    # BUG-01: Also remove the .env file that stores api_key.
+    if _ENV_FILE.is_file():
+        _ENV_FILE.unlink()
+        cleaned = True
+
+    if cleaned:
+        fmt.print_success("Configuration reset to defaults (including api_key).")
     else:
         fmt.print_success("No configuration file found (already using defaults).")

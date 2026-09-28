@@ -15,6 +15,7 @@ All handlers use only the Python standard library (no *psutil*).
 from __future__ import annotations
 
 import json
+import logging
 import os
 import platform
 import re
@@ -38,19 +39,36 @@ __all__ = [
     "handle_system_metrics",
 ]
 
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # Security constants
 # ---------------------------------------------------------------------------
 
 #: Sub-strings whose presence in a variable name makes it sensitive.
-_ENV_BLACKLIST_TOKENS: frozenset[str] = frozenset({
-    "TOKEN", "SECRET", "KEY", "PASSWORD", "CREDENTIAL",
-})
+_ENV_BLACKLIST_TOKENS: frozenset[str] = frozenset(
+    {
+        "TOKEN",
+        "SECRET",
+        "KEY",
+        "PASSWORD",
+        "CREDENTIAL",
+    }
+)
 
 #: Variable names that ``POST /env`` may never overwrite.
-_PROTECTED_ENV_VARS: frozenset[str] = frozenset({
-    "PATH", "HOME", "USER", "SHELL", "EBX_SERVER_TOKEN",
-})
+_PROTECTED_ENV_VARS: frozenset[str] = frozenset(
+    {
+        "PATH",
+        "HOME",
+        "USER",
+        "SHELL",
+        "EBX_SERVER_TOKEN",
+    }
+)
+
+#: Prefix that marks an internal SDK variable — all ``EBX_*`` vars are protected.
+_PROTECTED_ENV_PREFIX = "EBX_"
 
 # ---------------------------------------------------------------------------
 # Boot timestamp (approximate process start).
@@ -131,18 +149,20 @@ def _parse_proc_net_tcp(path: str) -> list[dict[str, Any]]:
         protocol = "tcp6" if "tcp6" in path else "tcp"
         if len(addr_hex) == 8:
             # IPv4 — stored in little-endian hex
-            octets = [str(int(addr_hex[i:i + 2], 16)) for i in range(6, -1, -2)]
+            octets = [str(int(addr_hex[i : i + 2], 16)) for i in range(6, -1, -2)]
             address = ".".join(octets)
         else:
             address = "[::]"
         # PID: field 9 or uid-based — not always available without root
         pid: int | None = None
-        results.append({
-            "port": port,
-            "protocol": protocol,
-            "address": address,
-            "pid": pid,
-        })
+        results.append(
+            {
+                "port": port,
+                "protocol": protocol,
+                "address": address,
+                "pid": pid,
+            }
+        )
     return results
 
 
@@ -174,12 +194,14 @@ def _ports_via_ss() -> list[dict[str, Any]]:
             pid_match = re.search(r"pid=(\d+)", parts[-1])
             if pid_match:
                 pid = int(pid_match.group(1))
-        results.append({
-            "port": port,
-            "protocol": "tcp",
-            "address": address,
-            "pid": pid,
-        })
+        results.append(
+            {
+                "port": port,
+                "protocol": "tcp",
+                "address": address,
+                "pid": pid,
+            }
+        )
     return results
 
 
@@ -209,23 +231,25 @@ def handle_system_info(request: ServerRequest) -> ServerResponse:
     # Disk
     try:
         usage = shutil.disk_usage("/")
-        disk_total_gb = round(usage.total / (1024 ** 3), 2)
-        disk_free_gb = round(usage.free / (1024 ** 3), 2)
+        disk_total_gb = round(usage.total / (1024**3), 2)
+        disk_free_gb = round(usage.free / (1024**3), 2)
     except OSError:
         disk_total_gb = 0.0
         disk_free_gb = 0.0
 
-    return ServerResponse.ok({
-        "os": uname.system,
-        "arch": uname.machine,
-        "cpu_count": os.cpu_count() or 0,
-        "memory_total_mb": mem_total_mb,
-        "memory_available_mb": mem_avail_mb,
-        "disk_total_gb": disk_total_gb,
-        "disk_free_gb": disk_free_gb,
-        "python_version": sys.version.split()[0],
-        "hostname": uname.node,
-    })
+    return ServerResponse.ok(
+        {
+            "os": uname.system,
+            "arch": uname.machine,
+            "cpu_count": os.cpu_count() or 0,
+            "memory_total_mb": mem_total_mb,
+            "memory_available_mb": mem_avail_mb,
+            "disk_total_gb": disk_total_gb,
+            "disk_free_gb": disk_free_gb,
+            "python_version": sys.version.split()[0],
+            "hostname": uname.node,
+        }
+    )
 
 
 def handle_env_get(request: ServerRequest) -> ServerResponse:
@@ -254,22 +278,34 @@ def handle_env_set(request: ServerRequest) -> ServerResponse:
     """``POST /env`` — set environment variables.
 
     Body: ``{"vars": {"KEY": "value", ...}}``.
-    Protected variables (PATH, HOME, USER, SHELL, EBX_SERVER_TOKEN) cannot
-    be overwritten.
+    Protected variables (PATH, HOME, USER, SHELL, and any ``EBX_*`` variable)
+    cannot be overwritten.
     """
     body = request.body or {}
     env_vars: dict[str, str] = body.get("vars", {})
     if not isinstance(env_vars, dict):
         return ServerResponse.error(400, "'vars' must be an object", "ValueError")
 
-    # Validate protected keys first
-    blocked = sorted(k for k in env_vars if k in _PROTECTED_ENV_VARS)
+    # Validate protected keys first (explicit set + EBX_ prefix).
+    blocked = sorted(
+        k
+        for k in env_vars
+        if k in _PROTECTED_ENV_VARS or k.upper().startswith(_PROTECTED_ENV_PREFIX)
+    )
     if blocked:
         return ServerResponse.error(
             403,
             f"Cannot overwrite protected variable(s): {', '.join(blocked)}",
             "PermissionError",
         )
+
+    # Warn (but do not block) when setting variables with sensitive-looking names.
+    for key in env_vars:
+        if _is_sensitive(key):
+            logger.warning(
+                "Setting environment variable with sensitive name: %s",
+                key,
+            )
 
     updated: list[str] = []
     for key, value in env_vars.items():
@@ -333,10 +369,12 @@ def handle_packages(request: ServerRequest) -> ServerResponse:
         try:
             raw = json.loads(proc.stdout)
             for item in raw:
-                packages.append({
-                    "name": item.get("name", ""),
-                    "version": item.get("version", ""),
-                })
+                packages.append(
+                    {
+                        "name": item.get("name", ""),
+                        "version": item.get("version", ""),
+                    }
+                )
         except (json.JSONDecodeError, TypeError, KeyError):
             pass
     elif manager == "npm":
@@ -376,8 +414,8 @@ def handle_system_metrics(request: ServerRequest) -> ServerResponse:
     # Disk
     try:
         usage = shutil.disk_usage("/")
-        disk_total_gb = round(usage.total / (1024 ** 3), 2)
-        disk_used_gb = round(usage.used / (1024 ** 3), 2)
+        disk_total_gb = round(usage.total / (1024**3), 2)
+        disk_used_gb = round(usage.used / (1024**3), 2)
         disk_percent = round(usage.used / usage.total * 100, 1) if usage.total else 0.0
     except OSError:
         disk_total_gb = 0.0
@@ -387,18 +425,20 @@ def handle_system_metrics(request: ServerRequest) -> ServerResponse:
     # Uptime
     uptime_seconds = round(time.time() - _BOOT_TIME, 1)
 
-    return ServerResponse.ok({
-        "cpu_load_1m": round(load1, 2),
-        "cpu_load_5m": round(load5, 2),
-        "cpu_load_15m": round(load15, 2),
-        "memory_used_mb": mem_used_mb,
-        "memory_total_mb": mem_total_mb,
-        "memory_percent": mem_percent,
-        "disk_used_gb": disk_used_gb,
-        "disk_total_gb": disk_total_gb,
-        "disk_percent": disk_percent,
-        "uptime_seconds": uptime_seconds,
-    })
+    return ServerResponse.ok(
+        {
+            "cpu_load_1m": round(load1, 2),
+            "cpu_load_5m": round(load5, 2),
+            "cpu_load_15m": round(load15, 2),
+            "memory_used_mb": mem_used_mb,
+            "memory_total_mb": mem_total_mb,
+            "memory_percent": mem_percent,
+            "disk_used_gb": disk_used_gb,
+            "disk_total_gb": disk_total_gb,
+            "disk_percent": disk_percent,
+            "uptime_seconds": uptime_seconds,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -407,34 +447,56 @@ def handle_system_metrics(request: ServerRequest) -> ServerResponse:
 
 _table = default_table()
 
-# CORE group — no auth required
+# CORE group — auth required for capabilities endpoint
 _table.register(
-    "GET", "/capabilities", handle_capabilities,
-    group=CapabilityGroup.CORE, auth_required=False, name="capabilities",
+    "GET",
+    "/capabilities",
+    handle_capabilities,
+    group=CapabilityGroup.CORE,
+    auth_required=True,
+    name="capabilities",
 )
 
 # SYSTEM group
 _table.register(
-    "GET", "/system/info", handle_system_info,
-    group=CapabilityGroup.SYSTEM, name="system_info",
+    "GET",
+    "/system/info",
+    handle_system_info,
+    group=CapabilityGroup.SYSTEM,
+    name="system_info",
 )
 _table.register(
-    "GET", "/env", handle_env_get,
-    group=CapabilityGroup.SYSTEM, name="env_get",
+    "GET",
+    "/env",
+    handle_env_get,
+    group=CapabilityGroup.SYSTEM,
+    name="env_get",
 )
 _table.register(
-    "POST", "/env", handle_env_set,
-    group=CapabilityGroup.SYSTEM, name="env_set",
+    "POST",
+    "/env",
+    handle_env_set,
+    group=CapabilityGroup.SYSTEM,
+    name="env_set",
 )
 _table.register(
-    "GET", "/ports", handle_ports,
-    group=CapabilityGroup.SYSTEM, name="ports",
+    "GET",
+    "/ports",
+    handle_ports,
+    group=CapabilityGroup.SYSTEM,
+    name="ports",
 )
 _table.register(
-    "GET", "/packages", handle_packages,
-    group=CapabilityGroup.SYSTEM, name="packages",
+    "GET",
+    "/packages",
+    handle_packages,
+    group=CapabilityGroup.SYSTEM,
+    name="packages",
 )
 _table.register(
-    "GET", "/system/metrics", handle_system_metrics,
-    group=CapabilityGroup.SYSTEM, name="system_metrics",
+    "GET",
+    "/system/metrics",
+    handle_system_metrics,
+    group=CapabilityGroup.SYSTEM,
+    name="system_metrics",
 )

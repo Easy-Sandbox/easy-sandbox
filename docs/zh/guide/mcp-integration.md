@@ -51,13 +51,15 @@ MCP Server 提供 7 个工具：
 |--------|------|------|
 | `create_sandbox` | 创建新沙箱 | `template`（可选，默认 code-interpreter-v1）、`timeout`（可选） |
 | `run_code` | 在沙箱中执行代码 | `sandbox_id`、`code`、`language`（可选，默认 python） |
-| `run_command` | 在沙箱中执行 Shell 命令 | `sandbox_id`、`command`、`timeout`（可选） |
+| `run_command` | 在沙箱中执行**裸 Shell** 命令 | `sandbox_id`、`command`、`timeout`（可选） |
 | `read_file` | 读取沙箱中的文件 | `sandbox_id`、`path` |
 | `write_file` | 写入文件到沙箱 | `sandbox_id`、`path`、`content` |
 | `list_files` | 列出沙箱中的目录内容 | `sandbox_id`、`path`（可选，默认 /app） |
 | `kill_sandbox` | 销毁沙箱 | `sandbox_id` |
 
 > **注意**：`list_files` 省略 `path` 时默认列出 `/app` 目录内容。如需查看根目录，需显式传入 `path="/"`。
+>
+> **命名说明**：MCP 工具 `run_command` 执行的是**裸 Shell 命令**（等价于 SDK 中的 `sandbox.commands.run()`），与 SDK 中已弃用的 `Sandbox.run_command()` 方法**无关**——后者用于调度命名自定义命令，请使用 `Sandbox.custom()` 替代。
 
 ---
 

@@ -12,6 +12,15 @@ Support both authentication modes:
 
 After sandbox creation, envd API uses `envdAccessToken` returned in create response, sent as `X-Access-Token` header.
 
+## API Design
+```python
+# Credential resolution (transport/auth.py)
+# 1. SANDBOX_API_KEY -> X-API-KEY header (primary)
+# 2. ALICLOUD_ACCESS_KEY_ID + ALICLOUD_ACCESS_KEY_SECRET
+#      -> exchange for temporary API key (TTL=3600s, auto-refresh 5min before expiry)
+# Post-create: envdAccessToken from the create response -> X-Access-Token header for envd API
+```
+
 ## Alternatives considered
 - **API Key only** — Excludes Alibaba Cloud AK/SK users
 - **AK/SK only** — Breaks E2B compatibility
@@ -25,6 +34,11 @@ After sandbox creation, envd API uses `envdAccessToken` returned in create respo
 - Unit test each auth mode independently
 - Test token refresh timing (expiry - 5min)
 - Test fallback when primary auth fails
+
+## Acceptance criteria
+- Requests authenticate successfully in both API Key mode and AK/SK mode
+- AK/SK-derived temporary API key auto-refreshes ~5 minutes before expiry
+- envd API requests carry the `X-Access-Token` obtained from the create response
 
 ## Consequences
 - Seamless migration for both E2B users and Alibaba Cloud users

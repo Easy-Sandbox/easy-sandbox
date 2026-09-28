@@ -62,7 +62,7 @@ def analyze_data(records: list[dict]) -> dict:
 # ── 示例 3: 指定序列化方式 ───────────────────────────────────────────
 @sandbox(
     template="code-interpreter-v1",
-    serializer="json",            # 可选: json / pickle / msgpack
+    serializer="json",            # 仅支持 json
     timeout=120,                  # 沙箱超时 120 秒
     api_key=API_KEY,
 )

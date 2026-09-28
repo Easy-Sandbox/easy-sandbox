@@ -29,15 +29,23 @@ easy-sandbox/
 │   ├── compat/                # E2B compatibility layer (drop-in replacement)
 │   ├── declarative/           # @sandbox decorator, config, serializer
 │   ├── extensions/            # Alibaba Cloud extensions: OSS, VPC, custom domains
-│   ├── integrations/          # Framework adapters: LangChain, CrewAI, AutoGen
-│   ├── session/               # Session persistence: local, OSS-backed, database
-│   └── utils/                 # Async bridge, keychain, logging, registry, retry
+│   ├── integrations/          # Framework adapters (planned — directory currently empty; see ADR 2026-09-23)
+│   ├── session/               # Session persistence: local (LocalSessionStore)
+│   └── utils/                 # Async bridge, secret store, logging, registry, retry
 ├── tests/                     # Mirrors src/ structure (test_api/, test_cli/, test_models/, …)
 ├── docs/
-│   ├── design/                # Architecture & feature design documents
-│   ├── guide/                 # User tutorials & how-to guides (planned)
-│   ├── reference/             # CLI/API/error-code/config reference (planned)
-│   └── explanation/           # Conceptual explanations (planned)
+│   ├── en/
+│   │   ├── design/            # Public design documents (English)
+│   │   ├── guide/             # User tutorials & how-to guides (planned)
+│   │   ├── reference/         # CLI/API/error-code/config reference (planned)
+│   │   ├── explanation/       # Conceptual explanations (planned)
+│   │   └── DESIGN.md          # Design topic index (links to design/)
+│   └── zh/
+│       ├── design/            # Public design documents (Chinese mirror)
+│       ├── guide/             # User tutorials & how-to guides (planned)
+│       ├── reference/         # CLI/API/error-code/config reference (planned)
+│       ├── explanation/       # Conceptual explanations (planned)
+│       └── DESIGN.md          # Design topic index (links to design/)
 ├── examples/
 │   └── templates/             # Sandbox template examples (python-hello, codex, qoder, …)
 ├── .agents/notes/             # Architecture Decision Records (ADR) — see below
@@ -60,7 +68,7 @@ graph TB
     subgraph Upper["Upper Layers"]
         CLI["CLI — Click commands, formatters"]
         Agent["Agent/MCP — MCP server, builtin agents, tool defs"]
-        Integ["Integrations — LangChain, CrewAI, AutoGen adapters"]
+        Integ["Integrations — Framework adapters (planned)"]
         Decl["Declarative — @sandbox decorator"]
         Compat["Compat — E2B compatibility shim"]
         Ext["Extensions — OSS, VPC, domain extensions"]
@@ -71,7 +79,7 @@ graph TB
         L2["L2 Protocol — Sandbox lifecycle, filesystem, process, terminal, port"]
         L1["L1 Transport — HTTP, WebSocket, auth, codec, streaming"]
         L0M["L0 Models — Pydantic data models, error hierarchy, config"]
-        L0U["L0 Utils — Async bridge, keychain, logging, registry, retry"]
+        L0U["L0 Utils — Async bridge, secret store, logging, registry, retry"]
     end
 
     CLI --> L3
@@ -144,7 +152,7 @@ Defined in [`models/template.py`](src/easy_sandbox/models/template.py), resolved
 - **`STANDARD_CAPABILITIES`** = `{shell, files, code, terminal, ports}` — all recognised tokens
 - **`DEFAULT_CAPABILITIES`** = `{shell, files, code}` — applied when a template declares nothing
 - `terminal` and `ports` **must** be declared explicitly in the template's `template.yaml`
-- **Capability gate:** `check_capability()` raises `CapabilityNotSupportedError` (E3004) if a required capability is missing — **never bypass this gate**
+- **Capability declaration:** capabilities are declared in `template.yaml` and resolved by `resolve_capabilities()` (fail-closed). All API methods are callable; capability tokens are used at template resolution / model validation layer only
 - **Fail-closed:** if a matched template's YAML is malformed, the resolver raises `TemplateParseError` (E2004) rather than silently falling back to defaults
 
 ### Capability Resolution Priority
@@ -205,7 +213,10 @@ EBX_UPDATE_EVIDENCE=1 pytest tests/
 | PR template             | [`.github/PULL_REQUEST_TEMPLATE.md`](.github/PULL_REQUEST_TEMPLATE.md) |
 | Security policy         | [`.github/SECURITY.md`](.github/SECURITY.md)                        |
 | Architecture decisions  | [`.agents/notes/`](.agents/notes/README.md) (ADR system)            |
-| Design documents        | [`docs/zh/design/`](docs/zh/design/)                                |
+| Design documents (EN) | [`docs/en/design/`](docs/en/design/)                                |
+| Design documents (ZH) | [`docs/zh/design/`](docs/zh/design/)                                |
+| Design index (EN)     | [`docs/en/DESIGN.md`](docs/en/DESIGN.md)                            |
+| Design index (ZH)     | [`docs/zh/DESIGN.md`](docs/zh/DESIGN.md)                            |
 | CLI evidence            | [`.agents/evidence/`](.agents/evidence/README.md)                   |
 | Changelog               | [`CHANGELOG.md`](CHANGELOG.md)                                      |
 
@@ -239,7 +250,7 @@ See [`.agents/notes/README.md`](.agents/notes/README.md) for the full template a
 1. **Never auto-commit.** Make changes; let the human review and commit.
 2. **Never delete golden files** in `.agents/evidence/cli/`. If CLI output changes, regenerate them via `python scripts/capture_cli_evidence.py`.
 3. **After modifying any CLI command**, regenerate the affected evidence files and verify they look correct.
-4. **Never bypass capability gates.** If `check_capability()` blocks an operation, the fix is to declare the capability in the template — not to remove the gate.
+4. **Respect template capability declarations.** If `resolve_capabilities()` fails or a capability is missing, the fix is to declare it in the template YAML — not to bypass the resolution.
 5. **Never fabricate FC/envd API endpoints.** If you're unsure about a real backend API, flag it as a TODO rather than inventing a placeholder.
 6. **Run the full test suite** (`make test && make lint && make typecheck`) before claiming a task is done.
 7. **Secret scanning** is enforced via `.githooks/check-secrets.sh`. Never commit API keys, tokens, or passwords. Use `REPLACE_ME` or `placeholder` for examples.

@@ -1,18 +1,20 @@
 """Files module — filesystem operations in sandboxes."""
+
 from __future__ import annotations
 
 import pathlib
-from typing import Any
+from typing import TYPE_CHECKING
 
-from easy_sandbox.api.capability import check_capability
-from easy_sandbox.models.filesystem import FileInfo, WatchEvent
 from easy_sandbox.models.template import DEFAULT_CAPABILITIES
-from easy_sandbox.protocol.filesystem import FilesystemProtocol
-from easy_sandbox.protocol.sandbox import SandboxProtocol
-from easy_sandbox.transport.auth import EnvdTokenManager
-from easy_sandbox.transport.streaming import StreamReader
 from easy_sandbox.utils.async_bridge import make_sync
 from easy_sandbox.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from easy_sandbox.models.filesystem import FileInfo, WatchEvent
+    from easy_sandbox.protocol.filesystem import FilesystemProtocol
+    from easy_sandbox.protocol.sandbox import SandboxProtocol
+    from easy_sandbox.transport.auth import EnvdTokenManager
+    from easy_sandbox.transport.streaming import StreamReader
 
 logger = get_logger("api.files")
 
@@ -40,10 +42,6 @@ class FilesModule:
         self._sandbox_id = sandbox_id
         self._capabilities = capabilities if capabilities is not None else set(DEFAULT_CAPABILITIES)
 
-    def _gate(self) -> None:
-        """Check that the ``files`` capability is enabled."""
-        check_capability(self._capabilities, "files")
-
     async def read(self, path: str, *, encoding: str = "utf-8") -> str:
         """Read a file as text.
 
@@ -54,7 +52,6 @@ class FilesModule:
         Returns:
             File contents as string.
         """
-        self._gate()
         return await self._fs.read_text(
             self._envd_url,
             self._envd_token,
@@ -71,7 +68,6 @@ class FilesModule:
         Returns:
             File contents as bytes.
         """
-        self._gate()
         return await self._fs.read(
             self._envd_url,
             self._envd_token,
@@ -85,7 +81,6 @@ class FilesModule:
             path: Absolute path in the sandbox.
             content: String or bytes to write.
         """
-        self._gate()
         await self._fs.write(
             self._envd_url,
             self._envd_token,
@@ -102,7 +97,6 @@ class FilesModule:
         Returns:
             List of FileInfo entries.
         """
-        self._gate()
         return await self._fs.list_dir(
             self._envd_url,
             self._envd_token,
@@ -115,7 +109,6 @@ class FilesModule:
         Args:
             path: Absolute path in the sandbox.
         """
-        self._gate()
         await self._fs.remove(
             self._envd_url,
             self._envd_token,
@@ -131,7 +124,6 @@ class FilesModule:
         Returns:
             True if the path exists.
         """
-        self._gate()
         return await self._fs.exists(
             self._envd_url,
             self._envd_token,
@@ -144,7 +136,6 @@ class FilesModule:
         Args:
             path: Directory path to create.
         """
-        self._gate()
         await self._fs.make_dir(
             self._envd_url,
             self._envd_token,
@@ -160,7 +151,6 @@ class FilesModule:
             local_path: Path on the local filesystem.
             remote_path: Destination path in the sandbox.
         """
-        self._gate()
         data = pathlib.Path(local_path).read_bytes()
         await self.write(remote_path, data)
         logger.debug("Uploaded %s -> %s", local_path, remote_path)
@@ -174,7 +164,6 @@ class FilesModule:
             remote_path: Path in the sandbox.
             local_path: Destination path on local filesystem.
         """
-        self._gate()
         data = await self.read_bytes(remote_path)
         pathlib.Path(local_path).write_bytes(data)
         logger.debug("Downloaded %s -> %s", remote_path, local_path)
@@ -188,7 +177,6 @@ class FilesModule:
         Returns:
             StreamReader yielding WatchEvent items.
         """
-        self._gate()
         return await self._fs.watch_dir(
             self._envd_url,
             self._envd_token,
@@ -204,7 +192,6 @@ class FilesModule:
             old_path: Current path.
             new_path: New path.
         """
-        self._gate()
         await self.move(old_path, new_path)
 
     async def move(self, source: str, destination: str) -> None:
@@ -214,7 +201,6 @@ class FilesModule:
             source: Current path.
             destination: New path.
         """
-        self._gate()
         await self._fs.move(
             self._envd_url,
             self._envd_token,
@@ -231,7 +217,6 @@ class FilesModule:
         Returns:
             FileInfo with name, path, type, size.
         """
-        self._gate()
         return await self._fs.get_info(
             self._envd_url,
             self._envd_token,
@@ -244,13 +229,19 @@ class FilesModule:
         Note: Direct file upload via upload()/write() is preferred.
         This method is kept for backward compatibility.
 
+        .. warning::
+
+            Returns a URL that requires an ``X-Access-Token`` header for
+            access.  The URL alone is **not** sufficient for direct
+            browser access — callers must attach envd authentication
+            headers when making requests to this URL.
+
         Args:
             path: Remote file path for the upload destination.
 
         Returns:
             The envd file API URL string.
         """
-        self._gate()
         return f"{self._envd_url}/files?path={path}&username=user"
 
     async def download_url(self, path: str) -> str:
@@ -259,13 +250,19 @@ class FilesModule:
         Note: Direct file download via read()/read_bytes() is preferred.
         This method is kept for backward compatibility.
 
+        .. warning::
+
+            Returns a URL that requires an ``X-Access-Token`` header for
+            access.  The URL alone is **not** sufficient for direct
+            browser access — callers must attach envd authentication
+            headers when making requests to this URL.
+
         Args:
             path: Remote file path to download.
 
         Returns:
             The envd file API URL string.
         """
-        self._gate()
         return f"{self._envd_url}/files?path={path}&username=user"
 
     # Sync variants

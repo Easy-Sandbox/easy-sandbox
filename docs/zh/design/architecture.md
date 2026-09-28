@@ -14,7 +14,7 @@ graph TD
     L3["L3 Extension Layer<br/>阿里云扩展层 - VPC / OSS / 域名 / NAS 挂载"]
     L2["L2 Core Protocol Layer<br/>核心协议层 - 自行实现 E2B 兼容协议 / HTTP REST + WebSocket"]
     L1["L1 Transport & Auth Layer<br/>传输与认证层 - HTTP 连接池 / API Key / AK-SK 兑换 Token"]
-    GW["China Region API Gateway"]
+    GW["阿里云 API 网关"]
     FC["阿里云函数计算 FC 沙箱运行时"]
 
     L6 --> L5
@@ -98,7 +98,7 @@ graph TD
 |------|------|
 | `declarative.decorator` | `@sandbox` 装饰器 — Modal 风格远程执行 |
 | `declarative.config` | `sandbox.yaml` 解析与验证 |
-| `declarative.serializer` | 参数/返回值序列化（pickle / cloudpickle / JSON） |
+| `declarative.serializer` | 参数/返回值序列化（仅 JSON） |
 | `declarative.scheduler` | 声明式任务调度与编排 | _TODO — 计划中_ |
 
 **面向用户**：追求极简体验的 Python 开发者、ML 工程师。
@@ -273,7 +273,7 @@ src/easy_sandbox/
 | HTTP 客户端 | `httpx` | 原生 async 支持，HTTP/2，E2B 兼容协议实现的核心 |
 | WebSocket | `websockets` | 成熟稳定，async 原生，用于 PTY/流式场景 |
 | CLI 框架 | `click` + `rich` | 丰富的 UI 组件，表格/进度条 |
-| 序列化 | `cloudpickle` + `msgpack` | Python 对象序列化 + 高性能二进制 |
+| 序列化 | JSON（`json` 标准库） | `@sandbox` 装饰器的安全跨语言序列化 |
 | 配置管理 | `pydantic` | 类型安全的配置验证 |
 | 测试 | `pytest` + `pytest-asyncio` | 异步测试标准方案 |
 | 包管理 | `hatch` / `pdm` | 现代 Python 项目管理 |

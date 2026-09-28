@@ -1,13 +1,14 @@
 """Tests for transport.http module."""
+
 from __future__ import annotations
 
 import json
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 
-from easy_sandbox.models.errors import ConnectionError_
-from easy_sandbox.transport.auth import ApiKeyAuth, EnvdTokenManager, PLATFORM_AUTH_HEADER
+from easy_sandbox.transport.auth import PLATFORM_AUTH_HEADER, ApiKeyAuth, EnvdTokenManager
 from easy_sandbox.transport.codec import CONNECT_CONTENT_TYPE
 from easy_sandbox.transport.config import TransportConfig
 from easy_sandbox.transport.http import HttpClient
@@ -55,7 +56,7 @@ class TestPlatformRequest:
             url="https://sandbox-test.example.com/v1/sandboxes",
             json={"id": "sbx-123"},
         )
-        response = await http_client.platform_request(
+        await http_client.platform_request(
             "POST",
             "/v1/sandboxes",
             json={"template": "python3"},
@@ -66,17 +67,13 @@ class TestPlatformRequest:
 
     async def test_sends_query_params(self, http_client, httpx_mock):
         httpx_mock.add_response(json={"sandboxes": []})
-        await http_client.platform_request(
-            "GET", "/v1/sandboxes", params={"limit": "10"}
-        )
+        await http_client.platform_request("GET", "/v1/sandboxes", params={"limit": "10"})
         request = httpx_mock.get_request()
         assert "limit=10" in str(request.url)
 
     async def test_custom_headers_merged(self, http_client, httpx_mock):
         httpx_mock.add_response(json={})
-        await http_client.platform_request(
-            "GET", "/v1/sandboxes", headers={"X-Custom": "value"}
-        )
+        await http_client.platform_request("GET", "/v1/sandboxes", headers={"X-Custom": "value"})
         request = httpx_mock.get_request()
         assert request.headers["x-custom"] == "value"
 
@@ -142,6 +139,39 @@ class TestEnvdRequest:
         )
         assert result == {"processes": []}
 
+    async def test_request_timeout_override(self, http_client, envd_token, httpx_mock):
+        """request_timeout overrides the client-level default for a single call."""
+        httpx_mock.add_response(
+            url="https://envd.example.com/process.Process/List",
+            json={"ok": True},
+        )
+        await http_client.envd_request(
+            "https://envd.example.com",
+            "/process.Process/List",
+            envd_token=envd_token,
+            request_timeout=120.0,
+        )
+        request = httpx_mock.get_request()
+        # The request was sent successfully; the timeout was applied
+        # at the httpx level (not directly visible in the request object,
+        # but we verify it via monkeypatch below).
+        assert request is not None
+
+    async def test_request_timeout_none_uses_default(self, http_client, envd_token, httpx_mock):
+        """When request_timeout is None, the default http_timeout is used."""
+        httpx_mock.add_response(
+            url="https://envd.example.com/test",
+            json={"ok": True},
+        )
+        await http_client.envd_request(
+            "https://envd.example.com",
+            "/test",
+            envd_token=envd_token,
+            request_timeout=None,
+        )
+        # Should not raise — default timeout from config is used.
+        assert httpx_mock.get_request() is not None
+
 
 class TestClose:
     """Test client cleanup."""
@@ -175,3 +205,213 @@ class TestClose:
         async with HttpClient(config=transport_config, auth=api_key_auth) as client:
             await client.platform_request("GET", "/v1/health")
         assert client._platform_client is None
+
+
+class TestRequestTimeoutPropagation:
+    """Verify that request_timeout is forwarded to httpx correctly."""
+
+    async def test_envd_request_passes_timeout_to_httpx_post(
+        self, transport_config, api_key_auth, envd_token, httpx_mock
+    ):
+        """envd_request(request_timeout=120) should pass timeout=Timeout(120) to client.post()."""
+        httpx_mock.add_response(
+            url="https://envd.example.com/test",
+            json={"ok": True},
+        )
+        client = HttpClient(config=transport_config, auth=api_key_auth)
+        envd_client = client._create_envd_client("https://envd.example.com")
+
+        captured_kwargs: dict = {}
+        original_post = envd_client.post
+
+        async def patched_post(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return await original_post(*args, **kwargs)
+
+        envd_client.post = patched_post  # type: ignore[method-assign]
+
+        await client.envd_request(
+            "https://envd.example.com",
+            "/test",
+            envd_token=envd_token,
+            request_timeout=120.0,
+        )
+
+        assert "timeout" in captured_kwargs
+        assert captured_kwargs["timeout"].read == 120.0
+        await client.close()
+
+    async def test_envd_request_no_timeout_kwarg_when_none(
+        self, transport_config, api_key_auth, envd_token, httpx_mock
+    ):
+        """envd_request(request_timeout=None) should NOT pass timeout kwarg."""
+        httpx_mock.add_response(
+            url="https://envd.example.com/test",
+            json={"ok": True},
+        )
+        client = HttpClient(config=transport_config, auth=api_key_auth)
+        envd_client = client._create_envd_client("https://envd.example.com")
+
+        captured_kwargs: dict = {}
+        original_post = envd_client.post
+
+        async def patched_post(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return await original_post(*args, **kwargs)
+
+        envd_client.post = patched_post  # type: ignore[method-assign]
+
+        await client.envd_request(
+            "https://envd.example.com",
+            "/test",
+            envd_token=envd_token,
+        )
+
+        # No per-request timeout override — client-level default applies
+        assert "timeout" not in captured_kwargs
+        await client.close()
+
+    async def test_platform_request_passes_timeout_to_httpx_request(
+        self, transport_config, api_key_auth, httpx_mock
+    ):
+        """platform_request(request_timeout=120) forwards timeout=Timeout(120) to request()."""
+        httpx_mock.add_response(
+            url="https://sandbox-test.example.com/sandboxes",
+            json={"sandboxID": "sbx-1"},
+        )
+        client = HttpClient(config=transport_config, auth=api_key_auth)
+        platform_client = await client._get_platform_client()
+
+        captured_kwargs: dict = {}
+        original_request = platform_client.request
+
+        async def patched_request(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return await original_request(*args, **kwargs)
+
+        platform_client.request = patched_request  # type: ignore[method-assign]
+
+        await client.platform_request(
+            "POST", "/sandboxes", json={"templateID": "base"}, request_timeout=120.0
+        )
+
+        assert "timeout" in captured_kwargs
+        assert isinstance(captured_kwargs["timeout"], httpx.Timeout)
+        assert captured_kwargs["timeout"].read == 120.0
+        await client.close()
+
+    async def test_platform_request_no_timeout_kwarg_when_none(
+        self, transport_config, api_key_auth, httpx_mock
+    ):
+        """platform_request(request_timeout=None) must NOT pass a timeout kwarg."""
+        httpx_mock.add_response(
+            url="https://sandbox-test.example.com/sandboxes",
+            json={"sandboxes": []},
+        )
+        client = HttpClient(config=transport_config, auth=api_key_auth)
+        platform_client = await client._get_platform_client()
+
+        captured_kwargs: dict = {}
+        original_request = platform_client.request
+
+        async def patched_request(*args, **kwargs):
+            captured_kwargs.update(kwargs)
+            return await original_request(*args, **kwargs)
+
+        platform_client.request = patched_request  # type: ignore[method-assign]
+
+        await client.platform_request("GET", "/sandboxes")
+
+        # Client-level default applies — no per-request override sent.
+        assert "timeout" not in captured_kwargs
+        await client.close()
+
+    async def test_envd_stream_uses_override_timeout(self, envd_token):
+        """envd_stream(request_timeout=180) should create httpx client with Timeout(180)."""
+        captured_timeouts: list[float] = []
+        fake_response = MagicMock()
+        fake_response.status_code = 200
+        fake_response.content = b""  # empty streaming response
+
+        original_init = httpx.AsyncClient.__init__
+
+        def patched_init(self_client, **kwargs):
+            if "timeout" in kwargs:
+                t = kwargs["timeout"]
+                captured_timeouts.append(t.read if isinstance(t, httpx.Timeout) else t)
+            original_init(self_client, **kwargs)
+
+        fake_post = AsyncMock(return_value=fake_response)
+
+        config = TransportConfig(
+            api_url="https://test.example.com",
+            http2=False,
+            http_timeout=30.0,
+        )
+        auth = MagicMock()
+        client = HttpClient(config=config, auth=auth)
+
+        with (
+            patch.object(httpx.AsyncClient, "__init__", patched_init),
+            patch.object(httpx.AsyncClient, "post", fake_post),
+            patch.object(
+                httpx.AsyncClient, "__aenter__",
+                AsyncMock(return_value=MagicMock(post=fake_post)),
+            ),
+            patch.object(httpx.AsyncClient, "__aexit__", AsyncMock(return_value=False)),
+        ):
+            async for _ in client.envd_stream(
+                "https://envd.example.com",
+                "/process.Process/Start",
+                envd_token=envd_token,
+                request_timeout=180.0,
+            ):
+                pass
+
+        assert 180.0 in captured_timeouts
+        await client.close()
+
+    async def test_envd_stream_default_timeout(self, envd_token):
+        """envd_stream without request_timeout uses config.http_timeout."""
+        captured_timeouts: list[float] = []
+        fake_response = MagicMock()
+        fake_response.status_code = 200
+        fake_response.content = b""
+
+        original_init = httpx.AsyncClient.__init__
+
+        def patched_init(self_client, **kwargs):
+            if "timeout" in kwargs:
+                t = kwargs["timeout"]
+                captured_timeouts.append(t.read if isinstance(t, httpx.Timeout) else t)
+            original_init(self_client, **kwargs)
+
+        fake_post = AsyncMock(return_value=fake_response)
+
+        config = TransportConfig(
+            api_url="https://test.example.com",
+            http2=False,
+            http_timeout=42.0,  # custom default
+        )
+        auth = MagicMock()
+        client = HttpClient(config=config, auth=auth)
+
+        with (
+            patch.object(httpx.AsyncClient, "__init__", patched_init),
+            patch.object(httpx.AsyncClient, "post", fake_post),
+            patch.object(
+                httpx.AsyncClient, "__aenter__",
+                AsyncMock(return_value=MagicMock(post=fake_post)),
+            ),
+            patch.object(httpx.AsyncClient, "__aexit__", AsyncMock(return_value=False)),
+        ):
+            async for _ in client.envd_stream(
+                "https://envd.example.com",
+                "/process.Process/Start",
+                envd_token=envd_token,
+            ):
+                pass
+
+        # Should use config default, not an override
+        assert 42.0 in captured_timeouts
+        await client.close()

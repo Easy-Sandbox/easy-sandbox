@@ -27,7 +27,7 @@ except SandboxError as e:
 
 ### Troubleshooting Steps
 
-1. Run `ebx auth status` to confirm authentication status
+1. Run `ebx config get api_key` to confirm authentication status
 2. Verify environment variables are correctly set
 3. Confirm the API Key has not expired or been revoked
 4. For E1002, check if the system clock is accurate (`date` command)
@@ -60,17 +60,19 @@ except SandboxError as e:
 | E3001 | `CommandTimeoutError` | Command execution timeout | Increase the `timeout` parameter or check if the command is hanging | `commands.run()` or `run_code()` exceeded timeout |
 | E3002 | `ProcessError` | Non-zero exit code | — | Command returned a non-zero exit code (carries `exit_code`, `stdout`, `stderr` attributes) |
 | E3003 | `CodeExecutionError` | Code execution failed | Check code syntax and runtime dependencies | Code Interpreter failed to execute code |
-| E3004 | `CapabilityNotSupportedError` | Capability not enabled | Declare the required capability in the template's `capabilities` list, or use a template that supports it | Called a capability not declared by the template (e.g., calling `network.get_url()` on a template without `ports` capability) |
+| E3004 | `CapabilityNotSupportedError` | Capability not enabled | Declare the required capability in the template's `capabilities` list, or use a template that supports it | Called a capability that is runtime-gated without it being declared (e.g., calling `run_code()` on a template without the `code` capability). Also raised during `resolve_capabilities()` at template parse time |
 
 ### E3004 Details
+
+> **Note (ADR 2026-09-23)**: The runtime `check_capability()` gate has been removed from most modules. `CommandsModule`, `FilesModule`, and `NetworkModule` no longer raise E3004 at call time. **Exception:** `CodeContextModule` retains the `code` capability gate — all its methods (`run`, `create_context`, `list_contexts`, `restart_context`, `remove_context`) still raise `CapabilityNotSupportedError` (E3004) when the `code` capability is missing (fail-closed). E3004 is also still raised during template resolution / model validation (e.g., `resolve_capabilities()`).
 
 `CapabilityNotSupportedError` carries a `capability` attribute indicating the missing capability name.
 
 ```python
 try:
-    url = sandbox.network.get_url(8080)
+    result = await sandbox.run_code("print(1)")
 except CapabilityNotSupportedError as e:
-    print(f"Missing capability: {e.capability}")  # "ports"
+    print(f"Missing capability: {e.capability}")  # "code"
 ```
 
 **Standard capabilities**: `shell`, `files`, `code`, `terminal`, `ports`
@@ -107,7 +109,7 @@ except CapabilityNotSupportedError as e:
 | Error Code | Exception Class | Meaning | Suggestion | Trigger Scenario |
 |------------|----------------|---------|------------|------------------|
 | E6000 | `SessionError` | Session error (base class) | — | General session management errors |
-| E6001 | `SessionNotFoundError` | Session not found | Run `ebx session list` to view available sessions | Connecting/stopping a non-existent session |
+| E6001 | `SessionNotFoundError` | Session not found | Verify the session name is correct | Connecting/stopping a non-existent session |
 | E6002 | `SessionAlreadyExistsError` | Session name already exists | Use a different name, or stop the existing session first | Creating a session with a duplicate name |
 
 ---

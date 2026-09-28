@@ -1,4 +1,5 @@
 """Tests for logging utilities."""
+
 from __future__ import annotations
 
 import logging
@@ -26,7 +27,7 @@ class TestGetLogger:
         # Reset the configured flag to allow reconfiguration
         log_module._CONFIGURED = False
         with mock.patch.dict(os.environ, {"SANDBOX_LOG_LEVEL": "DEBUG"}):
-            logger = get_logger("envtest")
+            get_logger("envtest")
             root = logging.getLogger("easy_sandbox")
             assert root.level == logging.DEBUG
         # Reset for other tests
@@ -39,7 +40,7 @@ class TestGetLogger:
         # Make sure env var is not set
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("SANDBOX_LOG_LEVEL", None)
-            logger = get_logger("default_test")
+            get_logger("default_test")
             root = logging.getLogger("easy_sandbox")
             assert root.level == logging.WARNING
         log_module._CONFIGURED = False

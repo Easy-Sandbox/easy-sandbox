@@ -13,14 +13,17 @@ Usage:
     manager = TemplateManager(http)
     info = await manager.build("FROM python:3.11\\nRUN pip install flask")
 """
+
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from easy_sandbox.models.template import TemplateInfo, BuildStatus
+from easy_sandbox.models.template import BuildStatus, TemplateInfo
 from easy_sandbox.protocol.template import TemplateProtocol
-from easy_sandbox.transport.http import HttpClient
 from easy_sandbox.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from easy_sandbox.transport.http import HttpClient
 
 logger = get_logger("api.template")
 
@@ -150,9 +153,7 @@ class TemplateManager:
         await self._protocol.delete(template_id)
         logger.info("Template deleted: %s", template_id)
 
-    async def get_build_status(
-        self, template_id: str, build_id: str
-    ) -> dict[str, Any]:
+    async def get_build_status(self, template_id: str, build_id: str) -> dict[str, Any]:
         """Get build status for a template build.
 
         Args:
@@ -177,7 +178,7 @@ class TemplateManager:
         memory_mb: int = 2048,
         start_cmd: str | None = None,
         ready_cmd: str | None = None,
-        tags: list[str] | None = None,
+        tags: list[str] | None = None,  # type: ignore[valid-type]
         acr_headers: dict[str, str] | None = None,
         timeout: int = 600,
         poll_interval: int = 5,
@@ -206,18 +207,23 @@ class TemplateManager:
         """
         # Step 1: Create metadata
         v3_data = await self._protocol.create_v3(
-            name, cpu_count=cpu_count, memory_mb=memory_mb, tags=tags,
+            name,
+            cpu_count=cpu_count,
+            memory_mb=memory_mb,
+            tags=tags,
         )
         template_id = v3_data["templateID"]
         build_id = v3_data["buildID"]
         logger.info(
             "Template v3 metadata created: templateID=%s, buildID=%s",
-            template_id, build_id,
+            template_id,
+            build_id,
         )
 
         # Step 2: Trigger build
         await self._protocol.trigger_build_v2(
-            template_id, build_id,
+            template_id,
+            build_id,
             from_image=from_image,
             start_cmd=start_cmd,
             ready_cmd=ready_cmd,
@@ -226,8 +232,10 @@ class TemplateManager:
 
         # Step 3: Wait for build
         await self._protocol.wait_for_build(
-            template_id, build_id,
-            timeout=timeout, poll_interval=poll_interval,
+            template_id,
+            build_id,
+            timeout=timeout,
+            poll_interval=poll_interval,
         )
 
         # Fetch final info

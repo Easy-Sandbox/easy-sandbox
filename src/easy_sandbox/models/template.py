@@ -2,10 +2,11 @@
 
 模板管理 API 响应字段使用 camelCase（已实测验证 POST /templates 返回 templateID, buildID）。
 """
+
 from __future__ import annotations
 
 import enum
-from datetime import datetime
+from datetime import datetime  # noqa: TC003  # Pydantic needs at runtime
 from typing import Any
 
 from pydantic import BaseModel, Field, field_validator
@@ -14,13 +15,15 @@ from pydantic import BaseModel, Field, field_validator
 # Standard capability vocabulary
 # ---------------------------------------------------------------------------
 
-STANDARD_CAPABILITIES: frozenset[str] = frozenset({
-    "shell",
-    "files",
-    "code",
-    "terminal",
-    "ports",
-})
+STANDARD_CAPABILITIES: frozenset[str] = frozenset(
+    {
+        "shell",
+        "files",
+        "code",
+        "terminal",
+        "ports",
+    }
+)
 """All recognised capability tokens.  Extensible in future phases."""
 
 DEFAULT_CAPABILITIES: frozenset[str] = frozenset({"shell", "files", "code"})
@@ -61,6 +64,7 @@ class TemplateInfo(BaseModel):
         if isinstance(v, (list, tuple)):
             return [str(item) for item in v]
         return [str(v)]
+
     cpu_count: int | None = Field(default=None, alias="cpuCount")
     memory_mb: int | None = Field(default=None, alias="memoryMB")
     disk_size_mb: int | None = Field(default=None, alias="diskSizeMB")
@@ -106,9 +110,7 @@ __all__ = [
 # ---- Custom command models ----
 
 
-_VALID_ARG_TYPES: frozenset[str] = frozenset(
-    {"string", "integer", "float", "boolean"}
-)
+_VALID_ARG_TYPES: frozenset[str] = frozenset({"string", "integer", "float", "boolean"})
 """Allowed values for :attr:`CustomCommandArg.type`."""
 
 
@@ -126,9 +128,7 @@ class CustomCommandArg(BaseModel):
     @classmethod
     def _validate_type(cls, v: str) -> str:
         if v not in _VALID_ARG_TYPES:
-            raise ValueError(
-                f"Invalid arg type {v!r}; allowed: {sorted(_VALID_ARG_TYPES)}"
-            )
+            raise ValueError(f"Invalid arg type {v!r}; allowed: {sorted(_VALID_ARG_TYPES)}")
         return v
 
 
@@ -200,8 +200,7 @@ class SandboxTemplate(BaseModel):
             for cap in v:
                 if cap not in STANDARD_CAPABILITIES:
                     raise ValueError(
-                        f"Unknown capability {cap!r}; "
-                        f"allowed: {sorted(STANDARD_CAPABILITIES)}"
+                        f"Unknown capability {cap!r}; allowed: {sorted(STANDARD_CAPABILITIES)}"
                     )
         return v
 
@@ -211,8 +210,7 @@ class SandboxTemplate(BaseModel):
         if self.system_packages:
             pkgs = " ".join(self.system_packages)
             lines.append(
-                f"RUN apt-get update && apt-get install -y {pkgs}"
-                " && rm -rf /var/lib/apt/lists/*"
+                f"RUN apt-get update && apt-get install -y {pkgs} && rm -rf /var/lib/apt/lists/*"
             )
         if self.python_packages:
             pkgs = " ".join(self.python_packages)

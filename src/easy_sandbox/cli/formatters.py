@@ -2,6 +2,7 @@
 
 Supports three modes: table (rich), JSON, and quiet.
 """
+
 from __future__ import annotations
 
 import json as json_module
@@ -60,7 +61,7 @@ class OutputFormatter:
     def print_table(self, headers: list[str], rows: list[list[str]]) -> None:
         """Print data as a table (rich), JSON, or quiet tab-separated."""
         if self.use_json:
-            items = [dict(zip(headers, row)) for row in rows]
+            items = [dict(zip(headers, row)) for row in rows]  # noqa: B905
             self._print_json(items)
             return
         if self.quiet:

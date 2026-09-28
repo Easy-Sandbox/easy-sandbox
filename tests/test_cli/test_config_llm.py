@@ -1,14 +1,16 @@
 """Tests for LLM-related config commands: llm_api_key, llm_model, llm_base_url."""
+
 from __future__ import annotations
 
-import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import patch
 
-import pytest
-from click.testing import CliRunner
-
 from easy_sandbox.cli.main import cli
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from click.testing import CliRunner
 
 
 class TestConfigLLMApiKey:
@@ -17,11 +19,11 @@ class TestConfigLLMApiKey:
     def test_set_llm_api_key(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
-            result = runner.invoke(
-                cli, ["config", "set", "llm_api_key", "sk-test123"]
-            )
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+        ):
+            result = runner.invoke(cli, ["config", "set", "llm_api_key", "sk-test123"])
 
         assert result.exit_code == 0
         assert "llm_api_key" in result.output
@@ -37,8 +39,10 @@ class TestConfigLLMApiKey:
         config_file = tmp_path / "config.toml"
         config_file.write_text('[transport]\nllm_api_key = "sk-test123abcdef"\n')
 
-        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+        ):
             result = runner.invoke(cli, ["config", "get", "llm_api_key"])
 
         assert result.exit_code == 0
@@ -50,8 +54,10 @@ class TestConfigLLMApiKey:
     def test_get_llm_api_key_not_set(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+        ):
             result = runner.invoke(cli, ["config", "get", "llm_api_key"])
 
         assert result.exit_code == 0
@@ -63,11 +69,11 @@ class TestConfigLLMModel:
     def test_set_llm_model(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
-            result = runner.invoke(
-                cli, ["config", "set", "llm_model", "qwen-plus"]
-            )
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+        ):
+            result = runner.invoke(cli, ["config", "set", "llm_model", "qwen-plus"])
 
         assert result.exit_code == 0
         assert "qwen-plus" in result.output
@@ -78,8 +84,10 @@ class TestConfigLLMModel:
         config_file = tmp_path / "config.toml"
         config_file.write_text('[transport]\nllm_model = "qwen-plus"\n')
 
-        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+        ):
             result = runner.invoke(cli, ["config", "get", "llm_model"])
 
         assert result.exit_code == 0
@@ -92,8 +100,10 @@ class TestConfigLLMBaseURL:
     def test_set_llm_base_url(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+        ):
             result = runner.invoke(
                 cli,
                 ["config", "set", "llm_base_url", "https://example.com/v1"],
@@ -108,8 +118,10 @@ class TestConfigLLMBaseURL:
         config_file = tmp_path / "config.toml"
         config_file.write_text('[transport]\nllm_base_url = "https://example.com/v1"\n')
 
-        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+        ):
             result = runner.invoke(cli, ["config", "get", "llm_base_url"])
 
         assert result.exit_code == 0
@@ -122,8 +134,10 @@ class TestConfigListLLM:
     def test_list_includes_llm_keys(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
 
-        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+        ):
             result = runner.invoke(cli, ["config", "list"])
 
         assert result.exit_code == 0
@@ -131,19 +145,19 @@ class TestConfigListLLM:
         assert "llm_model" in result.output
         assert "llm_base_url" in result.output
 
-    def test_list_shows_user_llm_values(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_list_shows_user_llm_values(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
         config_file.write_text(
-            '[transport]\n'
+            "[transport]\n"
             'llm_api_key = "sk-test999abc"\n'
             'llm_model = "qwen-plus"\n'
             'llm_base_url = "https://example.com/v1"\n'
         )
 
-        with patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file), \
-             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path):
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+        ):
             result = runner.invoke(cli, ["config", "list"])
 
         assert result.exit_code == 0

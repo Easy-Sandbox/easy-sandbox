@@ -1,5 +1,7 @@
 # Skills 系统设计
 
+> **⚠️ 状态说明（ADR 2026-09-23）**：`ebx skill` CLI 命令组已在过度设计清理中移除。以下描述的 Skills 系统是**未来规划功能**。本文档中的 CLI 命令为设计方案，当前不可用。当前以模板作为能力分发机制。
+
 > Skills 是 Easy Sandbox 的可复用能力包，将「沙箱环境配置 + Agent 使用说明 + MCP Tools 扩展」封装为一个可分发的单元。开发者可以像安装 npm 包一样安装 Skill，AI Agent 可以自动发现并使用 Skill 提供的能力。
 
 ---

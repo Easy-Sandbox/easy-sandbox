@@ -1,7 +1,6 @@
 """Tests for protocol.port module — 端口 URL 本地计算。"""
-from __future__ import annotations
 
-import pytest
+from __future__ import annotations
 
 from easy_sandbox.protocol.port import PortClient
 

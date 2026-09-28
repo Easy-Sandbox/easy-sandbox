@@ -27,7 +27,7 @@ except SandboxError as e:
 
 ### 排查步骤
 
-1. 运行 `ebx auth status` 确认认证状态
+1. 运行 `ebx config get api_key` 确认认证状态
 2. 检查环境变量是否正确设置
 3. 确认 API Key 未过期或被吊销
 4. 对于 E1002，检查系统时钟是否准确（`date` 命令）
@@ -60,17 +60,19 @@ except SandboxError as e:
 | E3001 | `CommandTimeoutError` | 命令执行超时 | 增加 `timeout` 参数或检查命令是否卡死 | `commands.run()` 或 `run_code()` 超过 timeout |
 | E3002 | `ProcessError` | 进程非零退出码 | — | 命令返回非零退出码（携带 `exit_code`、`stdout`、`stderr` 属性） |
 | E3003 | `CodeExecutionError` | 代码执行失败 | 检查代码语法和运行时依赖 | Code Interpreter 执行代码失败 |
-| E3004 | `CapabilityNotSupportedError` | 能力未启用 | 在模板的 `capabilities` 列表中声明所需能力，或使用支持该能力的模板 | 调用了模板未声明的能力（如在无 `ports` 能力的模板上调用 `network.get_url()`） |
+| E3004 | `CapabilityNotSupportedError` | 能力未启用 | 在模板的 `capabilities` 列表中声明所需能力，或使用支持该能力的模板 | 调用了运行时门控能力但未声明（如在无 `code` 能力的模板上调用 `run_code()`）。也会在模板解析时由 `resolve_capabilities()` 抛出 |
 
 ### E3004 详细说明
+
+> **说明（ADR 2026-09-23）**：大多数模块的运行时 `check_capability()` 门控已移除。`CommandsModule`、`FilesModule`、`NetworkModule` 不再在调用时抛出 E3004。**例外：`CodeContextModule` 保留了 `code` 能力门控**——其所有方法（`run`、`create_context`、`list_contexts`、`restart_context`、`remove_context`）在 `code` 能力缺失时仍会抛出 `CapabilityNotSupportedError`（E3004，fail-closed）。E3004 也仍在模板解析/模型校验时抛出（如 `resolve_capabilities()`）。
 
 `CapabilityNotSupportedError` 携带 `capability` 属性，指示缺少的能力名。
 
 ```python
 try:
-    url = sandbox.network.get_url(8080)
+    result = await sandbox.run_code("print(1)")
 except CapabilityNotSupportedError as e:
-    print(f"缺少能力: {e.capability}")  # "ports"
+    print(f"缺少能力: {e.capability}")  # "code"
 ```
 
 **标准能力**：`shell`、`files`、`code`、`terminal`、`ports`
@@ -107,7 +109,7 @@ except CapabilityNotSupportedError as e:
 | 错误码 | 异常类 | 含义 | 建议 | 触发场景 |
 |--------|--------|------|------|----------|
 | E6000 | `SessionError` | 会话错误（基类） | — | 会话管理相关通用错误 |
-| E6001 | `SessionNotFoundError` | 会话未找到 | 运行 `ebx session list` 查看可用会话 | 连接/停止不存在的会话 |
+| E6001 | `SessionNotFoundError` | 会话未找到 | 检查会话名称是否正确 | 连接/停止不存在的会话 |
 | E6002 | `SessionAlreadyExistsError` | 会话名已存在 | 使用其他名称，或先停止已有会话 | 创建同名会话 |
 
 ---

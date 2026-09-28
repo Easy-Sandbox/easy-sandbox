@@ -134,11 +134,20 @@ class TestCapabilities:
         assert body["groups"]["commands"] is False
 
     def test_no_auth_required(self) -> None:
-        """Verify /capabilities is registered with auth_required=False."""
+        """Verify /capabilities requires auth when token is set."""
         port = _find_free_port()
         httpd = _start_server(port, auth_token="test-placeholder-token")
         try:
+            # Without token -> 401
             status, body = _request(port, "GET", "/capabilities")
+            assert status == 401
+            # With correct token -> 200
+            status, body = _request(
+                port,
+                "GET",
+                "/capabilities",
+                headers={"X-Access-Token": "test-placeholder-token"},
+            )
             assert status == 200
             assert "groups" in body
         finally:
@@ -157,9 +166,15 @@ class TestSystemInfo:
         status, body = _request(server_port, "GET", "/system/info")
         assert status == 200
         for key in (
-            "os", "arch", "cpu_count", "memory_total_mb",
-            "memory_available_mb", "disk_total_gb", "disk_free_gb",
-            "python_version", "hostname",
+            "os",
+            "arch",
+            "cpu_count",
+            "memory_total_mb",
+            "memory_available_mb",
+            "disk_total_gb",
+            "disk_free_gb",
+            "python_version",
+            "hostname",
         ):
             assert key in body, f"Missing key: {key}"
 
@@ -192,16 +207,12 @@ class TestEnvGet:
     def test_filter_whitelist(self, server_port: int, monkeypatch: Any) -> None:
         monkeypatch.setenv("MY_TEST_VAR_A", "aaa")
         monkeypatch.setenv("MY_TEST_VAR_B", "bbb")
-        status, body = _request(
-            server_port, "GET", "/env?filter=MY_TEST_VAR_A"
-        )
+        status, body = _request(server_port, "GET", "/env?filter=MY_TEST_VAR_A")
         assert status == 200
         assert "MY_TEST_VAR_A" in body["variables"]
         assert "MY_TEST_VAR_B" not in body["variables"]
 
-    def test_blacklist_filters_sensitive(
-        self, server_port: int, monkeypatch: Any
-    ) -> None:
+    def test_blacklist_filters_sensitive(self, server_port: int, monkeypatch: Any) -> None:
         monkeypatch.setenv("MY_SECRET_VALUE", "s3cret")
         monkeypatch.setenv("DB_PASSWORD_MAIN", "hunter2")
         monkeypatch.setenv("SAFE_VARIABLE", "ok")
@@ -211,9 +222,7 @@ class TestEnvGet:
         assert "DB_PASSWORD_MAIN" not in body["variables"]
         assert "SAFE_VARIABLE" in body["variables"]
 
-    def test_blacklist_token_key_credential(
-        self, server_port: int, monkeypatch: Any
-    ) -> None:
+    def test_blacklist_token_key_credential(self, server_port: int, monkeypatch: Any) -> None:
         """All blacklist tokens: TOKEN, SECRET, KEY, PASSWORD, CREDENTIAL."""
         monkeypatch.setenv("API_TOKEN_X", "t")
         monkeypatch.setenv("AUTH_KEY_ID", "k")
@@ -324,9 +333,7 @@ class TestPackages:
         assert body["manager"] == "pip"
 
     def test_unsupported_manager(self, server_port: int) -> None:
-        status, body = _request(
-            server_port, "GET", "/packages?manager=cargo"
-        )
+        status, body = _request(server_port, "GET", "/packages?manager=cargo")
         assert status == 400
         assert "Unsupported" in body["error"]
 
@@ -351,9 +358,15 @@ class TestSystemMetrics:
         status, body = _request(server_port, "GET", "/system/metrics")
         assert status == 200
         for key in (
-            "cpu_load_1m", "cpu_load_5m", "cpu_load_15m",
-            "memory_used_mb", "memory_total_mb", "memory_percent",
-            "disk_used_gb", "disk_total_gb", "disk_percent",
+            "cpu_load_1m",
+            "cpu_load_5m",
+            "cpu_load_15m",
+            "memory_used_mb",
+            "memory_total_mb",
+            "memory_percent",
+            "disk_used_gb",
+            "disk_total_gb",
+            "disk_percent",
             "uptime_seconds",
         ):
             assert key in body, f"Missing key: {key}"

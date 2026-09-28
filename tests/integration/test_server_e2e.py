@@ -8,6 +8,7 @@ Tests the full HTTP server including:
 - Token-based authentication
 - Registry freeze semantics
 """
+
 from __future__ import annotations
 
 import base64
@@ -22,12 +23,12 @@ from typing import Any
 
 import pytest
 
-from easy_sandbox.server import SandboxServer, CommandRegistry, CommandArg
+from easy_sandbox.server import CommandArg, CommandRegistry, SandboxServer
 from easy_sandbox.server.routes import (
+    _KNOWN_BUILTINS,
+    _enabled_builtins,
     disable_builtin,
     enable_builtin,
-    _enabled_builtins,
-    _KNOWN_BUILTINS,
 )
 
 # ---------------------------------------------------------------------------

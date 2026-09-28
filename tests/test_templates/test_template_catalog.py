@@ -20,6 +20,7 @@ Covered contracts
 (e) The ``README.md`` index table (the single source of truth for humans)
     matches the YAML files field by field.
 """
+
 from __future__ import annotations
 
 import re
@@ -49,12 +50,11 @@ if TYPE_CHECKING:
 
 #: ``TEMPLATE_CATALOG`` entries that are served by the platform's built-in /
 #: online image catalog and therefore intentionally have **no** folder here.
-PLATFORM_ONLY_TEMPLATES = frozenset({
-    "base",
-    "code-interpreter",
-    "python-data-science",
-    "full-stack",
-})
+PLATFORM_ONLY_TEMPLATES = frozenset(
+    {
+        "base",
+    }
+)
 
 #: Folders that exist purely as examples / test fixtures and are deliberately
 #: **not** part of the natural-language inference catalog.
@@ -67,6 +67,7 @@ _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _yaml_path(template_dir: Path) -> Path:
     return template_dir / "template.yaml"
@@ -88,21 +89,17 @@ def _raw(template_dir: Path) -> dict:
 # (c) Required files
 # ---------------------------------------------------------------------------
 
+
 class TestRequiredFiles:
     """Every template folder ships the three mandatory files."""
 
     @pytest.mark.parametrize("filename", REQUIRED_TEMPLATE_FILES)
-    def test_required_file_exists(
-        self, template_dir: Path, filename: str
-    ) -> None:
+    def test_required_file_exists(self, template_dir: Path, filename: str) -> None:
         path = template_dir / filename
         assert path.is_file(), (
-            f"{template_dir.name}: required file {filename!r} is missing "
-            f"(expected at {path})"
+            f"{template_dir.name}: required file {filename!r} is missing (expected at {path})"
         )
-        assert path.stat().st_size > 0, (
-            f"{template_dir.name}: {filename} exists but is empty"
-        )
+        assert path.stat().st_size > 0, f"{template_dir.name}: {filename} exists but is empty"
 
     def test_no_unexpected_required_file_names(self, template_dir: Path) -> None:
         """Guard against typos such as ``sandbox_template.yaml`` / ``dockerfile``."""
@@ -118,6 +115,7 @@ class TestRequiredFiles:
 # (a) + (b) YAML validity
 # ---------------------------------------------------------------------------
 
+
 class TestTemplateYaml:
     """``template.yaml`` parses and satisfies the model contract."""
 
@@ -130,8 +128,7 @@ class TestTemplateYaml:
         raw = _raw(template_dir)
         missing = [k for k in REQUIRED_YAML_KEYS if k not in raw]
         assert not missing, (
-            f"{template_dir.name}: template.yaml is missing required "
-            f"key(s): {missing}"
+            f"{template_dir.name}: template.yaml is missing required key(s): {missing}"
         )
 
     def test_name_matches_directory(self, template_dir: Path) -> None:
@@ -179,7 +176,8 @@ class TestTemplateYaml:
         base = _load(template_dir).base
         dockerfile = (template_dir / "Dockerfile").read_text(encoding="utf-8")
         from_lines = [
-            line.strip() for line in dockerfile.splitlines()
+            line.strip()
+            for line in dockerfile.splitlines()
             if line.strip().upper().startswith("FROM ")
         ]
         assert from_lines, f"{template_dir.name}: Dockerfile has no FROM line"
@@ -236,9 +234,7 @@ class TestCapabilities:
     def test_model_rejects_unknown_capability(self) -> None:
         """Sanity check that the validator we rely on is actually wired up."""
         with pytest.raises(ValidationError, match="Unknown capability"):
-            SandboxTemplate.model_validate(
-                {"name": "x", "capabilities": ["not-a-capability"]}
-            )
+            SandboxTemplate.model_validate({"name": "x", "capabilities": ["not-a-capability"]})
 
 
 class TestCustomCommands:
@@ -259,9 +255,7 @@ class TestCustomCommands:
 
     def test_cmd_is_non_empty(self, template_dir: Path) -> None:
         for name, cmd in _load(template_dir).custom_commands.items():
-            assert cmd.cmd.strip(), (
-                f"{template_dir.name}.{name}: 'cmd' must not be blank"
-            )
+            assert cmd.cmd.strip(), f"{template_dir.name}.{name}: 'cmd' must not be blank"
 
     def test_timeout_is_positive(self, template_dir: Path) -> None:
         for name, cmd in _load(template_dir).custom_commands.items():
@@ -310,8 +304,7 @@ class TestCustomCommands:
             )
             for arg_name in names:
                 assert re.fullmatch(r"[a-z_][a-z0-9_]*", arg_name), (
-                    f"{template_dir.name}.{name}: arg {arg_name!r} must be a "
-                    f"lowercase identifier"
+                    f"{template_dir.name}.{name}: arg {arg_name!r} must be a lowercase identifier"
                 )
 
     def test_required_args_have_no_default(self, template_dir: Path) -> None:
@@ -333,6 +326,7 @@ class TestCustomCommands:
 # ---------------------------------------------------------------------------
 # (d) TEMPLATE_CATALOG reconciliation
 # ---------------------------------------------------------------------------
+
 
 class TestCatalogCrossReference:
     """``agent.infer.TEMPLATE_CATALOG`` ↔ on-disk folders stay in sync."""
@@ -377,13 +371,9 @@ class TestCatalogCrossReference:
     def test_example_only_names_are_real_folders(self, template_dirs: list[Path]) -> None:
         local = {d.name for d in template_dirs}
         stale = sorted(EXAMPLE_ONLY_TEMPLATES - local)
-        assert not stale, (
-            f"EXAMPLE_ONLY_TEMPLATES lists {stale} but no such folder exists"
-        )
+        assert not stale, f"EXAMPLE_ONLY_TEMPLATES lists {stale} but no such folder exists"
 
-    def test_mapped_catalog_entries_have_required_files(
-        self, template_dirs: list[Path]
-    ) -> None:
+    def test_mapped_catalog_entries_have_required_files(self, template_dirs: list[Path]) -> None:
         """For every catalog entry that maps to a folder, the folder is complete."""
         local = {d.name: d for d in template_dirs}
         for profile in TEMPLATE_CATALOG:
@@ -467,11 +457,7 @@ def _parse_index_table(readme: str) -> dict[str, dict]:
             "base": _BACKTICK_RE.findall(base),
             "cpu": int(res.group(1)) if res else None,
             "memory": int(res.group(2)) if res else None,
-            "ports": (
-                [int(p) for p in re.split(r"\s*,\s*", ports.group(1))]
-                if ports
-                else []
-            ),
+            "ports": ([int(p) for p in re.split(r"\s*,\s*", ports.group(1))] if ports else []),
             "capabilities": _BACKTICK_RE.findall(capabilities),
             "commands": _COMMAND_RE.findall(commands),
         }
@@ -499,9 +485,7 @@ class TestCatalogReadme:
     """The README is the *only* index — it must not drift from the YAML files."""
 
     def test_readme_exists(self, catalog_readme: Path) -> None:
-        assert catalog_readme.is_file(), (
-            f"missing catalog index at {catalog_readme}"
-        )
+        assert catalog_readme.is_file(), f"missing catalog index at {catalog_readme}"
 
     def test_index_table_covers_every_template(
         self, catalog_readme: Path, template_dirs: list[Path]
@@ -525,8 +509,7 @@ class TestCatalogReadme:
             tmpl = _load(folder)
 
             assert row["description"] == tmpl.description, (
-                f"{name}: README description {row['description']!r} != YAML "
-                f"{tmpl.description!r}"
+                f"{name}: README description {row['description']!r} != YAML {tmpl.description!r}"
             )
             assert row["keywords"] == list(tmpl.tags), (
                 f"{name}: README keywords {row['keywords']} != YAML tags {tmpl.tags}"
@@ -535,12 +518,10 @@ class TestCatalogReadme:
                 f"{name}: README base {row['base']} != YAML base {tmpl.base!r}"
             )
             assert row["cpu"] == tmpl.cpu_count, (
-                f"{name}: README cpu {row['cpu']} != YAML resources.cpu "
-                f"{tmpl.cpu_count}"
+                f"{name}: README cpu {row['cpu']} != YAML resources.cpu {tmpl.cpu_count}"
             )
             assert row["memory"] == tmpl.memory_mb, (
-                f"{name}: README memory {row['memory']} != YAML resources.memory "
-                f"{tmpl.memory_mb}"
+                f"{name}: README memory {row['memory']} != YAML resources.memory {tmpl.memory_mb}"
             )
             assert row["ports"] == list(tmpl.ports), (
                 f"{name}: README ports {row['ports']} != YAML ports {tmpl.ports}"
@@ -552,20 +533,16 @@ class TestCatalogReadme:
                 else sorted(DEFAULT_CAPABILITIES)
             )
             assert row["capabilities"] == expected_caps, (
-                f"{name}: README capabilities {row['capabilities']} != YAML "
-                f"{expected_caps}"
+                f"{name}: README capabilities {row['capabilities']} != YAML {expected_caps}"
             )
 
             expected_cmds = [
-                (cmd_name, [
-                    a.name + ("*" if a.required else "") for a in cmd.args
-                ])
+                (cmd_name, [a.name + ("*" if a.required else "") for a in cmd.args])
                 for cmd_name, cmd in tmpl.custom_commands.items()
             ]
             actual_cmds = [(n, argspec.split()) for n, argspec in row["commands"]]
             assert actual_cmds == expected_cmds, (
-                f"{name}: README custom commands {actual_cmds} != YAML "
-                f"{expected_cmds}"
+                f"{name}: README custom commands {actual_cmds} != YAML {expected_cmds}"
             )
 
     def test_capability_matrix_matches_yaml(
@@ -582,9 +559,7 @@ class TestCatalogReadme:
                 if tmpl.capabilities is not None
                 else sorted(DEFAULT_CAPABILITIES)
             )
-            assert name in matrix, (
-                f"{name}: missing from the README capability matrix"
-            )
+            assert name in matrix, f"{name}: missing from the README capability matrix"
             assert matrix[name] == expected, (
                 f"{name}: README capability matrix {matrix[name]} != YAML {expected}"
             )

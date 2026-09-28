@@ -86,7 +86,6 @@ _LOAD_CFG = "easy_sandbox.transport.config.load_config"
 _CREATE_AUTH = "easy_sandbox.transport.auth.create_auth_provider"
 _HTTP_CLIENT = "easy_sandbox.transport.http.HttpClient"
 _SANDBOX_PROTO = "easy_sandbox.protocol.sandbox.SandboxProtocol"
-_REG_CACHE = "easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -229,16 +228,6 @@ def _rs_err(exc: BaseException):
 # ─── specialised mocks ────────────────────────────────────────────────────
 
 
-def _tmpl_cache():
-    @contextmanager
-    def _ctx() -> Iterator[dict[str, Any]]:
-        with tempfile.TemporaryDirectory() as td:
-            with patch(_REG_CACHE, Path(td)):
-                yield {}
-
-    return _ctx
-
-
 def _mcp_install_cursor():
     @contextmanager
     def _ctx() -> Iterator[dict[str, Any]]:
@@ -353,7 +342,7 @@ def _download_file():
 
 
 def _run_cmd(custom_commands: dict[str, Any]):
-    """Mock for ``ebx run`` — exercises the REAL :meth:`Sandbox.run` dispatch.
+    """Mock for ``ebx run`` — exercises the REAL :meth:`Sandbox.custom` dispatch.
 
     Patches ``Sandbox.connect`` as AsyncMock so the merged
     ``_connect_and_run`` coroutine executes with the real ``run_sync``.
@@ -361,8 +350,10 @@ def _run_cmd(custom_commands: dict[str, Any]):
     so the golden file proves placeholder substitution / arg validation
     really happened (not a canned shell).
 
-    Unknown command names raise ``ValueError`` from the real dispatch logic,
-    which the CLI lets propagate (exit code 1).
+    Unknown command names fall through to the (unreachable) SandboxServer
+    and raise ``CommandNotFoundError`` from the real dispatch logic, which
+    the CLI turns into an error message + exit code 2.  The server probe is
+    pre-marked failed so the lookup is deterministic and offline.
     """
 
     @contextmanager
@@ -372,6 +363,10 @@ def _run_cmd(custom_commands: dict[str, Any]):
 
         sb = _make_sb()
         sb._custom_commands = custom_commands
+        # Mechanism B (SandboxServer) is unreachable in this offline mock;
+        # pre-mark the probe so unknown names raise CommandNotFoundError
+        # deterministically instead of attempting a real HTTP call.
+        sb._server_probe_failed = True
 
         async def _fake_run(
             cmd_str: str,
@@ -389,8 +384,15 @@ def _run_cmd(custom_commands: dict[str, Any]):
             )
 
         sb.commands.run = _fake_run
-        # Bind the real Sandbox.run so dispatch/parsing is genuinely exercised.
-        sb.run = lambda name, **kw: Sandbox.run(sb, name, **kw)
+        # Bind the real Sandbox.custom so dispatch/parsing is genuinely
+        # exercised (template mechanism A resolution + arg validation).
+        # ``custom`` delegates template execution to ``_run_template_command``,
+        # which must also be the real bound method (otherwise the MagicMock
+        # attribute is awaited and blows up).
+        sb._run_template_command = (
+            lambda name, kwargs: Sandbox._run_template_command(sb, name, kwargs)
+        )
+        sb.custom = lambda name, **kw: Sandbox.custom(sb, name, **kw)
 
         with patch(_SANDBOX_CONNECT, new_callable=AsyncMock, return_value=sb):
             yield {}
@@ -462,14 +464,16 @@ def _tmpl_list_backend():
             {"templateID": "tmpl-001", "alias": "python-base", "status": "ready"},
             {"templateID": "tmpl-002", "alias": "node-web", "status": "ready"},
         ]
+        mock_http = MagicMock()
+        mock_http.platform_request = AsyncMock(return_value=resp)
+        mock_http.close = AsyncMock()
         with (
             patch(
                 _LOAD_CFG,
                 return_value=MagicMock(api_key="k", access_key_id=None, access_key_secret=None),
             ),
             patch(_CREATE_AUTH, return_value=MagicMock()),
-            patch(_HTTP_CLIENT),
-            patch(_RUN_SYNC, side_effect=[resp, None]),
+            patch(_HTTP_CLIENT, return_value=mock_http),
         ):
             yield {}
 
@@ -486,14 +490,16 @@ def _tmpl_info_backend():
             "status": "ready",
             "dockerfile": "FROM python:3.11-slim",
         }
+        mock_http = MagicMock()
+        mock_http.platform_request = AsyncMock(return_value=resp)
+        mock_http.close = AsyncMock()
         with (
             patch(
                 _LOAD_CFG,
                 return_value=MagicMock(api_key="k", access_key_id=None, access_key_secret=None),
             ),
             patch(_CREATE_AUTH, return_value=MagicMock()),
-            patch(_HTTP_CLIENT),
-            patch(_RUN_SYNC, side_effect=[resp, None]),
+            patch(_HTTP_CLIENT, return_value=mock_http),
         ):
             yield {}
 
@@ -553,8 +559,8 @@ def _build_registry() -> list[EvidenceCase]:
         (["template", "build"], "template-build"),
         (["template", "delete"], "template-delete"),
         (["template", "install"], "template-install"),
-        (["template", "cache"], "template-cache"),
         (["mcp"], "mcp"),
+        (["mcp", "deploy"], "mcp-deploy"),
         (["mcp", "install"], "mcp-install"),
         (["mcp", "start"], "mcp-start"),
         (["mcp", "status"], "mcp-status"),
@@ -595,14 +601,6 @@ def _build_registry() -> list[EvidenceCase]:
                 _cfg(toml='[transport]\nregion = "cn-shanghai"\n'),
                 "config-reset",
             ),
-        ]
-    )
-
-    # ── Template cache (2) ─────────────────────────────────────────────
-    cases.extend(
-        [
-            E(["template", "cache"], "template cache", "A", _tmpl_cache(), "template-cache"),
-            E(["template", "cache", "--clear"], "template cache --clear", "A", _tmpl_cache(), "template-cache-clear"),
         ]
     )
 

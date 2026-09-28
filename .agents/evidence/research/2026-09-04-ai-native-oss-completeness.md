@@ -1,3 +1,12 @@
+> ⚠️ **SUPERSEDED / HISTORICAL SNAPSHOT** — annotation added 2026-09-24 (task #122, following the #109 audit; body left unchanged)
+>
+> This report is a read-only snapshot of the state on **2026-09-04**. The following names/conclusions in it may now be stale — do not rely on them for the current implementation:
+> - Old brand `serverless-sandbox` / old CLI `sbox` → now `easy-sandbox` / `ebx`; see ADR [`2026-09-09-brand-rename-sbox-to-ebx.md`](../../notes/implemented/architecture/2026-09-09-brand-rename-sbox-to-ebx.md).
+> - CLI command groups removed since then (`auth`/`session`/`secret`/`skill`); see ADR [`2026-09-23-cli-command-reduction.md`](../../notes/implemented/feature/2026-09-23-cli-command-reduction.md).
+> - Architecture removed since then (`integrations` layer / capability gating / serializer / keychain); see ADR [`2026-09-23-overdesign-cleanup.md`](../../notes/implemented/architecture/2026-09-23-overdesign-cleanup.md).
+>
+> The authoritative current description lives in `AGENTS.md` and `docs/`.
+
 # AI-Native Open-Source Completeness Audit
 
 > **Date**: 2026-09-04 | **Auditor**: Zoe (read-only research agent) | **Task**: #97

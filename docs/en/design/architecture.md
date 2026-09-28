@@ -14,7 +14,7 @@ graph TD
     L3["L3 Extension Layer<br/>Alibaba Cloud Extensions — VPC / OSS / Domain / NAS Mount"]
     L2["L2 Core Protocol Layer<br/>Core Protocol — Self-implemented E2B-compatible protocol / HTTP REST + WebSocket"]
     L1["L1 Transport & Auth Layer<br/>Transport & Auth — HTTP connection pool / API Key / AK-SK Token Exchange"]
-    GW["China Region API Gateway"]
+    GW["Alibaba Cloud API Gateway"]
     FC["Alibaba Cloud Function Compute (FC) Sandbox Runtime"]
 
     L6 --> L5
@@ -98,7 +98,7 @@ graph TD
 |--------|----------------|
 | `declarative.decorator` | `@sandbox` decorator — Modal-style remote execution |
 | `declarative.config` | `sandbox.yaml` parsing and validation |
-| `declarative.serializer` | Parameter/return value serialization (pickle / cloudpickle / JSON) |
+| `declarative.serializer` | Parameter/return value serialization (JSON only) |
 | `declarative.scheduler` | Declarative task scheduling and orchestration | _TODO — planned_ |
 
 **Target Users**: Python developers and ML engineers seeking a minimalist experience.
@@ -273,7 +273,7 @@ src/easy_sandbox/
 | HTTP Client | `httpx` | Native async support, HTTP/2, core for E2B-compatible protocol implementation |
 | WebSocket | `websockets` | Mature and stable, async-native, used for PTY/streaming scenarios |
 | CLI Framework | `click` + `rich` | Rich UI components, tables/progress bars |
-| Serialization | `cloudpickle` + `msgpack` | Python object serialization + high-performance binary |
+| Serialization | JSON (`json` stdlib) | Safe cross-language serialization for `@sandbox` decorator |
 | Configuration | `pydantic` | Type-safe configuration validation |
 | Testing | `pytest` + `pytest-asyncio` | Standard async testing solution |
 | Package Management | `hatch` / `pdm` | Modern Python project management |

@@ -55,7 +55,7 @@ ebx kill <id>                       # destroy sandbox
 - src/easy_sandbox/compat/ — E2B drop-in compatibility layer
 - src/easy_sandbox/declarative/ — @sandbox decorator
 - src/easy_sandbox/extensions/ — OSS, VPC, domain extensions
-- src/easy_sandbox/integrations/ — LangChain, CrewAI, AutoGen adapters
+- src/easy_sandbox/integrations/ — Framework adapters (planned — directory currently empty; see ADR 2026-09-23)
 
 ## Links
 

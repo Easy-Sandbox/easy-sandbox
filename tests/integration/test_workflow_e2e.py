@@ -3,10 +3,9 @@
 Tests the complete workflow from template definition → capability resolution
 → image build → CLI command completeness → declarative↔server bridge.
 """
+
 from __future__ import annotations
 
-import importlib
-import os
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,12 +15,10 @@ from click.testing import CliRunner
 
 from easy_sandbox.api.capability import (
     ResolvedCapabilities,
-    check_capability,
     resolve_capabilities,
 )
 from easy_sandbox.api.image import Image
 from easy_sandbox.cli.main import cli
-from easy_sandbox.models.errors import CapabilityNotSupportedError
 from easy_sandbox.models.template import (
     DEFAULT_CAPABILITIES,
     SandboxTemplate,
@@ -153,19 +150,6 @@ class TestCapabilityResolution:
         assert result.capabilities == set(DEFAULT_CAPABILITIES)
         assert result.custom_commands == {}
 
-    def test_check_capability_raises_on_missing(self):
-        """check_capability raises CapabilityNotSupportedError for undeclared caps."""
-        caps = {"shell", "files"}
-        with pytest.raises(CapabilityNotSupportedError) as exc_info:
-            check_capability(caps, "terminal")
-        assert "terminal" in str(exc_info.value)
-        assert exc_info.value.code == "E3004"
-
-    def test_check_capability_passes_on_present(self):
-        """check_capability does not raise when the capability is present."""
-        caps = {"shell", "files", "code"}
-        check_capability(caps, "shell")  # should not raise
-
     async def test_resolve_with_custom_commands(self, tmp_path):
         """Custom commands from template.yaml should appear in resolved result."""
         yaml_content = {
@@ -200,11 +184,7 @@ class TestImageChainBuilder:
 
     def test_basic_chain(self):
         """Chain API produces correct Dockerfile."""
-        image = (
-            Image.from_image("python:3.11")
-            .pip_install("flask")
-            .env(PORT="8080")
-        )
+        image = Image.from_image("python:3.11").pip_install("flask").env(PORT="8080")
         dockerfile = image.to_dockerfile()
         lines = dockerfile.split("\n")
 
@@ -277,10 +257,21 @@ class TestCLICompleteness:
         output = result.output
 
         expected_commands = [
-            "auth", "config", "connect", "create", "deploy",
-            "download", "exec", "info", "install", "kill",
-            "list", "mcp", "run", "secret", "session",
-            "skill", "template", "upload",
+            "config",
+            "connect",
+            "create",
+            "deploy",
+            "download",
+            "exec",
+            "info",
+            "install",
+            "kill",
+            "list",
+            "mcp",
+            "run",
+            "sandbox",
+            "template",
+            "upload",
         ]
         for cmd in expected_commands:
             assert cmd in output, f"Command '{cmd}' not found in ebx --help output"
@@ -294,26 +285,6 @@ class TestCLICompleteness:
     def test_config_list_runs(self, runner):
         """ebx config list should run without errors."""
         result = runner.invoke(cli, ["config", "list"])
-        assert result.exit_code == 0
-
-    def test_auth_help(self, runner):
-        """ebx auth --help should show auth subcommands."""
-        result = runner.invoke(cli, ["auth", "--help"])
-        assert result.exit_code == 0
-
-    def test_session_help(self, runner):
-        """ebx session --help should be accessible."""
-        result = runner.invoke(cli, ["session", "--help"])
-        assert result.exit_code == 0
-
-    def test_secret_help(self, runner):
-        """ebx secret --help should be accessible."""
-        result = runner.invoke(cli, ["secret", "--help"])
-        assert result.exit_code == 0
-
-    def test_skill_help(self, runner):
-        """ebx skill --help should be accessible."""
-        result = runner.invoke(cli, ["skill", "--help"])
         assert result.exit_code == 0
 
     def test_version_option(self, runner):
@@ -390,8 +361,8 @@ class TestDeclarativeServerBridge:
                 return f"{greeting}, {name}!"
 
         decl_cmd = factory._registry["greet"]
-        assert decl_cmd.args[0].required is True   # name
-        assert decl_cmd.args[1].required is False   # greeting has default
+        assert decl_cmd.args[0].required is True  # name
+        assert decl_cmd.args[1].required is False  # greeting has default
 
         srv_cmd = fresh_server_reg.get("greet")
         assert srv_cmd.args[0].required is True

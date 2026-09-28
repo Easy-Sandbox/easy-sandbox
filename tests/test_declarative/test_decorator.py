@@ -1,4 +1,5 @@
 """Tests for declarative/decorator.py — @sandbox 装饰器。"""
+
 from __future__ import annotations
 
 import json
@@ -226,6 +227,7 @@ class TestGetFunctionSource:
 
     def test_removes_decorator(self) -> None:
         """Decorator lines should be stripped."""
+
         # _get_function_source is designed to skip decorator lines
         def plain_func() -> str:
             return "hello"
@@ -249,24 +251,6 @@ class TestBuildExecutionScript:
         assert "add(*args, **kwargs)" in script
         assert "json.dumps" in script
 
-    def test_pickle_script(self) -> None:
-        script = _build_execution_script(
-            func_name="fn",
-            func_source="def fn():\n    pass\n",
-            args_data="",
-            serializer_type="pickle",
-        )
-        assert "import cloudpickle" in script
-
-    def test_msgpack_script(self) -> None:
-        script = _build_execution_script(
-            func_name="fn",
-            func_source="def fn():\n    pass\n",
-            args_data="",
-            serializer_type="msgpack",
-        )
-        assert "import msgpack" in script
-
 
 # ---------------------------------------------------------------------------
 # Import from top-level
@@ -278,10 +262,12 @@ class TestTopLevelImport:
 
     def test_import_from_declarative(self) -> None:
         from easy_sandbox.declarative import sandbox as sb
+
         assert callable(sb)
 
     def test_import_from_top(self) -> None:
         from easy_sandbox import sandbox as sb
+
         assert callable(sb)
 
 

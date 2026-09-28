@@ -1,15 +1,18 @@
 """Tests for sandbox CLI commands: create, list, info, kill, exec, upload, download."""
+
 from __future__ import annotations
 
+import asyncio
 import json
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-from click.testing import CliRunner
-
 from easy_sandbox.cli.main import cli
-from easy_sandbox.models.sandbox import SandboxInfo, SandboxStatus
 from easy_sandbox.models.process import ProcessResult
+from easy_sandbox.models.sandbox import SandboxInfo
+
+if TYPE_CHECKING:
+    from click.testing import CliRunner
 
 
 def _make_sandbox(
@@ -18,15 +21,17 @@ def _make_sandbox(
     status: str = "running",
 ) -> MagicMock:
     """Build a mock Sandbox object with an .info attribute."""
-    sb_info = SandboxInfo.model_validate({
-        "sandboxID": sandbox_id,
-        "templateID": template,
-        "status": status,
-        "region": "cn-hangzhou",
-        "timeout": 300,
-        "envdUrl": f"https://{sandbox_id}.cn-hangzhou.e2b.fc.aliyuncs.com",
-        "envdAccessToken": "tok",
-    })
+    sb_info = SandboxInfo.model_validate(
+        {
+            "sandboxID": sandbox_id,
+            "templateID": template,
+            "status": status,
+            "region": "cn-hangzhou",
+            "timeout": 300,
+            "envdUrl": f"https://{sandbox_id}.cn-hangzhou.e2b.fc.aliyuncs.com",
+            "envdAccessToken": "tok",
+        }
+    )
     mock_sb = MagicMock()
     mock_sb.id = sb_info.sandbox_id
     mock_sb.status = sb_info.status
@@ -45,14 +50,14 @@ def _make_sandbox(
 # create
 # ---------------------------------------------------------------------------
 
+
 class TestCreate:
     def test_create_basic(self, runner: CliRunner) -> None:
         mock_sb = _make_sandbox()
 
-        with patch(
-            "easy_sandbox.api.sandbox.Sandbox.create", new_callable=AsyncMock
-        ) as mock_create, patch(
-            "easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb
+        with (
+            patch("easy_sandbox.api.sandbox.Sandbox.create", new_callable=AsyncMock),
+            patch("easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb),
         ):
             result = runner.invoke(cli, ["create", "--template", "python-base"])
 
@@ -62,9 +67,7 @@ class TestCreate:
     def test_create_json(self, runner: CliRunner) -> None:
         mock_sb = _make_sandbox()
 
-        with patch(
-            "easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb
-        ):
+        with patch("easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb):
             result = runner.invoke(cli, ["--json", "create", "--template", "python-base"])
 
         assert result.exit_code == 0
@@ -74,12 +77,8 @@ class TestCreate:
     def test_create_with_envs(self, runner: CliRunner) -> None:
         mock_sb = _make_sandbox()
 
-        with patch(
-            "easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb
-        ):
-            result = runner.invoke(
-                cli, ["create", "-e", "FOO=bar", "-e", "BAZ=qux"]
-            )
+        with patch("easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb):
+            result = runner.invoke(cli, ["create", "-e", "FOO=bar", "-e", "BAZ=qux"])
 
         assert result.exit_code == 0
         assert "sbx-cli-test-001" in result.output
@@ -96,14 +95,70 @@ class TestCreate:
     def test_create_with_metadata(self, runner: CliRunner) -> None:
         mock_sb = _make_sandbox()
 
-        with patch(
-            "easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb
+        with patch("easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb):
+            result = runner.invoke(cli, ["create", "-m", "owner=test", "-m", "env=dev"])
+
+        assert result.exit_code == 0
+
+    def test_create_enforces_timeout_floor_when_default(
+        self, runner: CliRunner
+    ) -> None:
+        """Cold starts are slow: create enforces 120s floor over the 30s default."""
+        mock_sb = _make_sandbox()
+        create_mock = AsyncMock(return_value=mock_sb)
+        mock_cfg = MagicMock()
+        mock_cfg.http_timeout = 30.0  # default transport timeout
+
+        with (
+            patch("easy_sandbox.api.sandbox.Sandbox.create", create_mock),
+            patch("easy_sandbox.utils.async_bridge.run_sync", side_effect=asyncio.run),
+            patch(
+                "easy_sandbox.transport.config.load_config",
+                return_value=mock_cfg,
+            ),
+        ):
+            result = runner.invoke(cli, ["create", "--template", "python-base"])
+
+        assert result.exit_code == 0
+        assert create_mock.call_args.kwargs["request_timeout"] == 120.0
+
+    def test_create_respects_large_configured_timeout(
+        self, runner: CliRunner
+    ) -> None:
+        """When the user sets http_timeout > 120s, the larger value is used."""
+        mock_sb = _make_sandbox()
+        create_mock = AsyncMock(return_value=mock_sb)
+        mock_cfg = MagicMock()
+        mock_cfg.http_timeout = 300.0  # user configured a large timeout
+
+        with (
+            patch("easy_sandbox.api.sandbox.Sandbox.create", create_mock),
+            patch("easy_sandbox.utils.async_bridge.run_sync", side_effect=asyncio.run),
+            patch(
+                "easy_sandbox.transport.config.load_config",
+                return_value=mock_cfg,
+            ),
+        ):
+            result = runner.invoke(cli, ["create", "--template", "python-base"])
+
+        assert result.exit_code == 0
+        assert create_mock.call_args.kwargs["request_timeout"] == 300.0
+
+    def test_create_explicit_request_timeout_flag(self, runner: CliRunner) -> None:
+        """--request-timeout always wins, even if smaller than the floor."""
+        mock_sb = _make_sandbox()
+        create_mock = AsyncMock(return_value=mock_sb)
+
+        with (
+            patch("easy_sandbox.api.sandbox.Sandbox.create", create_mock),
+            patch("easy_sandbox.utils.async_bridge.run_sync", side_effect=asyncio.run),
         ):
             result = runner.invoke(
-                cli, ["create", "-m", "owner=test", "-m", "env=dev"]
+                cli, ["create", "--template", "python-base", "--request-timeout", "45"]
             )
 
         assert result.exit_code == 0
+        assert create_mock.call_args.kwargs["request_timeout"] == 45.0
 
 
 class TestConnect:
@@ -116,13 +171,16 @@ class TestConnect:
         async def fake_connect(sid):
             return mock_sb
 
-        with patch(
-            "easy_sandbox.api.sandbox.Sandbox.connect",
-            new_callable=AsyncMock,
-            return_value=mock_sb,
-        ), patch(
-            "builtins.input",
-            side_effect=["exit"],
+        with (
+            patch(
+                "easy_sandbox.api.sandbox.Sandbox.connect",
+                new_callable=AsyncMock,
+                return_value=mock_sb,
+            ),
+            patch(
+                "builtins.input",
+                side_effect=["exit"],
+            ),
         ):
             result = runner.invoke(cli, ["connect", "sbx-cli-test-001"])
 
@@ -135,13 +193,16 @@ class TestConnect:
         mock_sb.id = "sbx-cli-test-001"
         mock_sb.commands = MagicMock()
 
-        with patch(
-            "easy_sandbox.api.sandbox.Sandbox.connect",
-            new_callable=AsyncMock,
-            return_value=mock_sb,
-        ), patch(
-            "builtins.input",
-            side_effect=EOFError,
+        with (
+            patch(
+                "easy_sandbox.api.sandbox.Sandbox.connect",
+                new_callable=AsyncMock,
+                return_value=mock_sb,
+            ),
+            patch(
+                "builtins.input",
+                side_effect=EOFError,
+            ),
         ):
             result = runner.invoke(cli, ["connect", "sbx-cli-test-001"])
 
@@ -159,13 +220,16 @@ class TestConnect:
         mock_sb.commands = MagicMock()
         mock_sb.commands.run = AsyncMock(return_value=mock_result)
 
-        with patch(
-            "easy_sandbox.api.sandbox.Sandbox.connect",
-            new_callable=AsyncMock,
-            return_value=mock_sb,
-        ), patch(
-            "builtins.input",
-            side_effect=["echo hello", "exit"],
+        with (
+            patch(
+                "easy_sandbox.api.sandbox.Sandbox.connect",
+                new_callable=AsyncMock,
+                return_value=mock_sb,
+            ),
+            patch(
+                "builtins.input",
+                side_effect=["echo hello", "exit"],
+            ),
         ):
             result = runner.invoke(cli, ["connect", "sbx-cli-test-001"])
 
@@ -176,6 +240,7 @@ class TestConnect:
 # ---------------------------------------------------------------------------
 # list
 # ---------------------------------------------------------------------------
+
 
 class TestList:
     def _patch_list_deps(self, mock_return):
@@ -190,13 +255,15 @@ class TestList:
 
     def test_list_basic(self, runner: CliRunner) -> None:
         mock_sandboxes = [
-            SandboxInfo.model_validate({
-                "sandboxID": "sbx-1",
-                "templateID": "base",
-                "status": "running",
-                "region": "cn-hangzhou",
-                "timeout": 300,
-            }),
+            SandboxInfo.model_validate(
+                {
+                    "sandboxID": "sbx-1",
+                    "templateID": "base",
+                    "status": "running",
+                    "region": "cn-hangzhou",
+                    "timeout": 300,
+                }
+            ),
         ]
 
         patches = self._patch_list_deps(mock_sandboxes)
@@ -208,13 +275,15 @@ class TestList:
 
     def test_list_json(self, runner: CliRunner) -> None:
         mock_sandboxes = [
-            SandboxInfo.model_validate({
-                "sandboxID": "sbx-1",
-                "templateID": "base",
-                "status": "running",
-                "region": "cn-hangzhou",
-                "timeout": 300,
-            }),
+            SandboxInfo.model_validate(
+                {
+                    "sandboxID": "sbx-1",
+                    "templateID": "base",
+                    "status": "running",
+                    "region": "cn-hangzhou",
+                    "timeout": 300,
+                }
+            ),
         ]
 
         patches = self._patch_list_deps(mock_sandboxes)
@@ -239,13 +308,12 @@ class TestList:
 # info
 # ---------------------------------------------------------------------------
 
+
 class TestInfo:
     def test_info_basic(self, runner: CliRunner) -> None:
         mock_sb = _make_sandbox()
 
-        with patch(
-            "easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb
-        ):
+        with patch("easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb):
             result = runner.invoke(cli, ["info", "sbx-cli-test-001"])
 
         assert result.exit_code == 0
@@ -256,6 +324,7 @@ class TestInfo:
 # ---------------------------------------------------------------------------
 # kill
 # ---------------------------------------------------------------------------
+
 
 class TestKill:
     def test_kill_with_yes(self, runner: CliRunner) -> None:
@@ -282,17 +351,23 @@ class TestKill:
 
     def test_kill_all_empty(self, runner: CliRunner) -> None:
         """--all with no running sandboxes."""
-        with patch(
-            "easy_sandbox.transport.config.load_config",
-        ), patch(
-            "easy_sandbox.transport.auth.create_auth_provider",
-        ), patch(
-            "easy_sandbox.transport.http.HttpClient",
-        ), patch(
-            "easy_sandbox.protocol.sandbox.SandboxProtocol",
-        ), patch(
-            "easy_sandbox.utils.async_bridge.run_sync",
-            return_value=[],
+        with (
+            patch(
+                "easy_sandbox.transport.config.load_config",
+            ),
+            patch(
+                "easy_sandbox.transport.auth.create_auth_provider",
+            ),
+            patch(
+                "easy_sandbox.transport.http.HttpClient",
+            ),
+            patch(
+                "easy_sandbox.protocol.sandbox.SandboxProtocol",
+            ),
+            patch(
+                "easy_sandbox.utils.async_bridge.run_sync",
+                return_value=[],
+            ),
         ):
             result = runner.invoke(cli, ["kill", "--all", "--yes"])
 
@@ -302,38 +377,48 @@ class TestKill:
     def test_kill_all_with_sandboxes(self, runner: CliRunner) -> None:
         """--all should kill listed sandboxes."""
         mock_sb = _make_sandbox()
-        sb_info = SandboxInfo.model_validate({
-            "sandboxID": "sbx-1",
-            "templateID": "base",
-            "status": "running",
-            "region": "cn-hangzhou",
-            "timeout": 300,
-        })
+        sb_info = SandboxInfo.model_validate(
+            {
+                "sandboxID": "sbx-1",
+                "templateID": "base",
+                "status": "running",
+                "region": "cn-hangzhou",
+                "timeout": 300,
+            }
+        )
         call_count = [0]
 
         def side_effect(coro):
             import asyncio as _aio
+
             call_count[0] += 1
             if call_count[0] == 1:
                 return [sb_info]
             # _connect_and_kill: run the merged coroutine
             return _aio.run(coro)
 
-        with patch(
-            "easy_sandbox.transport.config.load_config",
-        ), patch(
-            "easy_sandbox.transport.auth.create_auth_provider",
-        ), patch(
-            "easy_sandbox.transport.http.HttpClient",
-        ), patch(
-            "easy_sandbox.protocol.sandbox.SandboxProtocol",
-        ), patch(
-            "easy_sandbox.api.sandbox.Sandbox.connect",
-            new_callable=AsyncMock,
-            return_value=mock_sb,
-        ), patch(
-            "easy_sandbox.utils.async_bridge.run_sync",
-            side_effect=side_effect,
+        with (
+            patch(
+                "easy_sandbox.transport.config.load_config",
+            ),
+            patch(
+                "easy_sandbox.transport.auth.create_auth_provider",
+            ),
+            patch(
+                "easy_sandbox.transport.http.HttpClient",
+            ),
+            patch(
+                "easy_sandbox.protocol.sandbox.SandboxProtocol",
+            ),
+            patch(
+                "easy_sandbox.api.sandbox.Sandbox.connect",
+                new_callable=AsyncMock,
+                return_value=mock_sb,
+            ),
+            patch(
+                "easy_sandbox.utils.async_bridge.run_sync",
+                side_effect=side_effect,
+            ),
         ):
             result = runner.invoke(cli, ["kill", "--all", "--yes"])
 
@@ -344,6 +429,7 @@ class TestKill:
 # ---------------------------------------------------------------------------
 # exec
 # ---------------------------------------------------------------------------
+
 
 class TestExec:
     def test_exec_basic(self, runner: CliRunner) -> None:
@@ -396,6 +482,7 @@ class TestExec:
 # ---------------------------------------------------------------------------
 # Error handling
 # ---------------------------------------------------------------------------
+
 
 class TestErrorHandling:
     def test_auth_error_exit_code_3(self, runner: CliRunner) -> None:
@@ -451,6 +538,7 @@ class TestErrorHandling:
 # upload
 # ---------------------------------------------------------------------------
 
+
 class TestUpload:
     def test_upload_file(self, runner: CliRunner, tmp_path) -> None:
         """Upload a single file."""
@@ -474,9 +562,7 @@ class TestUpload:
 
     def test_upload_file_not_exists(self, runner: CliRunner) -> None:
         """click.Path(exists=True) should reject missing files."""
-        result = runner.invoke(
-            cli, ["upload", "sbx-1", "/nonexistent/file.py", "/app/file.py"]
-        )
+        result = runner.invoke(cli, ["upload", "sbx-1", "/nonexistent/file.py", "/app/file.py"])
         assert result.exit_code != 0
 
     def test_upload_directory(self, runner: CliRunner, tmp_path) -> None:
@@ -492,9 +578,7 @@ class TestUpload:
             new_callable=AsyncMock,
             return_value=mock_sb,
         ):
-            result = runner.invoke(
-                cli, ["upload", "sbx-cli-test-001", str(tmp_path), "/app/data"]
-            )
+            result = runner.invoke(cli, ["upload", "sbx-cli-test-001", str(tmp_path), "/app/data"])
 
         assert result.exit_code == 0
         assert "Uploaded 2 files" in result.output
@@ -503,6 +587,7 @@ class TestUpload:
 # ---------------------------------------------------------------------------
 # download
 # ---------------------------------------------------------------------------
+
 
 class TestDownload:
     def test_download_file(self, runner: CliRunner, tmp_path) -> None:

@@ -45,11 +45,11 @@
 
 **Solution**:
 ```bash
-# Check authentication status
-ebx auth status
+# Check configuration status
+ebx config get api_key
 
-# Re-login
-ebx auth login
+# Re-set API Key
+ebx config set api_key your-api-key
 
 # Or set the environment variable
 export E2B_API_KEY="your-api-key"

@@ -4,11 +4,15 @@ Handles NDJSON streaming from Connect protocol endpoints.
 Provides typed AsyncIterator backed by a simple async-generator — backpressure
 is naturally provided by httpx's response streaming (no asyncio.Queue needed).
 """
+
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Generic, TypeVar, Callable
+from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from easy_sandbox.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Callable
 
 logger = get_logger("transport.streaming")
 
@@ -78,7 +82,7 @@ class StreamReader(Generic[T]):
             return await self._iter.__anext__()
         except StopAsyncIteration:
             if self._error:
-                raise self._error
+                raise self._error from None
             raise
 
     async def collect(self) -> list[T]:
@@ -91,5 +95,5 @@ class StreamReader(Generic[T]):
     async def cancel(self) -> None:
         """Cancel the stream by closing the underlying async generator."""
         if self._iter is not None:
-            await self._iter.aclose()
+            await self._iter.aclose()  # type: ignore[attr-defined]
             self._exhausted = True

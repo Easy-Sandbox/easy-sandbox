@@ -18,6 +18,9 @@ The following options were **rejected**. The chosen approaches live in the corre
 
 - **One-shot delivery including full backend implementation** — Rejected. Bundling the backend `GET /templates/{id}` metadata endpoint into the initial change couples client rollout to backend readiness. Chosen instead: phase it — local cache now, online metadata as Phase 2 with graceful degrade + warn (see `implemented/architecture/2026-09-03-command-source-resolution.md`).
 
+## API Design
+N/A — this record catalogs rejected alternatives; the accepted API surfaces live in the cross-referenced `implemented/` ADRs.
+
 ## Alternatives considered
 - (This record *is* the catalog of rejected alternatives; the accepted counterparts are cross-referenced above.)
 
@@ -31,3 +34,11 @@ The following options were **rejected**. The chosen approaches live in the corre
 ## Consequences
 - The chosen designs favor explicitness, static type safety, and minimal infrastructure.
 - Revisiting any rejected option requires new evidence (e.g. template count outgrowing directory-walk discovery).
+
+## Test Strategy
+N/A — this record only catalogs rejected options; no code artefact is produced by this ADR. Verification that the rejected approaches are absent from the shipped design is covered by the tests of the accepted counterpart ADRs listed under **Dependencies**.
+
+## Acceptance criteria
+- Each rejected option is paired with the accepted alternative and its `implemented/` ADR reference.
+- None of the rejected approaches appear in the shipped design (no dynamic CLI verbs, no `__getattr__` methods, no `index.json`, no "undeclared means tightened").
+- Reopening a rejected option requires new evidence, recorded as a new ADR.

@@ -24,9 +24,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends python3 python3
     && rm -rf /var/lib/apt/lists/*
 COPY *.whl /tmp/
 RUN if ls /tmp/*.whl 1>/dev/null 2>&1; then \
-        pip3 install --no-cache-dir --break-system-packages /tmp/*.whl && rm -f /tmp/*.whl; \
+        pip3 install --no-cache-dir /tmp/*.whl && rm -f /tmp/*.whl; \
     else \
-        pip3 install --no-cache-dir --break-system-packages easy-sandbox; \
+        pip3 install --no-cache-dir easy-sandbox; \
     fi
 
 # Set environment variables

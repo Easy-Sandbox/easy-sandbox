@@ -1,33 +1,36 @@
 Usage: cli template install [OPTIONS] TEMPLATE_REF
 
-  Install a template from GitHub or a local directory.
+  Download a template and (by default) build + deploy it.
 
-  There is no central template registry.  Templates are sourced from GitHub
-  repos (fetched by tag/branch/sha via the GitHub tarball API, no Release
-  required) or local directories.
+  By default, install downloads the template, then runs docker build, pushes to
+  ACR, and creates a sandbox template via the official API. Use --download-only
+  to skip the build/deploy step and only download to the local cache
+  (~/.ebx/templates/).
 
   示例：
 
-    ebx template install owner/repo              # GitHub repo (default branch)
+    ebx install owner/repo --acr-namespace my-ns  # Download + build + deploy
 
-    ebx template install owner/repo//subdir      # Subdirectory of a repo
+    ebx install owner/repo --download-only        # Download only
 
-    ebx template install owner/repo//subdir@v1.0 # Subdirectory + tag/branch/sha
+    ebx install owner/repo//subdir --download-only # Subdirectory of a repo
 
-    ebx template install owner/repo@main         # Specific branch
+    ebx install ./my-template --acr-namespace ns  # Local dir + deploy
 
-    ebx template install owner/repo@v1.0         # Specific tag
-
-    ebx template install owner/repo --token xxx  # Private repo
-
-    ebx template install ./my-template           # Local directory
-
-    ebx template install /path/to/tmpl --registry-type local
+    ebx install owner/repo@v1.0 --yes             # Skip confirmation
 
 Options:
   --registry-url TEXT             Registry URL（默认 GitHub）
   --registry-type [github|local]  Registry type (auto-detected if not specified)
   --token TEXT                    访问令牌（私有仓库需要）
   -a, --alias TEXT                模板别名
+  --download-only                 Only download to local cache (skip build and
+                                  deploy)
+  --acr-namespace TEXT            ACR namespace for deploy (env: ACR_NAMESPACE,
+                                  or set in .env file)
+  --cpu INTEGER                   CPU cores (default: from template.yaml or 2)
+  --memory INTEGER                Memory in MB (default: from template.yaml or
+                                  2048)
+  -y, --yes                       Skip confirmation prompt
   --help                          Show this message and exit.
 [exit_code:0]

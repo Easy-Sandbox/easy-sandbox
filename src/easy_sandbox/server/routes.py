@@ -18,6 +18,8 @@ import shlex
 import subprocess  # noqa: S404
 from typing import Any
 
+from easy_sandbox.utils.coerce import coerce_kwargs as _coerce_kwargs
+
 # Backward-compatible built-in toggle API — now backed by capability groups.
 # Re-exported here so existing imports (``from ...routes import enable_builtin``)
 # and the historical ``_KNOWN_BUILTINS`` / ``_enabled_builtins`` attributes keep
@@ -30,7 +32,7 @@ from ._compat import (  # noqa: F401  (re-exported for backward compatibility)
     get_enabled_builtins,
     is_builtin_enabled,
 )
-from .registry import CommandArg, CommandRegistry, default_registry
+from .registry import CommandArg, CommandRegistry, default_registry  # noqa: F401
 from .router import CapabilityGroup, default_table
 from .types import ServerRequest, ServerResponse
 
@@ -46,6 +48,25 @@ __all__ = [
     "handle_download",
     "handle_shell",
 ]
+
+# ---------------------------------------------------------------------------
+# Upload / download size constants
+# ---------------------------------------------------------------------------
+
+_DEFAULT_MAX_UPLOAD_SIZE = 100 * 1024 * 1024  # 100 MB
+_MAX_UPLOAD_ENV_VAR = "EBX_MAX_UPLOAD_SIZE"
+
+
+def _max_upload_size() -> int:
+    """Return the configured maximum upload size in bytes."""
+    raw = os.environ.get(_MAX_UPLOAD_ENV_VAR, "")
+    if raw:
+        try:
+            return int(raw)
+        except ValueError:
+            pass
+    return _DEFAULT_MAX_UPLOAD_SIZE
+
 
 # ---------------------------------------------------------------------------
 # Path-safety helper
@@ -83,6 +104,7 @@ def _resolve_safe_path(raw_path: str, base_dir: str | None = None) -> str:
 
     return resolved
 
+
 # ---------------------------------------------------------------------------
 # Route handlers — each returns ``(status_code, response_body_dict)``
 # ---------------------------------------------------------------------------
@@ -108,122 +130,25 @@ def handle_list_commands(
     for name, cmd in registry.list_visible().items():
         args_list: list[dict[str, Any]] = []
         for arg in cmd.args:
-            args_list.append({
-                "name": arg.name,
-                "type": arg.type,
-                "required": arg.required,
-                "default": arg.default,
-                "description": arg.description,
-            })
-        commands.append({"name": name, "args": args_list})
+            args_list.append(
+                {
+                    "name": arg.name,
+                    "type": arg.type,
+                    "required": arg.required,
+                    "default": arg.default,
+                    "description": arg.description,
+                }
+            )
+        commands.append({"name": name, "args": args_list, "description": cmd.description})
     return 200, {"commands": commands}
 
 
 # ---------------------------------------------------------------------------
-# Boolean parsing helper
+# Coerce helper — canonical implementation in easy_sandbox.utils.coerce
 # ---------------------------------------------------------------------------
-
-_BOOL_TRUE: frozenset[str] = frozenset({"true", "yes", "1"})
-_BOOL_FALSE: frozenset[str] = frozenset({"false", "no", "0"})
-
-
-def _parse_boolean(value: Any) -> bool:
-    """Parse a value as boolean with safe string handling.
-
-    Args:
-        value: The value to interpret as a boolean.
-
-    Returns:
-        The parsed boolean.
-
-    Raises:
-        TypeError: If *value* cannot be interpreted as boolean.
-    """
-    if isinstance(value, bool):
-        return value
-    s = str(value).lower()
-    if s in _BOOL_TRUE:
-        return True
-    if s in _BOOL_FALSE:
-        return False
-    raise TypeError(
-        f"Cannot parse {value!r} as boolean; "
-        f"accepted values: true/false/yes/no/1/0"
-    )
-
-
-def _coerce_kwargs(args: list[CommandArg], raw: dict[str, Any]) -> dict[str, Any]:
-    """Coerce and validate *raw* kwargs against *args* definitions.
-
-    Args:
-        args: Ordered list of :class:`CommandArg` definitions.
-        raw: Raw keyword arguments from the JSON request body.
-
-    Returns:
-        A new dict with values converted to the declared types.
-
-    Raises:
-        ValueError: If a required argument is missing or an undeclared
-            argument is provided.
-        TypeError: If a value cannot be converted to the declared type.
-    """
-    _type_map: dict[str, type] = {
-        "string": str,
-        "integer": int,
-        "float": float,
-    }
-
-    declared_names: set[str] = set()
-    coerced: dict[str, Any] = {}
-
-    for arg in args:
-        declared_names.add(arg.name)
-        if arg.name in raw:
-            val = raw[arg.name]
-            if arg.type == "boolean":
-                try:
-                    val = _parse_boolean(val)
-                except TypeError as exc:
-                    raise TypeError(
-                        f"Cannot convert argument {arg.name!r} to {arg.type}: {exc}"
-                    ) from exc
-            else:
-                target_type = _type_map.get(arg.type)
-                if target_type is not None and not isinstance(val, target_type):
-                    try:
-                        val = target_type(val)
-                    except (ValueError, TypeError) as exc:
-                        raise TypeError(
-                            f"Cannot convert argument {arg.name!r} to {arg.type}: {exc}"
-                        ) from exc
-            coerced[arg.name] = val
-        elif arg.required:
-            raise ValueError(f"Missing required argument: {arg.name!r}")
-        elif arg.default is not None:
-            if arg.type == "boolean":
-                try:
-                    coerced[arg.name] = _parse_boolean(arg.default)
-                except (ValueError, TypeError):
-                    coerced[arg.name] = arg.default
-            else:
-                target_type = _type_map.get(arg.type)
-                if target_type is not None:
-                    try:
-                        coerced[arg.name] = target_type(arg.default)
-                    except (ValueError, TypeError):
-                        coerced[arg.name] = arg.default
-                else:
-                    coerced[arg.name] = arg.default
-
-    # Reject undeclared extra arguments (aligned with declarative layer).
-    undeclared = sorted(k for k in raw if k not in declared_names)
-    if undeclared:
-        raise ValueError(
-            f"Unexpected argument(s): {undeclared}; "
-            f"declared: {sorted(declared_names) or '(none)'}"
-        )
-
-    return coerced
+# ``_coerce_kwargs`` is imported at the top of this module from
+# ``easy_sandbox.utils.coerce.coerce_kwargs``.  The server and declarative
+# layers share the same implementation to prevent behavioural drift.
 
 
 def handle_run_command(
@@ -294,6 +219,14 @@ def handle_upload(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
     except Exception as exc:  # noqa: BLE001
         return 400, {"error": f"Invalid base64: {exc}", "type": "ValueError"}
 
+    # Enforce upload size limit (consistent with routes_files.py).
+    max_size = _max_upload_size()
+    if len(data) > max_size:
+        return 413, {
+            "error": f"File size {len(data)} exceeds limit {max_size}",
+            "type": "ValueError",
+        }
+
     # Path-traversal guard
     try:
         safe_path = _resolve_safe_path(path)
@@ -333,6 +266,19 @@ def handle_download(path: str) -> tuple[int, dict[str, Any]]:
             "error": f"File not found: {safe_path}",
             "type": "FileNotFoundError",
         }
+
+    # Enforce download size limit.
+    try:
+        file_size = os.path.getsize(safe_path)
+    except OSError as exc:
+        return 500, {"error": str(exc), "type": type(exc).__name__}
+    max_size = _max_upload_size()  # reuse same configurable limit
+    if file_size > max_size:
+        return 413, {
+            "error": f"File size {file_size} exceeds download limit {max_size}",
+            "type": "ValueError",
+        }
+
     try:
         with open(safe_path, "rb") as f:
             data = f.read()
@@ -440,26 +386,45 @@ def _handle_shell_wrapped(request: ServerRequest) -> ServerResponse:
 
 _table = default_table()
 _table.register(
-    "GET", "/health", _handle_health_wrapped,
-    group=CapabilityGroup.CORE, auth_required=False, name="health",
+    "GET",
+    "/health",
+    _handle_health_wrapped,
+    group=CapabilityGroup.CORE,
+    auth_required=False,
+    name="health",
 )
 _table.register(
-    "GET", "/commands", _handle_commands_wrapped,
-    group=CapabilityGroup.COMMANDS, name="list_commands",
+    "GET",
+    "/commands",
+    _handle_commands_wrapped,
+    group=CapabilityGroup.COMMANDS,
+    name="list_commands",
 )
 _table.register(
-    "POST", "/commands/{name}", _handle_run_command_wrapped,
-    group=CapabilityGroup.COMMANDS, name="run_command",
+    "POST",
+    "/commands/{name}",
+    _handle_run_command_wrapped,
+    group=CapabilityGroup.COMMANDS,
+    name="run_command",
 )
 _table.register(
-    "POST", "/upload", _handle_upload_wrapped,
-    group=CapabilityGroup.FILE_OPS, name="upload",
+    "POST",
+    "/upload",
+    _handle_upload_wrapped,
+    group=CapabilityGroup.FILE_OPS,
+    name="upload",
 )
 _table.register(
-    "GET", "/download", _handle_download_wrapped,
-    group=CapabilityGroup.FILE_OPS, name="download",
+    "GET",
+    "/download",
+    _handle_download_wrapped,
+    group=CapabilityGroup.FILE_OPS,
+    name="download",
 )
 _table.register(
-    "POST", "/shell", _handle_shell_wrapped,
-    group=CapabilityGroup.PROCESS, name="shell",
+    "POST",
+    "/shell",
+    _handle_shell_wrapped,
+    group=CapabilityGroup.PROCESS,
+    name="shell",
 )

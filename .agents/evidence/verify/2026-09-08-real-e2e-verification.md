@@ -1,3 +1,7 @@
+> ⚠️ **HISTORICAL SNAPSHOT / 历史验证快照** — 标注追加于 2026-09-24（任务 #122，承接 #109 审计）
+>
+> 本文件为 2026-09-08 的真实 E2E 验证快照，**测试结果、命令与输出均保留原样、未作任何篡改**。文中出现的旧 CLI `sbox`（及 `~/.sbox/`、旧品牌 `serverless-sandbox` 等称谓）反映当时状态，现已更名为 `ebx` / `easy-sandbox`，见 ADR [`2026-09-09-brand-rename-sbox-to-ebx.md`](../../notes/implemented/architecture/2026-09-09-brand-rename-sbox-to-ebx.md)。当前状态请以最新 `verify/` 报告、`AGENTS.md` 与 `docs/` 为准。
+
 # 阿里云 FC 沙箱真实 E2E 验证
 
 - 日期：2026-09-08

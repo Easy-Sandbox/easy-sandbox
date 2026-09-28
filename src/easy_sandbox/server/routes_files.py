@@ -121,12 +121,14 @@ def _handle_files_list(request: ServerRequest) -> ServerResponse:
                         stat = entry.stat(follow_symlinks=False)
                     except OSError:
                         continue
-                    entries.append({
-                        "name": entry.name,
-                        "type": "directory" if entry.is_dir(follow_symlinks=False) else "file",
-                        "size": stat.st_size,
-                        "modified": _iso_mtime(stat.st_mtime),
-                    })
+                    entries.append(
+                        {
+                            "name": entry.name,
+                            "type": "directory" if entry.is_dir(follow_symlinks=False) else "file",
+                            "size": stat.st_size,
+                            "modified": _iso_mtime(stat.st_mtime),
+                        }
+                    )
                     is_subdir = entry.is_dir(follow_symlinks=False)
                     if recursive and is_subdir and depth < _DEFAULT_MAX_DEPTH:
                         _scan(entry.path, depth + 1)
@@ -155,30 +157,38 @@ def _handle_files_stat(request: ServerRequest) -> ServerResponse:
 
     exists = os.path.exists(safe_path)
     if not exists:
-        return ServerResponse.ok({
-            "name": os.path.basename(safe_path),
-            "path": safe_path,
-            "type": "unknown",
-            "size": 0,
-            "permissions": "",
-            "modified": "",
-            "exists": False,
-        })
+        return ServerResponse.ok(
+            {
+                "name": os.path.basename(safe_path),
+                "path": safe_path,
+                "type": "unknown",
+                "size": 0,
+                "permissions": "",
+                "modified": "",
+                "accessed": "",
+                "created": "",
+                "exists": False,
+            }
+        )
 
     try:
         st = os.stat(safe_path, follow_symlinks=False)
     except OSError as exc:
         return ServerResponse.error(500, str(exc), type(exc).__name__)
 
-    return ServerResponse.ok({
-        "name": os.path.basename(safe_path),
-        "path": safe_path,
-        "type": _entry_type(safe_path),
-        "size": st.st_size,
-        "permissions": oct(st.st_mode)[-3:],
-        "modified": _iso_mtime(st.st_mtime),
-        "exists": True,
-    })
+    return ServerResponse.ok(
+        {
+            "name": os.path.basename(safe_path),
+            "path": safe_path,
+            "type": _entry_type(safe_path),
+            "size": st.st_size,
+            "permissions": oct(st.st_mode)[-3:],
+            "modified": _iso_mtime(st.st_mtime),
+            "accessed": _iso_mtime(st.st_atime),
+            "created": _iso_mtime(st.st_ctime),
+            "exists": True,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -322,7 +332,7 @@ def _handle_files_search(request: ServerRequest) -> ServerResponse:
             if cancelled.is_set():
                 timed_out = True
                 break
-            rel_depth = dirpath[len(safe_path):].count(os.sep)
+            rel_depth = dirpath[len(safe_path) :].count(os.sep)
             if rel_depth >= max_depth:
                 dirnames.clear()
                 continue
@@ -332,10 +342,12 @@ def _handle_files_search(request: ServerRequest) -> ServerResponse:
                     break
                 if fnmatch.fnmatch(name, pattern):
                     full = os.path.join(dirpath, name)
-                    results.append({
-                        "name": name,
-                        "path": full,
-                    })
+                    results.append(
+                        {
+                            "name": name,
+                            "path": full,
+                        }
+                    )
                     if len(results) >= max_results:
                         break
             if len(results) >= max_results or timed_out:
@@ -343,10 +355,12 @@ def _handle_files_search(request: ServerRequest) -> ServerResponse:
     finally:
         timer.cancel()
 
-    return ServerResponse.ok({
-        "results": results,
-        "timed_out": timed_out,
-    })
+    return ServerResponse.ok(
+        {
+            "results": results,
+            "timed_out": timed_out,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -415,9 +429,7 @@ def _handle_files_download_stream(request: ServerRequest) -> ServerResponse:
         return ServerResponse.error(400, str(exc), "ValueError")
 
     if not os.path.isfile(safe_path):
-        return ServerResponse.error(
-            404, f"File not found: {raw_path}", "FileNotFoundError"
-        )
+        return ServerResponse.error(404, f"File not found: {raw_path}", "FileNotFoundError")
 
     try:
         buf = io.BytesIO()
@@ -431,11 +443,13 @@ def _handle_files_download_stream(request: ServerRequest) -> ServerResponse:
     except OSError as exc:
         return ServerResponse.error(500, str(exc), type(exc).__name__)
 
-    return ServerResponse.ok({
-        "path": safe_path,
-        "content_base64": base64.b64encode(file_data).decode("ascii"),
-        "bytes": len(file_data),
-    })
+    return ServerResponse.ok(
+        {
+            "path": safe_path,
+            "content_base64": base64.b64encode(file_data).decode("ascii"),
+            "bytes": len(file_data),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -499,9 +513,7 @@ def _handle_files_archive(request: ServerRequest) -> ServerResponse:
                         for dirpath, _dirnames, filenames in os.walk(sp):
                             for fname in filenames:
                                 full = os.path.join(dirpath, fname)
-                                arcname = os.path.join(
-                                    base_name, os.path.relpath(full, sp)
-                                )
+                                arcname = os.path.join(base_name, os.path.relpath(full, sp))
                                 zf.write(full, arcname)
     except OSError as exc:
         return ServerResponse.error(500, str(exc), type(exc).__name__)
@@ -514,11 +526,13 @@ def _handle_files_archive(request: ServerRequest) -> ServerResponse:
             "ValueError",
         )
 
-    return ServerResponse.ok({
-        "content_base64": base64.b64encode(archive_data).decode("ascii"),
-        "format": fmt,
-        "bytes": len(archive_data),
-    })
+    return ServerResponse.ok(
+        {
+            "content_base64": base64.b64encode(archive_data).decode("ascii"),
+            "format": fmt,
+            "bytes": len(archive_data),
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -528,38 +542,65 @@ def _handle_files_archive(request: ServerRequest) -> ServerResponse:
 _table = default_table()
 
 _table.register(
-    "GET", "/files/list", _handle_files_list,
-    group=CapabilityGroup.FILE_OPS, name="files_list",
+    "GET",
+    "/files/list",
+    _handle_files_list,
+    group=CapabilityGroup.FILE_OPS,
+    name="files_list",
 )
 _table.register(
-    "GET", "/files/stat", _handle_files_stat,
-    group=CapabilityGroup.FILE_OPS, name="files_stat",
+    "GET",
+    "/files/stat",
+    _handle_files_stat,
+    group=CapabilityGroup.FILE_OPS,
+    name="files_stat",
 )
 _table.register(
-    "POST", "/files/mkdir", _handle_files_mkdir,
-    group=CapabilityGroup.FILE_OPS, name="files_mkdir",
+    "POST",
+    "/files/mkdir",
+    _handle_files_mkdir,
+    group=CapabilityGroup.FILE_OPS,
+    name="files_mkdir",
 )
 _table.register(
-    "DELETE", "/files", _handle_files_delete,
-    group=CapabilityGroup.FILE_OPS, name="files_delete",
+    "DELETE",
+    "/files",
+    _handle_files_delete,
+    group=CapabilityGroup.FILE_OPS,
+    name="files_delete",
 )
 _table.register(
-    "POST", "/files/move", _handle_files_move,
-    group=CapabilityGroup.FILE_OPS, name="files_move",
+    "POST",
+    "/files/move",
+    _handle_files_move,
+    group=CapabilityGroup.FILE_OPS,
+    name="files_move",
 )
 _table.register(
-    "POST", "/files/search", _handle_files_search,
-    group=CapabilityGroup.FILE_OPS, name="files_search",
+    "POST",
+    "/files/search",
+    _handle_files_search,
+    group=CapabilityGroup.FILE_OPS,
+    name="files_search",
 )
 _table.register(
-    "POST", "/files/upload-stream", _handle_files_upload_stream,
-    group=CapabilityGroup.FILE_OPS, name="files_upload_stream",
+    "POST",
+    "/files/upload-stream",
+    _handle_files_upload_stream,
+    group=CapabilityGroup.FILE_OPS,
+    name="files_upload_stream",
 )
 _table.register(
-    "GET", "/files/download-stream", _handle_files_download_stream,
-    group=CapabilityGroup.FILE_OPS, name="files_download_stream",
+    "GET",
+    "/files/download-stream",
+    _handle_files_download_stream,
+    group=CapabilityGroup.FILE_OPS,
+    name="files_download_stream",
 )
 _table.register(
-    "POST", "/files/archive", _handle_files_archive,
-    group=CapabilityGroup.FILE_OPS, name="files_archive",
+    "POST",
+    "/files/archive",
+    _handle_files_archive,
+    group=CapabilityGroup.FILE_OPS,
+    name="files_archive",
 )

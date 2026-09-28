@@ -42,7 +42,9 @@ Easy Sandbox 是基于阿里云函数计算的云端沙箱 SDK，提供 E2B 兼�
 | [MCP 集成](guide/mcp-integration.md) | Cursor / Claude Desktop 集成 |
 | [会话持久化](guide/session-persistence.md) | 本地 / OSS 会话存储 |
 | [E2B 迁移](guide/migrate-from-e2b.md) | 从 E2B 迁移指南 |
+| [环境变量](guide/environment-variables.md) | 沙箱环境变量作用域、注入方式与直接执行语义 |
 | [故障排查](guide/troubleshooting.md) | 常见问题与解决方案 |
+| [端到端模板工作流](guide/e2e-template-workflow.md) | 从零构建模板到沙箱使用完整指南 |
 
 ### [`reference/`](reference/) — CLI / API / 配置参考
 

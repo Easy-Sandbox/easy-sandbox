@@ -13,9 +13,10 @@ Usage:
     dockerfile = image.to_dockerfile()
     template_info = await image.build(alias="my-flask-app")
 """
+
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from easy_sandbox.utils.logging import get_logger
 
@@ -74,9 +75,7 @@ class Image:
             packages: Package names (e.g. "flask", "sqlalchemy>=2.0").
         """
         if packages:
-            self._steps.append(
-                f"RUN pip install --no-cache-dir {' '.join(packages)}"
-            )
+            self._steps.append(f"RUN pip install --no-cache-dir {' '.join(packages)}")
         return self
 
     def apt_install(self, *packages: str) -> Image:
@@ -88,8 +87,7 @@ class Image:
         if packages:
             pkgs = " ".join(packages)
             self._steps.append(
-                f"RUN apt-get update && apt-get install -y {pkgs}"
-                " && rm -rf /var/lib/apt/lists/*"
+                f"RUN apt-get update && apt-get install -y {pkgs} && rm -rf /var/lib/apt/lists/*"
             )
         return self
 
@@ -205,8 +203,8 @@ class Image:
             TemplateInfo with build_status=ready.
         """
         from easy_sandbox.api.template import TemplateManager
-        from easy_sandbox.transport.config import load_config
         from easy_sandbox.transport.auth import create_auth_provider
+        from easy_sandbox.transport.config import load_config
         from easy_sandbox.transport.http import HttpClient
 
         config_overrides: dict[str, Any] = {}
@@ -242,8 +240,4 @@ class Image:
             await http_client.close()
 
     def __repr__(self) -> str:
-        return (
-            f"<Image base={self._base!r} "
-            f"steps={len(self._steps)} "
-            f"envs={len(self._envs)}>"
-        )
+        return f"<Image base={self._base!r} steps={len(self._steps)} envs={len(self._envs)}>"

@@ -1,13 +1,14 @@
 """Tests for process data models."""
+
 from __future__ import annotations
 
 from easy_sandbox.models.process import (
-    ProcessChunkType,
-    ProcessChunk,
-    ProcessResult,
     CodeResult,
     OutputFile,
+    ProcessChunk,
+    ProcessChunkType,
     ProcessInfo,
+    ProcessResult,
 )
 
 
@@ -40,9 +41,7 @@ class TestProcessChunk:
         assert chunk.type == ProcessChunkType.STDERR
 
     def test_exit_chunk(self):
-        chunk = ProcessChunk(
-            type=ProcessChunkType.EXIT, exit_code=0, timestamp=1234567890.0
-        )
+        chunk = ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0, timestamp=1234567890.0)
         assert chunk.type == ProcessChunkType.EXIT
         assert chunk.exit_code == 0
         assert chunk.timestamp == 1234567890.0

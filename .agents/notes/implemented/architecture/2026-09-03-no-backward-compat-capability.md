@@ -11,6 +11,9 @@ Do **not** preserve backward compatibility. The project is not released and ther
 - Existing tests are adjusted to the new model rather than the model being bent to keep old tests green.
 - Any test that implicitly assumed unconditional shell/upload/download is updated to declare or assume `DEFAULT_CAPABILITIES` explicitly.
 
+## API Design
+N/A — this decision does not involve API changes.
+
 ## Alternatives considered
 - **Add a compatibility flag (e.g. `strict_capabilities=False`)** — Carries legacy behavior forever for a codebase that has no legacy users; increases branching and test surface for zero benefit.
 - **Grandfather existing tests** — Would force the model to encode the old "all capable" assumption, defeating the purpose of the redesign.
@@ -22,6 +25,11 @@ Do **not** preserve backward compatibility. The project is not released and ther
 ## Test Strategy
 - Existing command/file tests are updated to reflect gating: assume `DEFAULT_CAPABILITIES` or declare capabilities per case.
 - Add regression tests asserting there is no hidden "compat mode" that bypasses gating.
+
+## Acceptance criteria
+- No compatibility flag, feature flag, or "legacy mode" exists that bypasses capability gating
+- Command/file tests assume `DEFAULT_CAPABILITIES` or declare capabilities explicitly per case
+- A regression test asserts there is no hidden compat path around gating
 
 ## Consequences
 - Cleaner implementation with a single behavior path and no legacy branches.

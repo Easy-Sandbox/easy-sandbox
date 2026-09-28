@@ -1,12 +1,16 @@
 """Tests for declarative/config.py — YAML 配置解析。"""
+
 from __future__ import annotations
 
 import textwrap
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from easy_sandbox.declarative.config import SandboxDeclarativeConfig
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestSandboxDeclarativeConfigDefaults:
@@ -49,7 +53,7 @@ class TestSandboxDeclarativeConfigFromFile:
               - pandas
             files:
               ./local.txt: /remote/local.txt
-            serializer: pickle
+            serializer: json
         """)
         p = tmp_path / "sandbox.yaml"
         p.write_text(yaml_content)
@@ -59,7 +63,7 @@ class TestSandboxDeclarativeConfigFromFile:
         assert cfg.envs == {"MY_VAR": "hello"}
         assert cfg.python_packages == ["numpy", "pandas"]
         assert cfg.files == {"./local.txt": "/remote/local.txt"}
-        assert cfg.serializer == "pickle"
+        assert cfg.serializer == "json"
 
     def test_partial_config(self, tmp_path: Path) -> None:
         yaml_content = textwrap.dedent("""\
@@ -92,14 +96,16 @@ class TestSandboxDeclarativeConfigFromDict:
     """from_dict construction."""
 
     def test_from_dict(self) -> None:
-        cfg = SandboxDeclarativeConfig.from_dict({
-            "template": "go-base",
-            "timeout": 120,
-            "serializer": "msgpack",
-        })
+        cfg = SandboxDeclarativeConfig.from_dict(
+            {
+                "template": "go-base",
+                "timeout": 120,
+                "serializer": "json",
+            }
+        )
         assert cfg.template == "go-base"
         assert cfg.timeout == 120
-        assert cfg.serializer == "msgpack"
+        assert cfg.serializer == "json"
 
     def test_from_dict_empty(self) -> None:
         cfg = SandboxDeclarativeConfig.from_dict({})
@@ -137,6 +143,7 @@ class TestSandboxDeclarativeConfigResourceFields:
 
     def test_cpu_memory_from_yaml(self, tmp_path: Path) -> None:
         import textwrap as tw
+
         yaml_content = tw.dedent("""\
             template: gpu-base
             cpu: 8

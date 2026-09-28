@@ -1,15 +1,17 @@
 """Tests for deploy CLI commands — NL deploy + traditional modes."""
+
 from __future__ import annotations
 
-import os
-import tempfile
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from click.testing import CliRunner
 
 from easy_sandbox.cli.main import cli
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture
@@ -41,7 +43,7 @@ def _make_mock_sandbox(
     mock_deploy_result.url = url
     mock_deploy_result.port = port
     mock_deploy_result.logs = ""
-    mock_deploy_result.success = (status == "success")
+    mock_deploy_result.success = status == "success"
 
     mock_sandbox._deploy_result = mock_deploy_result
     return mock_sandbox
@@ -68,7 +70,8 @@ class TestDeployShortcutNL:
     def test_deploy_with_instruction(self, runner: CliRunner, temp_project: Path) -> None:
         """Test deploy with NL instruction triggers Sandbox.deploy."""
         mock_sandbox = _make_mock_sandbox(
-            url="http://localhost:8080", port=8080,
+            url="http://localhost:8080",
+            port=8080,
         )
 
         # Patch at the actual import location used inside _run_nl_deploy
@@ -101,7 +104,9 @@ class TestDeployShortcutNL:
 
         assert result.exit_code == 0
 
-    def test_deploy_llm_key_missing(self, runner: CliRunner, temp_project: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_deploy_llm_key_missing(
+        self, runner: CliRunner, temp_project: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Test deploy raises clear error when no LLM key is set."""
         monkeypatch.delenv("BAILIAN_CODING_PLAN_API_KEY", raising=False)
         monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
@@ -112,9 +117,7 @@ class TestDeployShortcutNL:
         with patch(
             "easy_sandbox.api.sandbox.Sandbox.deploy",
             new_callable=AsyncMock,
-            side_effect=DeployLLMKeyMissingError(
-                "No LLM API key found for qwen-code agent."
-            ),
+            side_effect=DeployLLMKeyMissingError("No LLM API key found for qwen-code agent."),
         ):
             result = runner.invoke(
                 cli,
@@ -124,7 +127,9 @@ class TestDeployShortcutNL:
         # Should fail with error exit code (handle_errors maps SandboxError to exit 1)
         assert result.exit_code != 0
 
-    def test_deploy_default_instruction_generated(self, runner: CliRunner, temp_project: Path) -> None:
+    def test_deploy_default_instruction_generated(
+        self, runner: CliRunner, temp_project: Path
+    ) -> None:
         """Test that a default instruction is generated when none is provided."""
         mock_sandbox = _make_mock_sandbox()
 

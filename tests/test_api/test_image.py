@@ -1,7 +1,6 @@
 """Tests for api.image module — Image chain builder."""
-from __future__ import annotations
 
-import pytest
+from __future__ import annotations
 
 from easy_sandbox.api.image import Image
 
@@ -44,7 +43,7 @@ class TestImageChaining:
 
     def test_pip_install_empty(self) -> None:
         img = Image.from_image("python:3.11")
-        result = img.pip_install()
+        img.pip_install()
         assert len(img._steps) == 0
 
     def test_apt_install(self) -> None:
@@ -55,7 +54,7 @@ class TestImageChaining:
 
     def test_apt_install_empty(self) -> None:
         img = Image.from_image("ubuntu:22.04")
-        result = img.apt_install()
+        img.apt_install()
         assert len(img._steps) == 0
 
     def test_copy_local(self) -> None:
@@ -124,15 +123,15 @@ class TestImageToDockerfile:
         lines = dockerfile.split("\n")
 
         assert lines[0] == "FROM python:3.11-slim"
-        assert any("apt-get install -y curl git" in l for l in lines)
-        assert any("pip install --no-cache-dir flask sqlalchemy" in l for l in lines)
-        assert any("COPY ./app /app" in l for l in lines)
-        assert any("RUN echo 'setup done'" in l for l in lines)
-        assert any("ENV FLASK_ENV=production" in l for l in lines)
-        assert any("ENV PORT=5000" in l for l in lines)
-        assert any("WORKDIR /app" in l for l in lines)
-        assert any("EXPOSE 5000" in l for l in lines)
-        assert any("CMD python main.py" in l for l in lines)
+        assert any("apt-get install -y curl git" in line for line in lines)
+        assert any("pip install --no-cache-dir flask sqlalchemy" in line for line in lines)
+        assert any("COPY ./app /app" in line for line in lines)
+        assert any("RUN echo 'setup done'" in line for line in lines)
+        assert any("ENV FLASK_ENV=production" in line for line in lines)
+        assert any("ENV PORT=5000" in line for line in lines)
+        assert any("WORKDIR /app" in line for line in lines)
+        assert any("EXPOSE 5000" in line for line in lines)
+        assert any("CMD python main.py" in line for line in lines)
 
     def test_order_of_directives(self) -> None:
         """FROM comes first, ENV after steps, WORKDIR/EXPOSE/CMD at end."""
@@ -147,9 +146,9 @@ class TestImageToDockerfile:
         lines = img.to_dockerfile().split("\n")
         assert lines[0] == "FROM alpine"
         # RUN is before ENV
-        run_idx = next(i for i, l in enumerate(lines) if "RUN" in l)
-        env_idx = next(i for i, l in enumerate(lines) if "ENV" in l)
-        workdir_idx = next(i for i, l in enumerate(lines) if "WORKDIR" in l)
+        run_idx = next(i for i, line in enumerate(lines) if "RUN" in line)
+        env_idx = next(i for i, line in enumerate(lines) if "ENV" in line)
+        workdir_idx = next(i for i, line in enumerate(lines) if "WORKDIR" in line)
         assert run_idx < env_idx
         assert env_idx < workdir_idx
 

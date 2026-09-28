@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploy all 10 templates one by one via CLI build-local
+# Deploy all 10 templates one by one via CLI deploy
 # Usage: bash scripts/deploy_all_templates.sh
 set -euo pipefail
 
@@ -38,7 +38,7 @@ for name in "${ORDER[@]}"; do
   
   START_TIME=$(date +%s)
   
-  $CLI --region "$REGION" template build-local \
+  $CLI --region "$REGION" template deploy \
     "examples/templates/$name" \
     --acr-namespace "$ACR_NS" \
     --acr-repo "$name" \

@@ -15,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
+import queue
 import shlex
 import subprocess  # noqa: S404
 import threading
@@ -97,24 +98,52 @@ def _handle_shell_stream(request: ServerRequest) -> SSEResponse | ServerResponse
 
         start = time.monotonic()
 
-        # Read stdout
-        if proc.stdout is not None:
-            for raw_line in proc.stdout:
-                if time.monotonic() - start > timeout:
-                    proc.kill()
-                    yield f"event: error\ndata: {json.dumps({'error': 'timeout'})}\n\n"
-                    proc.wait()
-                    yield f"event: exit\ndata: {json.dumps({'exit_code': proc.returncode})}\n\n"
-                    return
-                line = raw_line.decode("utf-8", errors="replace").rstrip("\n")
-                yield f"event: stdout\ndata: {json.dumps({'data': line})}\n\n"
+        # Use a thread-safe queue to merge stdout and stderr concurrently.
+        q: queue.Queue[tuple[str, str | None]] = queue.Queue()
 
-        # Read stderr
-        if proc.stderr is not None:
-            for raw_line in proc.stderr:
-                line = raw_line.decode("utf-8", errors="replace").rstrip("\n")
-                yield f"event: stderr\ndata: {json.dumps({'data': line})}\n\n"
+        def _reader(stream: Any, event_name: str) -> None:
+            """Read lines from *stream* and push them onto the queue."""
+            try:
+                for raw_line in stream:
+                    line = raw_line.decode("utf-8", errors="replace").rstrip("\n")
+                    q.put((event_name, line))
+            except Exception:  # noqa: BLE001
+                pass
+            finally:
+                q.put((event_name, None))  # sentinel
 
+        stdout_thread = threading.Thread(
+            target=_reader,
+            args=(proc.stdout, "stdout"),
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=_reader,
+            args=(proc.stderr, "stderr"),
+            daemon=True,
+        )
+        stdout_thread.start()
+        stderr_thread.start()
+
+        finished_streams = 0
+        while finished_streams < 2:
+            if time.monotonic() - start > timeout:
+                proc.kill()
+                yield f"event: error\ndata: {json.dumps({'error': 'timeout'})}\n\n"
+                proc.wait()
+                yield f"event: exit\ndata: {json.dumps({'exit_code': proc.returncode})}\n\n"
+                return
+            try:
+                event_name, line = q.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            if line is None:
+                finished_streams += 1
+                continue
+            yield f"event: {event_name}\ndata: {json.dumps({'data': line})}\n\n"
+
+        stdout_thread.join(timeout=2)
+        stderr_thread.join(timeout=2)
         proc.wait()
         yield f"event: exit\ndata: {json.dumps({'exit_code': proc.returncode})}\n\n"
 
@@ -129,6 +158,11 @@ def _handle_process_start(request: ServerRequest) -> ServerResponse:
         return ServerResponse.error(400, "Missing or invalid 'command'", "ValueError")
 
     with _process_lock:
+        # Lazily clean up already-exited processes before checking the limit.
+        exited = [pid for pid, info in _process_table.items() if info.popen.poll() is not None]
+        for pid in exited:
+            _process_table.pop(pid, None)
+
         if len(_process_table) >= _MAX_PROCESSES:
             return ServerResponse.error(
                 429,
@@ -146,8 +180,8 @@ def _handle_process_start(request: ServerRequest) -> ServerResponse:
     try:
         proc = subprocess.Popen(  # noqa: S603
             args,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
             cwd=cwd,
             shell=False,
         )
@@ -177,12 +211,14 @@ def _handle_process_list(request: ServerRequest) -> ServerResponse:
         snapshot = list(_process_table.values())
     for info in snapshot:
         state = _poll_process(info)
-        processes.append({
-            "pid": info.pid,
-            "command": info.command,
-            "state": state,
-            "started_at": info.started_at,
-        })
+        processes.append(
+            {
+                "pid": info.pid,
+                "command": info.command,
+                "state": state,
+                "started_at": info.started_at,
+            }
+        )
     return ServerResponse.ok({"processes": processes})
 
 
@@ -240,9 +276,7 @@ def _handle_process_signal(request: ServerRequest) -> ServerResponse:
 
     # Safety: refuse to kill PID 1 or own process.
     if pid == 1 or pid == os.getpid():
-        return ServerResponse.error(
-            403, f"Refusing to signal pid {pid}", "PermissionError"
-        )
+        return ServerResponse.error(403, f"Refusing to signal pid {pid}", "PermissionError")
 
     with _process_lock:
         info = _process_table.get(pid)
@@ -267,22 +301,38 @@ def _handle_process_signal(request: ServerRequest) -> ServerResponse:
 
 _table = default_table()
 _table.register(
-    "POST", "/shell/stream", _handle_shell_stream,
-    group=CapabilityGroup.PROCESS, streaming=True, name="shell_stream",
+    "POST",
+    "/shell/stream",
+    _handle_shell_stream,
+    group=CapabilityGroup.PROCESS,
+    streaming=True,
+    name="shell_stream",
 )
 _table.register(
-    "POST", "/process/start", _handle_process_start,
-    group=CapabilityGroup.PROCESS, name="process_start",
+    "POST",
+    "/process/start",
+    _handle_process_start,
+    group=CapabilityGroup.PROCESS,
+    name="process_start",
 )
 _table.register(
-    "GET", "/process/list", _handle_process_list,
-    group=CapabilityGroup.PROCESS, name="process_list",
+    "GET",
+    "/process/list",
+    _handle_process_list,
+    group=CapabilityGroup.PROCESS,
+    name="process_list",
 )
 _table.register(
-    "GET", "/process/{pid}", _handle_process_detail,
-    group=CapabilityGroup.PROCESS, name="process_detail",
+    "GET",
+    "/process/{pid}",
+    _handle_process_detail,
+    group=CapabilityGroup.PROCESS,
+    name="process_detail",
 )
 _table.register(
-    "POST", "/process/{pid}/signal", _handle_process_signal,
-    group=CapabilityGroup.PROCESS, name="process_signal",
+    "POST",
+    "/process/{pid}/signal",
+    _handle_process_signal,
+    group=CapabilityGroup.PROCESS,
+    name="process_signal",
 )

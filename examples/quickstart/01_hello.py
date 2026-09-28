@@ -36,12 +36,16 @@ async def main() -> None:
         print(f"系统信息: {result.stdout.strip()}")
 
         # ── 4. 读取注入的环境变量 ────────────────────────────────────
-        result = await sandbox.commands.run("echo $MY_VAR")
+        # 注意: envd 直接 exec，不经过 shell 展开，"echo $MY_VAR" 无法
+        # 解析变量。改用 printenv 直接读取环境变量。
+        result = await sandbox.commands.run("printenv MY_VAR")
         print(f"MY_VAR = {result.stdout.strip()}")
 
-        # ── 5. 列出运行中的进程 ─────────────────────────────────────
-        result = await sandbox.commands.run("ps aux | head -5")
-        print(f"进程列表:\n{result.stdout}")
+        # ── 5. 演示管道和 shell 语法 ──────────────────────────────────
+        # envd exec 不会处理管道 (|)、重定向 (>) 和 && 等 shell 语法，
+        # 需要显式用 sh -c 包装。
+        result = await sandbox.commands.run("sh -c 'ls / | head -5'")
+        print(f"根目录前 5 项:\n{result.stdout}")
 
         # ── 6. 带错误处理的命令 ─────────────────────────────────────
         result = await sandbox.commands.run("ls /nonexistent", timeout=10)

@@ -1,24 +1,39 @@
 """密钥安全存储。
 
-优先使用系统 Keychain (macOS Keychain / Linux Secret Service)，
-fallback 到本地文件 (~/.ebx/secrets.json) 并用文件权限保护。
+使用本地 JSON 文件 (~/.ebx/secrets.json) 存储密钥，用文件权限 (chmod 600) 保护。
+
+.. warning::
+
+    存储为 **明文 JSON** 文件，不提供加密保护。
+    在生产环境中请使用其他安全的密钥管理方案。
 """
+
 from __future__ import annotations
 
 import json
+import logging
 import os
-import platform
-import subprocess
+import stat
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 SERVICE_NAME = "easy-sandbox"
 SECRETS_FILE = Path.home() / ".ebx" / "secrets.json"
 
 
 class SecretStore:
-    """密钥存储。
+    """密钥存储 — 本地明文 JSON 文件 (chmod 600 保护)。
 
-    优先使用系统 Keychain，不可用时 fallback 到本地加密文件。
+    .. warning::
+
+        存储为明文 JSON，不提供加密。仅依靠文件系统
+        权限 (chmod 600) 限制访问。仅适合本地开发环境。
+
+    .. note::
+
+        **并发限制**：本实现不使用文件锁，仅适合单进程使用。
+        多进程并发写入可能导致数据丢失。
     """
 
     def __init__(self, secrets_file: Path | None = None) -> None:
@@ -30,94 +45,23 @@ class SecretStore:
 
     def set(self, name: str, value: str) -> None:
         """存储密钥。"""
-        try:
-            self._set_keychain(name, value)
-            return
-        except Exception:  # noqa: BLE001
-            pass
-        # Fallback: 本地文件
         self._set_file(name, value)
 
     def get(self, name: str) -> str | None:
         """获取密钥。"""
-        try:
-            return self._get_keychain(name)
-        except Exception:  # noqa: BLE001
-            pass
         return self._get_file(name)
 
     def delete(self, name: str) -> bool:
         """删除密钥，返回是否成功删除。"""
-        deleted = False
-        # 尝试从 keychain 删除
-        try:
-            self._delete_keychain(name)
-            deleted = True
-        except Exception:  # noqa: BLE001
-            pass
-        # 从文件存储删除
-        if self._delete_file(name):
-            deleted = True
-        return deleted
+        return self._delete_file(name)
 
     def list_names(self) -> list[str]:
         """列出所有密钥名称。"""
-        names: set[str] = set()
-        # 从文件中读取
         secrets = self._load_file()
-        names.update(secrets.keys())
-        return sorted(names)
+        return sorted(secrets.keys())
 
     # ---------------------------------------------------------------
-    # System Keychain
-    # ---------------------------------------------------------------
-
-    def _set_keychain(self, name: str, value: str) -> None:
-        """macOS: security add-generic-password; Linux: secret-tool."""
-        if platform.system() == "Darwin":
-            subprocess.run(
-                [
-                    "security", "add-generic-password",
-                    "-a", SERVICE_NAME, "-s", name, "-w", value, "-U",
-                ],
-                check=True,
-                capture_output=True,
-            )
-        else:
-            raise NotImplementedError("Linux keychain not available")
-
-    def _get_keychain(self, name: str) -> str:
-        """从系统 keychain 读取。"""
-        if platform.system() == "Darwin":
-            result = subprocess.run(
-                [
-                    "security", "find-generic-password",
-                    "-a", SERVICE_NAME, "-s", name, "-w",
-                ],
-                capture_output=True,
-                text=True,
-            )
-            if result.returncode == 0:
-                return result.stdout.strip()
-            raise KeyError(name)
-        raise NotImplementedError("Linux keychain not available")
-
-    def _delete_keychain(self, name: str) -> None:
-        """从系统 keychain 删除。"""
-        if platform.system() == "Darwin":
-            subprocess.run(
-                [
-                    "security", "delete-generic-password",
-                    "-a", SERVICE_NAME, "-s", name,
-                ],
-                check=True,
-                capture_output=True,
-            )
-        else:
-            raise NotImplementedError("Linux keychain not available")
-
-    # ---------------------------------------------------------------
-    # File-based fallback
+    # File-based storage
     # ---------------------------------------------------------------
 
     def _set_file(self, name: str, value: str) -> None:
@@ -125,11 +69,26 @@ class SecretStore:
         self._secrets_file.parent.mkdir(parents=True, exist_ok=True)
         secrets = self._load_file()
         secrets[name] = value
-        self._secrets_file.write_text(json.dumps(secrets, indent=2))
+        # 以受限权限创建文件，避免权限窗口
+        fd = os.open(
+            str(self._secrets_file),
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+            stat.S_IRUSR | stat.S_IWUSR,  # 0o600
+        )
+        try:
+            os.write(fd, json.dumps(secrets, indent=2).encode())
+        finally:
+            os.close(fd)
         try:
             self._secrets_file.chmod(0o600)
         except OSError:
-            pass  # Windows 不支持 chmod
+            logger.warning(
+                "Cannot set file permissions (chmod 600) on %s. "
+                "The secrets file is NOT protected by POSIX permissions. "
+                "This is expected on Windows but means secrets are readable "
+                "by other users on this system.",
+                self._secrets_file,
+            )
 
     def _get_file(self, name: str) -> str | None:
         """从本地文件读取。"""
@@ -141,11 +100,24 @@ class SecretStore:
         secrets = self._load_file()
         if name in secrets:
             del secrets[name]
-            self._secrets_file.write_text(json.dumps(secrets, indent=2))
+            # 以受限权限创建文件，避免权限窗口
+            fd = os.open(
+                str(self._secrets_file),
+                os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+                stat.S_IRUSR | stat.S_IWUSR,  # 0o600
+            )
+            try:
+                os.write(fd, json.dumps(secrets, indent=2).encode())
+            finally:
+                os.close(fd)
             try:
                 self._secrets_file.chmod(0o600)
             except OSError:
-                pass
+                logger.warning(
+                    "Cannot set file permissions (chmod 600) on %s. "
+                    "The secrets file is NOT protected by POSIX permissions.",
+                    self._secrets_file,
+                )
             return True
         return False
 
@@ -153,7 +125,7 @@ class SecretStore:
         """加载本地文件中的所有密钥。"""
         if self._secrets_file.exists():
             try:
-                return json.loads(self._secrets_file.read_text())
+                return dict(json.loads(self._secrets_file.read_text()))
             except (json.JSONDecodeError, OSError):
                 return {}
         return {}

@@ -1,7 +1,8 @@
 """Tests for agent/builtin.py — AgentModule."""
+
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, PropertyMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -51,7 +52,7 @@ class TestAgentModule:
     async def test_code_with_instruction_only(self) -> None:
         sandbox = _make_mock_sandbox()
         agent = AgentModule(sandbox)
-        result = await agent.code("print('hello')")
+        await agent.code("print('hello')")
         sandbox.code.run.assert_awaited_once_with("print('hello')", language="python")
 
     @pytest.mark.asyncio
@@ -59,9 +60,7 @@ class TestAgentModule:
         sandbox = _make_mock_sandbox()
         agent = AgentModule(sandbox)
         await agent.code("code", code="console.log(1)", language="javascript")
-        sandbox.code.run.assert_awaited_once_with(
-            "console.log(1)", language="javascript"
-        )
+        sandbox.code.run.assert_awaited_once_with("console.log(1)", language="javascript")
 
     @pytest.mark.asyncio
     async def test_shell(self) -> None:
@@ -90,9 +89,10 @@ class TestAgentModule:
     async def test_install(self) -> None:
         sandbox = _make_mock_sandbox()
         agent = AgentModule(sandbox)
-        result = await agent.install("pandas", "numpy")
+        await agent.install("pandas", "numpy")
         sandbox.commands.run.assert_awaited_once_with(
-            "pip install --quiet pandas numpy", timeout=120,
+            "pip install --quiet pandas numpy",
+            timeout=120,
         )
 
     @pytest.mark.asyncio
@@ -100,18 +100,14 @@ class TestAgentModule:
         sandbox = _make_mock_sandbox()
         agent = AgentModule(sandbox)
         await agent.upload("hello world", "/app/test.txt")
-        sandbox.files.write.assert_awaited_once_with(
-            "/app/test.txt", b"hello world"
-        )
+        sandbox.files.write.assert_awaited_once_with("/app/test.txt", b"hello world")
 
     @pytest.mark.asyncio
     async def test_upload_bytes(self) -> None:
         sandbox = _make_mock_sandbox()
         agent = AgentModule(sandbox)
         await agent.upload(b"\x00\x01\x02", "/app/binary.bin")
-        sandbox.files.write.assert_awaited_once_with(
-            "/app/binary.bin", b"\x00\x01\x02"
-        )
+        sandbox.files.write.assert_awaited_once_with("/app/binary.bin", b"\x00\x01\x02")
 
     @pytest.mark.asyncio
     async def test_download(self) -> None:
@@ -125,6 +121,6 @@ class TestAgentModule:
     async def test_analyze(self) -> None:
         sandbox = _make_mock_sandbox()
         agent = AgentModule(sandbox)
-        result = await agent.analyze("x = 1 + 2")
+        await agent.analyze("x = 1 + 2")
         # Should have called commands.run twice (write + analyze)
         assert sandbox.commands.run.await_count == 2

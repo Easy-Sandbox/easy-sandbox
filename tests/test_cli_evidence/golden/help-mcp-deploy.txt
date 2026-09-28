@@ -1,0 +1,34 @@
+Usage: cli mcp deploy [OPTIONS]
+
+  Generate an Alibaba Cloud FC deployment artifact.
+
+  Creates a Streamable HTTP ASGI application artifact and prints manual FC
+  deployment steps. Automatic FC API deployment is not implemented.
+
+  POST and DELETE /mcp are implemented. GET /mcp currently returns 501; SSE
+  server notifications are planned for Phase 2.
+
+  Example:
+    ebx mcp deploy --generate-token --api-key $E2B_API_KEY
+    ebx mcp deploy --auth-token-file ./token.txt --region cn-shanghai
+    ebx mcp deploy --output-dir ./deploy-artifact
+
+Options:
+  --name TEXT                     FC function name for the artifact.
+  --region TEXT                   FC region.
+  --template TEXT                 Default sandbox template for MCP sessions.
+  --memory INTEGER                FC function memory (MB).
+  --timeout INTEGER               FC function timeout (s).
+  --auth-token-file PATH          Path to a Bearer token file; an empty token
+                                  fails closed.
+  --generate-token                Auto-generate a random Bearer token.
+  --enable-session-affinity / --no-session-affinity
+                                  Enable Mcp-Session-Id affinity (requires FC
+                                  MCP support).
+  --api-key TEXT                  E2B_API_KEY to inject into the FC function
+                                  env.
+  --custom-domain TEXT            Custom domain for the MCP endpoint.
+  --output-dir PATH               Write the FC deployment artifact to this
+                                  directory.
+  --help                          Show this message and exit.
+[exit_code:0]

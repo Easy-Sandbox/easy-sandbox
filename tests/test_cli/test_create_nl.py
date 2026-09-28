@@ -1,30 +1,34 @@
 """Tests for CLI `ebx create` with natural-language description inference."""
+
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import pytest
-from click.testing import CliRunner
-
 from easy_sandbox.cli.main import cli
-from easy_sandbox.models.sandbox import SandboxInfo, SandboxStatus
+from easy_sandbox.models.sandbox import SandboxInfo
+
+if TYPE_CHECKING:
+    from click.testing import CliRunner
 
 
 def _make_sandbox(
     sandbox_id: str = "sbx-nl-001",
-    template: str = "code-interpreter",
+    template: str = "codex",
     status: str = "running",
 ) -> MagicMock:
     """Build a mock Sandbox object."""
-    sb_info = SandboxInfo.model_validate({
-        "sandboxID": sandbox_id,
-        "templateID": template,
-        "status": status,
-        "region": "cn-hangzhou",
-        "timeout": 300,
-        "envdUrl": f"https://{sandbox_id}.cn-hangzhou.e2b.fc.aliyuncs.com",
-        "envdAccessToken": "tok",
-    })
+    sb_info = SandboxInfo.model_validate(
+        {
+            "sandboxID": sandbox_id,
+            "templateID": template,
+            "status": status,
+            "region": "cn-hangzhou",
+            "timeout": 300,
+            "envdUrl": f"https://{sandbox_id}.cn-hangzhou.e2b.fc.aliyuncs.com",
+            "envdAccessToken": "tok",
+        }
+    )
     mock_sb = MagicMock()
     mock_sb.id = sb_info.sandbox_id
     mock_sb.status = sb_info.status
@@ -38,6 +42,7 @@ def _make_sandbox(
 # ---------------------------------------------------------------------------
 # NL inference via `ebx create "<description>"`
 # ---------------------------------------------------------------------------
+
 
 class TestCreateNLInference:
     """Tests for `ebx create` with a natural-language description."""
@@ -53,6 +58,7 @@ class TestCreateNLInference:
             if call_count[0] == 1:
                 # infer_template call
                 from easy_sandbox.agent.infer import InferResult
+
                 return InferResult(
                     template="code-interpreter",
                     display_name="Code Interpreter",
@@ -85,6 +91,7 @@ class TestCreateNLInference:
             call_count[0] += 1
             if call_count[0] == 1:
                 from easy_sandbox.agent.infer import InferResult
+
                 return InferResult(
                     template="node-web",
                     display_name="Node.js Web",
@@ -130,9 +137,7 @@ class TestCreateNLInference:
             "easy_sandbox.utils.async_bridge.run_sync",
             return_value=mock_sb,
         ):
-            result = runner.invoke(
-                cli, ["create", "python", "--template", "custom"]
-            )
+            result = runner.invoke(cli, ["create", "python", "--template", "custom"])
 
         assert result.exit_code == 0
         # Inference should NOT be triggered when --template is given
@@ -143,7 +148,7 @@ class TestCreateNLInference:
         csv_file = tmp_path / "test.csv"
         csv_file.write_text("a,b,c\n1,2,3\n")
 
-        mock_sb = _make_sandbox(template="python-data-science")
+        mock_sb = _make_sandbox(template="browser-automation")
 
         call_count = [0]
 
@@ -151,37 +156,38 @@ class TestCreateNLInference:
             call_count[0] += 1
             if call_count[0] == 1:
                 from easy_sandbox.agent.infer import InferResult
+
                 return InferResult(
-                    template="python-data-science",
-                    display_name="Python Data Science",
+                    template="browser-automation",
+                    display_name="Browser Automation",
                     cpu=2,
                     memory=4096,
                     confidence=0.88,
-                    reasoning="关键词匹配: csv, 分析",
+                    reasoning="关键词匹配: playwright, 截图",
                 )
             # _create_and_upload: run the merged coroutine
             import asyncio as _aio
+
             return _aio.run(coro)
 
-        with patch(
-            "easy_sandbox.api.sandbox.Sandbox.create",
-            new_callable=AsyncMock,
-            return_value=mock_sb,
-        ), patch(
-            "easy_sandbox.utils.async_bridge.run_sync",
-            side_effect=_run_sync_side_effect,
+        with (
+            patch(
+                "easy_sandbox.api.sandbox.Sandbox.create",
+                new_callable=AsyncMock,
+                return_value=mock_sb,
+            ),
+            patch(
+                "easy_sandbox.utils.async_bridge.run_sync",
+                side_effect=_run_sync_side_effect,
+            ),
         ):
-            result = runner.invoke(
-                cli, ["create", "分析 CSV", "--upload", str(csv_file)]
-            )
+            result = runner.invoke(cli, ["create", "用 playwright 截图", "--upload", str(csv_file)])
 
         assert result.exit_code == 0
-        assert "python-data-science" in result.output
+        assert "browser-automation" in result.output
         assert "已上传" in result.output
 
-    def test_create_no_description_no_template_uses_base(
-        self, runner: CliRunner
-    ) -> None:
+    def test_create_no_description_no_template_uses_base(self, runner: CliRunner) -> None:
         """ebx create (no args) → uses default 'base' template."""
         mock_sb = _make_sandbox(template="base")
 
@@ -205,6 +211,7 @@ class TestCreateNLInference:
             call_count[0] += 1
             if call_count[0] == 1:
                 from easy_sandbox.agent.infer import InferResult
+
                 return InferResult(
                     template="code-interpreter",
                     display_name="Code Interpreter",
@@ -235,6 +242,7 @@ class TestCreateNLInference:
             call_count[0] += 1
             if call_count[0] == 1:
                 from easy_sandbox.agent.infer import InferResult
+
                 return InferResult(
                     template="browser-automation",
                     display_name="Browser Automation",
@@ -249,9 +257,7 @@ class TestCreateNLInference:
             "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=_run_sync_side_effect,
         ):
-            result = runner.invoke(
-                cli, ["create", "用 playwright 爬取网页"]
-            )
+            result = runner.invoke(cli, ["create", "用 playwright 爬取网页"])
 
         assert result.exit_code == 0
         assert "置信度" in result.output

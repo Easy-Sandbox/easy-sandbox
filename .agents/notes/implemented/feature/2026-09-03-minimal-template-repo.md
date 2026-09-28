@@ -24,6 +24,9 @@ sandbox-templates/
     └── template.yaml
 ```
 
+## API Design
+N/A — this decision concerns repository layout, not code APIs.
+
 ## Alternatives considered
 - **Registry service + database** — Overkill for the current template count; adds infra and ops burden.
 - **Index/manifest file at repo root** — Extra sync surface; a directory walk suffices (see command-source-resolution ADR).

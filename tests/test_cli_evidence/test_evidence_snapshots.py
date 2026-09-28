@@ -7,9 +7,13 @@ in ``tests/test_cli_evidence/golden/<case>.txt``.
 Set ``EBX_UPDATE_EVIDENCE=1`` to **write** (seed / refresh) golden files
 instead of asserting against them.
 """
+
 from __future__ import annotations
 
 import os
+
+# Import shared registry
+import sys
 from pathlib import Path
 
 import pytest
@@ -17,9 +21,6 @@ from click.testing import CliRunner
 
 from easy_sandbox.cli.main import cli
 from easy_sandbox.transport.config import reset_config
-
-# Import shared registry
-import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from scripts.evidence_cases import REGISTRY, EvidenceCase, format_result, normalize  # noqa: E402
@@ -55,9 +56,9 @@ def _case_ids() -> list[str]:
 def _reset_cfg():
     # Remove any test-injected commands from the global CLI group
     # (e.g. _test_ctx added by test_main.py::test_context_options_stored)
-    if hasattr(cli, 'commands') and cli.commands:
+    if hasattr(cli, "commands") and cli.commands:
         for name in list(cli.commands):
-            if name.startswith('_test'):
+            if name.startswith("_test"):
                 del cli.commands[name]
     reset_config()
     yield

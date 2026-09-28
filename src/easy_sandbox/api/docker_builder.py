@@ -19,11 +19,14 @@ Typical usage::
         acr_password="your-access-key-secret",
     )
 """
+
 from __future__ import annotations
 
 import base64
+import contextlib
 import hashlib
 import hmac as hmac_mod
+import os
 import shutil
 import subprocess  # noqa: S404
 import urllib.parse
@@ -31,7 +34,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -41,6 +44,9 @@ from easy_sandbox.models.errors import (
     DockerBuildError,
 )
 from easy_sandbox.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 logger = get_logger("api.docker_builder")
 
@@ -89,9 +95,7 @@ class ACRConfig:
         """
         # ACR EE VPC format: <instance>-vpc.<region>.cr.aliyuncs.com
         # For standard ACR: registry.<region>.aliyuncs.com → <region>.cr.aliyuncs.com
-        return self.registry.replace("registry.", "").replace(
-            ".aliyuncs.com", ".cr.aliyuncs.com"
-        )
+        return self.registry.replace("registry.", "").replace(".aliyuncs.com", ".cr.aliyuncs.com")
 
     def to_platform_headers(
         self,
@@ -187,7 +191,7 @@ class DockerBuilder:
         dockerfile: str | Path | None = None,
         platform: str = "linux/amd64",
         build_args: dict[str, str] | None = None,
-        on_output: Optional[Callable[[str], None]] = None,
+        on_output: Callable[[str], None] | None = None,
     ) -> str:
         """Build a Docker image locally.
 
@@ -207,11 +211,18 @@ class DockerBuilder:
         """
         context = Path(context_dir).resolve()
         cmd = [
-            self._docker, "build",
-            "--platform", platform,
-            "--provenance=false",  # Disable attestation manifests (FC rejects unknown/unknown platform)
-            "-t", tag,
+            self._docker,
+            "build",
+            "--platform",
+            platform,
+            "-t",
+            tag,
         ]
+        # --provenance is a buildx-only flag; only add when buildkit is enabled.
+        # Users on constrained environments can set DOCKER_BUILDKIT=0 to fall
+        # back to the legacy builder (skips the flag automatically).
+        if os.environ.get("DOCKER_BUILDKIT", "1") != "0":
+            cmd.insert(4, "--provenance=false")
         if dockerfile:
             cmd.extend(["-f", str(dockerfile)])
         if build_args:
@@ -244,11 +255,11 @@ class DockerBuilder:
                 )
             logger.info("Docker build succeeded: %s", tag)
             return tag
-        except FileNotFoundError:
+        except FileNotFoundError as err:
             raise DockerBuildError(
                 f"Docker command not found: {self._docker}",
                 suggestion="Install Docker or ensure it is in PATH.",
-            )
+            ) from err
 
     def login_acr(
         self,
@@ -267,8 +278,10 @@ class DockerBuilder:
             ACRLoginError: If login fails.
         """
         cmd = [
-            self._docker, "login",
-            "--username", username,
+            self._docker,
+            "login",
+            "--username",
+            username,
             "--password-stdin",
             registry,
         ]
@@ -286,13 +299,13 @@ class DockerBuilder:
                     f"ACR login failed: {proc.stderr.strip()}",
                 )
             logger.info("ACR login succeeded: %s", registry)
-        except FileNotFoundError:
+        except FileNotFoundError as err:
             raise ACRLoginError(
                 f"Docker command not found: {self._docker}",
                 suggestion="Install Docker or ensure it is in PATH.",
-            )
-        except subprocess.TimeoutExpired:
-            raise ACRLoginError("ACR login timed out after 30s.")
+            ) from err
+        except subprocess.TimeoutExpired as err:
+            raise ACRLoginError("ACR login timed out after 30s.") from err
 
     def login_acr_with_aksk(
         self,
@@ -328,7 +341,9 @@ class DockerBuilder:
         logger.info("Attempting ACR login via GetAuthorizationToken for %s", registry)
         try:
             token_data = get_acr_auth_token(
-                access_key_id, access_key_secret, region,
+                access_key_id,
+                access_key_secret,
+                region,
                 instance_id=instance_id,
             )
             temp_username = token_data.get("tempUserName", "")
@@ -339,7 +354,8 @@ class DockerBuilder:
                 )
             logger.info(
                 "ACR temp credentials obtained (user=%s, expires=%s)",
-                temp_username, token_data.get("expireTime", "?"),
+                temp_username,
+                token_data.get("expireTime", "?"),
             )
             self.login_acr(registry, temp_username, auth_token)
             return {"tempUserName": temp_username, "authorizationToken": auth_token}
@@ -372,15 +388,13 @@ class DockerBuilder:
             timeout=15,
         )
         if result.returncode != 0:
-            raise DockerBuildError(
-                f"Docker tag failed: {result.stderr.strip()}"
-            )
+            raise DockerBuildError(f"Docker tag failed: {result.stderr.strip()}")
 
     def push(
         self,
         image_ref: str,
         *,
-        on_output: Optional[Callable[[str], None]] = None,
+        on_output: Callable[[str], None] | None = None,
     ) -> None:
         """Push an image to a remote registry.
 
@@ -415,11 +429,11 @@ class DockerBuilder:
                     + "\n".join(output_lines[-10:]),
                 )
             logger.info("Docker push succeeded: %s", image_ref)
-        except FileNotFoundError:
+        except FileNotFoundError as err:
             raise ACRPushError(
                 f"Docker command not found: {self._docker}",
                 suggestion="Install Docker or ensure it is in PATH.",
-            )
+            ) from err
 
     # ------------------------------------------------------------------ #
     # SDK wheel helper
@@ -456,11 +470,20 @@ class DockerBuilder:
         # Build wheel in a temp directory
         import sys
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             logger.info("Building SDK wheel from %s", project_root)
             result = subprocess.run(
-                [sys.executable, "-m", "pip", "wheel", str(project_root),
-                 "--no-deps", "-w", tmpdir],
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "wheel",
+                    str(project_root),
+                    "--no-deps",
+                    "-w",
+                    tmpdir,
+                ],
                 capture_output=True,
                 text=True,
                 timeout=120,
@@ -495,7 +518,7 @@ class DockerBuilder:
         memory_mb: int = 2048,
         start_cmd: str | None = None,
         ready_cmd: str | None = None,
-        on_progress: Optional[Callable[[str], None]] = None,
+        on_progress: Callable[[str], None] | None = None,
         api_key: str | None = None,
         api_url: str | None = None,
         access_key_id: str | None = None,
@@ -565,17 +588,17 @@ class DockerBuilder:
         finally:
             # Clean up injected wheels regardless of build outcome
             for whl in injected_wheels:
-                try:
+                with contextlib.suppress(OSError):
                     whl.unlink(missing_ok=True)
-                except OSError:
-                    pass
 
         # Step 3: Login + tag + push to ACR
         acr_ref = acr.tagged_ref(tag)
         result.acr_ref = acr_ref
         _progress(f"[3/5] Pushing to ACR: {acr_ref}")
         self.login_acr_with_aksk(
-            acr.registry, acr.username, acr.password,
+            acr.registry,
+            acr.username,
+            acr.password,
             instance_id=acr.acree_instance_id or None,
         )
         self.tag(local_tag, acr_ref)
@@ -584,10 +607,10 @@ class DockerBuilder:
 
         # Step 4: Create template via v3 API
         _progress(f"[4/5] Creating template on platform: {template_name}")
-        from easy_sandbox.transport.config import load_config
-        from easy_sandbox.transport.auth import create_auth_provider
-        from easy_sandbox.transport.http import HttpClient
         from easy_sandbox.protocol.template import TemplateProtocol
+        from easy_sandbox.transport.auth import create_auth_provider
+        from easy_sandbox.transport.config import load_config
+        from easy_sandbox.transport.http import HttpClient
 
         config_overrides: dict[str, Any] = {}
         if api_key:
@@ -620,10 +643,7 @@ class DockerBuilder:
             result.build_id = v3_data.get("buildID", "")
 
             # Trigger build via v2
-            _progress(
-                f"[5/5] Triggering build: templateID={result.template_id}, "
-                f"image={acr_ref}"
-            )
+            _progress(f"[5/5] Triggering build: templateID={result.template_id}, image={acr_ref}")
             acr_headers = acr.to_platform_headers()
             await protocol.trigger_build_v2(
                 result.template_id,
@@ -712,7 +732,7 @@ class DockerBuilder:
             internet_access: Internet access flag.
             start_cmd: Start command.
             ready_cmd: Readiness check command.
-            envd_inject: Enable envd injection (default ``True`` for build-local).
+            envd_inject: Enable envd injection (default ``True`` for template deploy).
             generation: Sandbox generation (default 1).
             team_id: Team ID (auto-resolved if not given).
             region: Region ID (default ``cn-hangzhou``).
@@ -782,7 +802,9 @@ class DockerBuilder:
         result.acr_ref = acr_ref
         _progress(f"[3/5] Pushing to ACR: {acr_ref}")
         creds = self.login_acr_with_aksk(
-            acr.registry, acr_ak, acr_sk,
+            acr.registry,
+            acr_ak,
+            acr_sk,
             region=region,
             instance_id=acr.acree_instance_id or None,
         )
@@ -823,10 +845,7 @@ class DockerBuilder:
 
         result.template_id = api_result.get("templateID", "")
         result.build_status = "ready" if api_result.get("statusCode") == 200 else "submitted"
-        _progress(
-            f"[5/5] Template created: {result.template_id} "
-            f"(status={result.build_status})"
-        )
+        _progress(f"[5/5] Template created: {result.template_id} (status={result.build_status})")
 
         return result
 
@@ -836,20 +855,20 @@ class DockerBuilder:
 
 def _percent_encode(s: str) -> str:
     """RFC 3986 percent-encoding (Alibaba Cloud signature convention)."""
-    return urllib.parse.quote(s, safe="").replace("+", "%20").replace("*", "%2A").replace("%7E", "~")
+    return (
+        urllib.parse.quote(s, safe="").replace("+", "%20").replace("*", "%2A").replace("%7E", "~")
+    )
 
 
 def _sign_rpc(params: dict[str, str], secret: str, method: str = "GET") -> str:
     """Compute Alibaba Cloud RPC (POP) V1 HMAC-SHA1 signature."""
     sorted_params = sorted(params.items())
-    canonical = "&".join(
-        f"{_percent_encode(k)}={_percent_encode(v)}" for k, v in sorted_params
-    )
+    canonical = "&".join(f"{_percent_encode(k)}={_percent_encode(v)}" for k, v in sorted_params)
     sts = f"{method}&{_percent_encode('/')}&{_percent_encode(canonical)}"
     key = (secret + "&").encode("utf-8")
-    return base64.b64encode(
-        hmac_mod.new(key, sts.encode("utf-8"), hashlib.sha1).digest()
-    ).decode("utf-8")
+    return base64.b64encode(hmac_mod.new(key, sts.encode("utf-8"), hashlib.sha1).digest()).decode(
+        "utf-8"
+    )
 
 
 def _sign_roa(
@@ -868,22 +887,14 @@ def _sign_roa(
     """
     # Canonicalize x-acs-* headers
     acs_headers = sorted(
-        (k.lower(), v.strip())
-        for k, v in headers.items()
-        if k.lower().startswith("x-acs-")
+        (k.lower(), v.strip()) for k, v in headers.items() if k.lower().startswith("x-acs-")
     )
     canonical_headers = "".join(f"{k}:{v}\n" for k, v in acs_headers)
     date_str = headers.get("Date", "")
     content_md5 = headers.get("Content-MD5", "")
 
     sts = (
-        f"{method}\n"
-        f"{accept}\n"
-        f"{content_md5}\n"
-        f"{content_type}\n"
-        f"{date_str}\n"
-        f"{canonical_headers}"
-        f"{path}"
+        f"{method}\n{accept}\n{content_md5}\n{content_type}\n{date_str}\n{canonical_headers}{path}"
     )
     return base64.b64encode(
         hmac_mod.new(secret.encode("utf-8"), sts.encode("utf-8"), hashlib.sha1).digest()
@@ -914,8 +925,12 @@ def _get_acr_auth_token_personal(
     }
 
     sig = _sign_roa(
-        "GET", path, headers, access_key_secret,
-        accept="application/json", content_type="application/json",
+        "GET",
+        path,
+        headers,
+        access_key_secret,
+        accept="application/json",
+        content_type="application/json",
     )
     headers["Authorization"] = f"acs {access_key_id}:{sig}"
 
@@ -925,7 +940,8 @@ def _get_acr_auth_token_personal(
     data = resp.json()
     logger.debug(
         "ACR personal GetAuthorizationToken response: status=%s body=%s",
-        resp.status_code, str(data)[:300],
+        resp.status_code,
+        str(data)[:300],
     )
 
     if resp.status_code != 200:
@@ -937,7 +953,7 @@ def _get_acr_auth_token_personal(
 
     # Response: {"data": {"tempUserName": ..., "authorizationToken": ..., "expireTime": ...}}
     auth_data = data.get("data", data)
-    return auth_data
+    return auth_data  # type: ignore[no-any-return]
 
 
 def _get_acr_auth_token_ee(
@@ -963,13 +979,16 @@ def _get_acr_auth_token_ee(
     }
     params["Signature"] = _sign_rpc(params, access_key_secret)
 
-    logger.info("Calling ACR GetAuthorizationToken (RPC, EE, region=%s, instance=%s)", region, instance_id)
+    logger.info(
+        "Calling ACR GetAuthorizationToken (RPC, EE, region=%s, instance=%s)", region, instance_id
+    )
     with httpx.Client() as client:
         resp = client.get(endpoint, params=params, timeout=15)
     data = resp.json()
     logger.debug(
         "ACR EE GetAuthorizationToken response: status=%s body=%s",
-        resp.status_code, str(data)[:300],
+        resp.status_code,
+        str(data)[:300],
     )
 
     if resp.status_code != 200:
@@ -980,7 +999,7 @@ def _get_acr_auth_token_ee(
         )
 
     auth_data = data.get("data", data)
-    return auth_data
+    return auth_data  # type: ignore[no-any-return]
 
 
 def get_acr_auth_token(
@@ -1017,7 +1036,10 @@ def get_acr_auth_token(
     if instance_id:
         try:
             auth = _get_acr_auth_token_ee(
-                access_key_id, access_key_secret, region, instance_id,
+                access_key_id,
+                access_key_secret,
+                region,
+                instance_id,
             )
             token = auth.get("authorizationToken", "")
             user = auth.get("tempUserName", "")

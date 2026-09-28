@@ -1,15 +1,14 @@
 """Tests for sandbox data models."""
-from __future__ import annotations
 
-from datetime import datetime, timezone
+from __future__ import annotations
 
 import pytest
 from pydantic import ValidationError
 
 from easy_sandbox.models.sandbox import (
-    SandboxStatus,
     SandboxConfig,
     SandboxInfo,
+    SandboxStatus,
 )
 
 
@@ -82,12 +81,14 @@ class TestSandboxConfig:
 
     def test_alias_construction(self):
         """Test constructing SandboxConfig via camelCase aliases."""
-        cfg = SandboxConfig.model_validate({
-            "templateID": "node-base",
-            "timeout": 600,
-            "envVars": {"X": "1"},
-            "autoPause": True,
-        })
+        cfg = SandboxConfig.model_validate(
+            {
+                "templateID": "node-base",
+                "timeout": 600,
+                "envVars": {"X": "1"},
+                "autoPause": True,
+            }
+        )
         assert cfg.template == "node-base"
         assert cfg.env_vars == {"X": "1"}
         assert cfg.auto_pause is True

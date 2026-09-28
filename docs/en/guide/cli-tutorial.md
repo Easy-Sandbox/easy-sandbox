@@ -22,21 +22,10 @@ ebx --version
 
 ## Step 2: Authentication
 
-### Interactive Login
+### Set API Key via config
 
 ```bash
-ebx auth login
-# Follow the prompt to enter your API Key, saved to ~/.ebx/.env
-```
-
-### Verify Status
-
-```bash
-ebx auth status
-# Example output:
-#   API Key: abcd****efgh
-#   Source: /Users/you/.ebx/.env
-#   Auth Mode: api_key
+ebx config set api_key your-api-key
 ```
 
 ### Or via Environment Variable
@@ -44,6 +33,8 @@ ebx auth status
 ```bash
 export E2B_API_KEY="your-api-key"
 ```
+
+> For more authentication methods (AK/SK, .env files, config.toml, etc.), see [Authentication](authentication.md).
 
 ---
 
@@ -128,16 +119,49 @@ ebx download sbx-xxxx /app/result.csv ./result.csv
 
 ## Step 7: Execute Custom Commands
 
-If the template defines custom commands (or commands registered via `@sandbox.register`), you can use `ebx run` to execute them:
+`ebx run` supports two custom command mechanisms:
+
+### Mechanism A: template.yaml Declarative
+
+Declare shell commands in the template's `template.yaml`:
+
+```yaml
+custom_commands:
+  dev:
+    command: "npm run dev"
+  test:
+    command: "pytest {file} -v"
+    description: "Run tests"
+```
+
+Execute:
 
 ```bash
-# View available commands
-ebx run sbx-xxxx --help
-
-# Execute a command
-ebx run sbx-xxxx dev --arg file=tests/
-ebx run sbx-xxxx demo --x 1 --y hello
+ebx run sbx-xxxx dev
+ebx run sbx-xxxx test --arg file=tests/test_api.py
 ```
+
+### Mechanism B: @registry.command Programmatic
+
+Register custom commands in Python code running inside the sandbox:
+
+```python
+from easy_sandbox.server.registry import registry
+
+@registry.command("greet")
+def greet(name: str) -> str:
+    return f"Hello, {name}!"
+
+registry.freeze()
+```
+
+Execute:
+
+```bash
+ebx run sbx-xxxx greet --name World
+```
+
+> `ebx run` automatically tries Mechanism A first; if the command is not found, it falls back to Mechanism B, fully transparent to the user.
 
 ---
 
@@ -178,46 +202,14 @@ ebx install owner/repo
 ebx create --template my-template
 ```
 
----
-
-## Session Management
-
-A session associates a sandbox with a name, making it easy to reconnect repeatedly:
+### One-Click Deploy Custom Templates
 
 ```bash
-# Start a session
-ebx session start my-project --template base
-
-# Connect to a session
-ebx session connect my-project
-
-# List all sessions
-ebx session list
-
-# View session info
-ebx session info my-project
-
-# Stop a session
-ebx session stop my-project
+ebx template deploy ./my-template \
+  --acr-namespace my-ns --acr-repo my-template
 ```
 
----
-
-## Secret Management
-
-```bash
-# Create a secret (secure input)
-ebx secret create MY_TOKEN
-
-# List secrets
-ebx secret list
-
-# Inject into a sandbox
-ebx secret inject sbx-xxxx -s MY_TOKEN -s ANOTHER_SECRET
-
-# Delete a secret
-ebx secret delete MY_TOKEN
-```
+`template deploy` automatically performs: local Docker build → ACR push → CreateTemplate API call. See [Authoring Templates](authoring-templates.md) for details.
 
 ---
 
@@ -242,7 +234,7 @@ Available configuration keys: `api_key`, `api_url`, `region`, `http_timeout`, `m
 
 ## MCP Integration
 
-Use Easy Sandbox as an MCP Server for AI IDEs:
+Use Easy Sandbox as a local STDIO MCP Server for AI IDEs. STDIO mode does not require the HTTP transport dependencies:
 
 ```bash
 # Install to Cursor
@@ -258,6 +250,20 @@ ebx mcp status
 ebx mcp start --template code-interpreter-v1
 ```
 
+### Remote MCP Server Deployment Artifact
+
+Generate a Streamable HTTP MCP artifact for manual deployment to Alibaba Cloud FC. The command does not call an FC deployment API:
+
+```bash
+# Generate files with a new Bearer token
+ebx mcp deploy --generate-token --api-key $E2B_API_KEY \
+  --output-dir ./deploy-artifact
+```
+
+Install `easy-sandbox[mcp]` in the HTTP runtime. Then use the official Alibaba Cloud FC console or SDK to package the artifact and create the function and HTTP trigger. Treat `config.yaml` as a provider-neutral checklist—not an FC API payload—and translate its settings through the official interface. Replace the URL and token placeholders in the printed IDE template with the deployment values.
+
+Clients should call `DELETE /mcp` when a session ends. `GET /mcp` currently returns 501; SSE server notifications are planned for Phase 2. `config.yaml` may contain plaintext credentials, so do not commit the artifact or completed IDE configuration to version control.
+
 ---
 
 ## Global Options
@@ -271,7 +277,7 @@ The `ebx` command supports the following global options, which can be used befor
 | `--no-color` | Disable colored output |
 | `--ci` | CI/CD mode (equivalent to `--quiet --no-color --json`) |
 
-For a detailed list of global options (including `--verbose`, `--log-level`, `--timeout`, `--region`, etc.), see [CLI Reference — Global Options](../reference/cli-reference.md#全局选项).
+For a detailed list of global options (including `--verbose`, `--log-level`, `--timeout`, `--region`, etc.), see [CLI Reference — Global Options](../reference/cli-reference.md#global-options).
 
 ---
 

@@ -1,13 +1,16 @@
 """Tests for CLI main entry point and LazyGroup."""
+
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 import click
-import pytest
-from click.testing import CliRunner
 
 from easy_sandbox.cli.main import LazyGroup, cli
+
+if TYPE_CHECKING:
+    from click.testing import CliRunner
 
 
 class TestLazyGroup:
@@ -17,7 +20,18 @@ class TestLazyGroup:
         result = runner.invoke(cli, ["--help"])
         assert result.exit_code == 0
         # All lazy commands should appear in help
-        for cmd in ("create", "list", "info", "kill", "exec", "connect", "config", "template", "mcp", "install"):
+        for cmd in (
+            "create",
+            "list",
+            "info",
+            "kill",
+            "exec",
+            "connect",
+            "config",
+            "template",
+            "mcp",
+            "install",
+        ):
             assert cmd in result.output
 
     def test_lazy_group_loads_on_demand(self) -> None:
@@ -77,7 +91,9 @@ class TestCLIRoot:
         def _test_ctx(ctx: click.Context) -> None:
             click.echo(json.dumps(ctx.obj))
 
-        result = runner.invoke(cli, ["--json", "--quiet", "--no-color", "--timeout", "60", "_test_ctx"])
+        result = runner.invoke(
+            cli, ["--json", "--quiet", "--no-color", "--timeout", "60", "_test_ctx"]
+        )
         assert result.exit_code == 0
         data = json.loads(result.output)
         assert data["json"] is True
@@ -90,3 +106,42 @@ class TestCLIRoot:
         assert result.exit_code == 0
         # Should show usage/help when no command
         assert "Usage" in result.output or "ebx" in result.output
+
+
+class TestVerboseSubcommandFlag:
+    """The local ``-v/--verbose`` flag on subcommands flips the shared manager."""
+
+    def test_enable_verbose_sets_context_and_manager(self) -> None:
+        from easy_sandbox.cli.output import OutputManager, enable_verbose, get_output
+
+        ctx = click.Context(click.Command("x"))
+        ctx.meta["ebx.output"] = OutputManager()
+        ctx.obj = {}
+
+        assert get_output(ctx).verbose is False
+        enable_verbose(ctx)
+
+        assert ctx.obj["verbose"] is True
+        assert get_output(ctx).verbose is True
+
+    def test_enable_verbose_creates_obj_when_missing(self) -> None:
+        from easy_sandbox.cli.output import OutputManager, enable_verbose
+
+        ctx = click.Context(click.Command("x"))
+        ctx.meta["ebx.output"] = OutputManager()
+        ctx.obj = None  # type: ignore[assignment]
+
+        enable_verbose(ctx)
+        assert ctx.obj == {"verbose": True}
+
+    def test_set_verbose_enables_debug_output(self, capsys) -> None:
+        from easy_sandbox.cli.output import OutputManager
+
+        out = OutputManager(no_color=True)
+        out.debug("hidden")
+        assert "hidden" not in capsys.readouterr().err
+
+        out.set_verbose(True)
+        out.debug("shown")
+        assert "shown" in capsys.readouterr().err
+

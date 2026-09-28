@@ -2,10 +2,11 @@
 
 字段命名与 camelCase alias 已根据真实 API 实测验证。
 """
+
 from __future__ import annotations
 
 import enum
-from datetime import datetime
+from datetime import datetime  # noqa: TC003  # Pydantic needs at runtime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -30,9 +31,7 @@ class SandboxConfig(BaseModel):
     """
 
     template: str = Field(default="base", alias="templateID")
-    timeout: int = Field(
-        default=300, ge=1, le=86400, description="Sandbox timeout in seconds"
-    )
+    timeout: int = Field(default=300, ge=1, le=86400, description="Sandbox timeout in seconds")
     auto_pause: bool = Field(default=False, alias="autoPause", description="是否自动暂停")
     metadata: dict[str, str] = Field(default_factory=dict)
     env_vars: dict[str, str] = Field(
@@ -47,9 +46,9 @@ class SandboxConfig(BaseModel):
 
     model_config = {"populate_by_name": True}
 
-    def to_create_payload(self) -> dict:
+    def to_create_payload(self) -> dict[str, Any]:
         """Build the camelCase request payload for sandbox creation（已实测验证）."""
-        payload: dict = {
+        payload: dict[str, Any] = {
             "templateID": self.template,
             "timeout": self.timeout,
             "autoPause": self.auto_pause,

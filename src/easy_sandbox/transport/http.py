@@ -5,17 +5,22 @@ the Platform API; envd clients are created on demand per sandbox URL.
 
 envd URL 格式: https://49983-{sandbox_id}.{domain}（已实测验证）
 """
+
 from __future__ import annotations
 
-from typing import Any, AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
-from easy_sandbox.models.errors import ConnectionError_, NetworkError
-from easy_sandbox.transport.auth import AuthProvider, EnvdTokenManager, PLATFORM_AUTH_HEADER
-from easy_sandbox.transport.codec import ConnectCodec, CONNECT_CONTENT_TYPE
-from easy_sandbox.transport.config import TransportConfig, ENVD_PORT
+from easy_sandbox.models.errors import ConnectionError_
+from easy_sandbox.transport.codec import CONNECT_CONTENT_TYPE, ConnectCodec
 from easy_sandbox.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from easy_sandbox.transport.auth import AuthProvider, EnvdTokenManager
+    from easy_sandbox.transport.config import TransportConfig
 
 logger = get_logger("transport.http")
 
@@ -75,10 +80,19 @@ class HttpClient:
         json: dict[str, Any] | None = None,
         params: dict[str, Any] | None = None,
         headers: dict[str, str] | None = None,
+        request_timeout: float | None = None,
     ) -> httpx.Response:
         """Send a request to the Platform API (REST).
 
         Automatically injects authentication headers.
+
+        Args:
+            request_timeout: Per-request timeout override in seconds.
+                When provided, overrides the client-level default
+                ``http_timeout`` from :class:`TransportConfig` for this
+                single request.  When *None*, the client-level default
+                (i.e. ``SANDBOX_HTTP_TIMEOUT`` / ``Config.http_timeout``)
+                is used unchanged.
         """
         client = await self._get_platform_client()
         auth_headers = await self._auth.get_headers()
@@ -86,6 +100,11 @@ class HttpClient:
         all_headers = {**auth_headers}
         if headers:
             all_headers.update(headers)
+
+        # Build optional per-request timeout override (mirrors envd_request).
+        extra_kwargs: dict[str, Any] = {}
+        if request_timeout is not None:
+            extra_kwargs["timeout"] = httpx.Timeout(request_timeout)
 
         logger.debug("Platform %s %s", method, path)
         try:
@@ -95,6 +114,7 @@ class HttpClient:
                 json=json,
                 params=params,
                 headers=all_headers,
+                **extra_kwargs,
             )
             response.raise_for_status()
             return response
@@ -115,6 +135,7 @@ class HttpClient:
         payload: dict[str, Any] | None = None,
         envd_token: EnvdTokenManager,
         headers: dict[str, str] | None = None,
+        request_timeout: float | None = None,
     ) -> dict[str, Any]:
         """Send a Connect RPC request to the envd API.
 
@@ -124,6 +145,10 @@ class HttpClient:
             payload: Request body dict.
             envd_token: Token manager for this sandbox.
             headers: Additional headers.
+            request_timeout: Per-request timeout override in seconds.
+                When provided, overrides the default ``http_timeout``
+                from :class:`TransportConfig` for this single request.
+                When *None*, the client-level default is used.
 
         Returns:
             Decoded response dict.
@@ -140,12 +165,18 @@ class HttpClient:
 
         body = self._codec.encode_request(payload or {})
 
+        # Build optional per-request timeout override
+        extra_kwargs: dict[str, Any] = {}
+        if request_timeout is not None:
+            extra_kwargs["timeout"] = httpx.Timeout(request_timeout)
+
         logger.debug("envd POST %s%s", envd_url, rpc_path)
         try:
             response = await client.post(
                 url=rpc_path,
                 content=body,
                 headers=all_headers,
+                **extra_kwargs,
             )
             response.raise_for_status()
             return self._codec.decode_response(response.content)
@@ -163,6 +194,7 @@ class HttpClient:
         payload: dict[str, Any] | None = None,
         envd_token: EnvdTokenManager,
         headers: dict[str, str] | None = None,
+        request_timeout: float | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         """Send a Connect RPC streaming request to the envd API.
 
@@ -175,6 +207,12 @@ class HttpClient:
         reuse on some envd versions (cached connections that served
         earlier unary RPCs can return spurious 500 errors on subsequent
         streaming calls).
+
+        Args:
+            request_timeout: Per-request timeout override in seconds.
+                When provided, overrides the default ``http_timeout``
+                from :class:`TransportConfig` for this streaming call.
+                When *None*, ``self._config.http_timeout`` is used.
         """
         auth_headers = envd_token.get_headers()
 
@@ -186,8 +224,11 @@ class HttpClient:
             all_headers.update(headers)
 
         body = self._codec.encode_request(payload or {})
+        effective_timeout = (
+            request_timeout if request_timeout is not None else self._config.http_timeout
+        )
 
-        logger.debug("envd STREAM %s%s", envd_url, rpc_path)
+        logger.debug("envd STREAM %s%s (timeout=%.1fs)", envd_url, rpc_path, effective_timeout)
         try:
             # Use a fresh client per streaming call and a regular POST
             # to read the full response at once.  Reusing the cached
@@ -196,7 +237,7 @@ class HttpClient:
             # to return 500 on streaming endpoints.
             async with httpx.AsyncClient(
                 http2=self._config.http2,
-                timeout=httpx.Timeout(self._config.http_timeout),
+                timeout=httpx.Timeout(effective_timeout),
             ) as client:
                 url = envd_url.rstrip("/") + rpc_path
                 response = await client.post(
@@ -210,7 +251,8 @@ class HttpClient:
                     body_text = response.text[:500]
                     logger.warning(
                         "envd STREAM error %s: %s",
-                        response.status_code, body_text,
+                        response.status_code,
+                        body_text,
                     )
                 response.raise_for_status()
                 raw_bytes = response.content
@@ -273,7 +315,7 @@ class HttpClient:
             await self._platform_client.aclose()
             self._platform_client = None
 
-        for url, client in list(self._envd_clients.items()):
+        for _url, client in list(self._envd_clients.items()):
             if not client.is_closed:
                 await client.aclose()
         self._envd_clients.clear()

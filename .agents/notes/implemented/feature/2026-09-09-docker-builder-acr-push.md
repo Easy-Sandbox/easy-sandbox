@@ -1,34 +1,44 @@
-# Decision: 本地 Docker 构建与 ACR 推送能力
+# Decision: Local Docker build and ACR push capability
 
 Status: implemented
 
 ## Problem
-自定义模板的构建流程之前仅支持平台端构建（上传 Dockerfile 到后端 API），存在以下限制：
+The custom-template build flow previously supported only platform-side build
+(uploading the Dockerfile to the backend API), which had the following limits:
 
-1. **调试困难**：构建过程在远端执行，错误信息不直观，无法本地 `docker build` 调试。
-2. **无 ACR 推送能力**：平台端构建需要镜像已在 ACR 中存在（v2 API `from_image` 参数），但 SDK 没有提供本地构建→ACR 推送的完整链路。
-3. **CLI 缺少本地构建命令**：用户无法通过 `ebx` CLI 一键完成"构建→推送→注册模板"流程。
+1. **Hard to debug**: the build runs remotely, error messages are opaque, and it
+   cannot be debugged with a local `docker build`.
+2. **No ACR push capability**: platform-side build requires the image to already
+   exist in ACR (the v2 API `from_image` parameter), but the SDK provided no
+   full chain from local build to ACR push.
+3. **CLI lacks a local-build command**: users could not perform "build → push →
+   register template" in one shot through the `ebx` CLI.
 
 ## Decision
-新增 `api/docker_builder.py` 模块，提供 `DockerBuilder` 类封装完整的本地构建→ACR 推送→模板注册流程。
+Add the `api/docker_builder.py` module, which provides a `DockerBuilder` class
+that encapsulates the full local build → ACR push → template registration flow.
 
-### 核心流程
+### Core flow
 
-1. **本地 Docker 构建**：调用 `docker build` 子进程，支持 `--platform`、`--build-arg`、`--no-cache` 等参数。
-2. **ACR 登录**：使用阿里云 AK/SK 生成临时凭证，执行 `docker login` 登录 ACR 实例。
-3. **镜像推送**：`docker tag` + `docker push` 将本地镜像推送到 ACR。
-4. **模板注册**：调用 `protocol/template.py` 的 v3 API 创建模板元数据，再调用 v2 API 触发构建（from_image 指向 ACR 镜像）。
+1. **Local Docker build**: invoke a `docker build` subprocess, supporting
+   `--platform`, `--build-arg`, `--no-cache`, and other arguments.
+2. **ACR login**: use the Alibaba Cloud AK/SK to generate a temporary credential
+   and run `docker login` against the ACR instance.
+3. **Image push**: `docker tag` + `docker push` push the local image to ACR.
+4. **Template registration**: call the v3 API in `protocol/template.py` to create
+   template metadata, then call the v2 API to trigger the build (with
+   `from_image` pointing at the ACR image).
 
-### 新增错误类
+### New error classes
 
-在 `models/errors.py` 中新增三个错误类（E7020–E7022）：
-- `DockerBuildError(E7020)` — 本地 Docker 构建失败
-- `ACRPushError(E7021)` — ACR 推送失败
-- `ACRLoginError(E7022)` — ACR 登录失败
+Three new error classes (E7020–E7022) are added in `models/errors.py`:
+- `DockerBuildError(E7020)` — local Docker build failed
+- `ACRPushError(E7021)` — ACR push failed
+- `ACRLoginError(E7022)` — ACR login failed
 
-### CLI 命令
+### CLI command
 
-新增 `ebx template build-local` 子命令：
+Add the `ebx template build-local` subcommand:
 ```bash
 ebx template build-local ./examples/templates/python-hello \
     --acr-namespace my-ns --acr-repo python-hello
@@ -37,11 +47,13 @@ ebx template build-local ./my-template \
     --acr-namespace prod --acree-instance-id cri-xxx
 ```
 
-### v3/v2 API 方法
+### v3/v2 API methods
 
-`protocol/template.py` 新增两个方法（对齐 E2B SDK 2.31.0）：
-- `create_v3(name, ...)` → `POST /v3/templates` — 创建模板元数据，返回 templateID + buildID
-- `trigger_build_v2(template_id, build_id, from_image, ...)` → `POST /v2/templates/{tpl}/builds/{build}` — 从 ACR 镜像触发构建
+Two new methods are added in `protocol/template.py` (aligned with E2B SDK 2.31.0):
+- `create_v3(name, ...)` → `POST /v3/templates` — create template metadata,
+  returns templateID + buildID.
+- `trigger_build_v2(template_id, build_id, from_image, ...)` →
+  `POST /v2/templates/{tpl}/builds/{build}` — trigger the build from an ACR image.
 
 ## API Design
 ```python
@@ -73,7 +85,7 @@ class DockerBuilder:
 ```
 
 ```python
-# protocol/template.py — 新增方法
+# protocol/template.py — new methods
 class TemplateProtocol:
     async def create_v3(self, name, *, dockerfile=None, ...) -> dict[str, Any]: ...
     async def trigger_build_v2(
@@ -82,7 +94,7 @@ class TemplateProtocol:
 ```
 
 ```python
-# models/errors.py — 新增错误码
+# models/errors.py — new error codes
 class DockerBuildError(SandboxError):
     code = "E7020"
 
@@ -94,33 +106,44 @@ class ACRLoginError(SandboxError):
 ```
 
 ## Alternatives considered
-- **仅支持平台端构建（上传 Dockerfile）** — 调试困难、构建慢、无法利用本地 Docker 缓存。Rejected 作为唯一方式。
-- **使用 Docker SDK for Python（docker-py）** — 引入额外依赖，且 `subprocess` 调用 `docker` CLI 更轻量、对用户更透明。Rejected。
-- **ACR 推送使用 Registry HTTP API v2（不经 docker CLI）** — 需实现完整的 manifest/blob 上传协议，复杂度高。Rejected。
-- **将 AK/SK 硬编码在脚本中** — 安全风险，应使用环境变量或 `.env` 文件。Rejected。
+- **Support platform-side build only (upload the Dockerfile)** — hard to debug,
+  slow builds, cannot leverage the local Docker cache. Rejected as the sole option.
+- **Use the Docker SDK for Python (docker-py)** — introduces an extra dependency;
+  invoking the `docker` CLI via `subprocess` is lighter and more transparent to
+  the user. Rejected.
+- **Use the Registry HTTP API v2 for ACR push (bypassing the docker CLI)** —
+  requires implementing the full manifest/blob upload protocol; high complexity.
+  Rejected.
+- **Hardcode AK/SK in the script** — security risk; must use environment
+  variables or a `.env` file. Rejected.
 
 ## Dependencies
-- `models/errors.py`（`DockerBuildError`/`ACRPushError`/`ACRLoginError` 错误类）
-- `protocol/template.py`（`create_v3`/`trigger_build_v2` 平台 API 方法）
-- `transport/http.py`（`HttpClient.platform_request` HTTP 请求）
-- `utils/logging.py`（结构化日志）
-- 外部依赖：本地安装 `docker` CLI
+- `models/errors.py` (`DockerBuildError`/`ACRPushError`/`ACRLoginError` error classes)
+- `protocol/template.py` (`create_v3`/`trigger_build_v2` platform-API methods)
+- `transport/http.py` (`HttpClient.platform_request` HTTP request)
+- `utils/logging.py` (structured logging)
+- External: `docker` CLI installed locally
 
 ## Test Strategy
-- 单元测试：`DockerBuilder` 参数校验、`ACRConfig` 数据类构造。
-- Mock 测试：mock `subprocess.run` 验证 `docker build`/`docker login`/`docker push` 命令拼接正确。
-- 错误场景：Docker 未安装 → `DockerBuildError`；ACR 凭证错误 → `ACRLoginError`；推送失败 → `ACRPushError`。
-- CLI 测试：`ebx template build-local --help` 参数完整性。
-- E2E 测试：在 `scripts/cloud_e2e_test.py` 场景 B 中覆盖真实构建→推送→注册链路。
+- Unit: `DockerBuilder` argument validation, `ACRConfig` dataclass construction.
+- Mock: mock `subprocess.run` and verify that `docker build`/`docker login`/
+  `docker push` commands are assembled correctly.
+- Error scenarios: Docker not installed → `DockerBuildError`; wrong ACR credentials
+  → `ACRLoginError`; push failure → `ACRPushError`.
+- CLI: `ebx template build-local --help` argument completeness.
+- E2E: cover the real build → push → register chain in Scenario B of
+  `scripts/cloud_e2e_test.py`.
 
 ## Acceptance criteria
-- `DockerBuilder.build_and_push()` 完成"构建→登录→推送→注册"全链路。
-- 三个新增错误类（E7020/E7021/E7022）在对应失败场景中正确抛出。
-- `ebx template build-local` CLI 命令可执行完整流程。
-- `protocol/template.py` 的 v3/v2 API 方法与 E2B SDK 2.31.0 对齐。
+- `DockerBuilder.build_and_push()` completes the full "build → login → push →
+  register" chain.
+- The three new error classes (E7020/E7021/E7022) are raised correctly in their
+  respective failure scenarios.
+- The `ebx template build-local` CLI command runs the complete flow.
+- The v3/v2 API methods in `protocol/template.py` align with E2B SDK 2.31.0.
 
 ## Files changed
-- `api/docker_builder.py` — 新建，851 行
-- `models/errors.py` — 新增 `DockerBuildError(E7020)`、`ACRPushError(E7021)`、`ACRLoginError(E7022)`
-- `protocol/template.py` — 新增 `create_v3()`、`trigger_build_v2()` 方法
-- `cli/commands/template.py` — 新增 `build-local` 子命令
+- `api/docker_builder.py` — new, 851 lines
+- `models/errors.py` — added `DockerBuildError(E7020)`, `ACRPushError(E7021)`, `ACRLoginError(E7022)`
+- `protocol/template.py` — added `create_v3()`, `trigger_build_v2()` methods
+- `cli/commands/template.py` — added `build-local` subcommand

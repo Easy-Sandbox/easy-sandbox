@@ -1,17 +1,21 @@
 """Tests for SessionManager (mock Sandbox)."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from easy_sandbox.api.session_manager import SessionManager
-from easy_sandbox.models.errors import SessionNotFoundError, SessionAlreadyExistsError
+from easy_sandbox.models.errors import SessionAlreadyExistsError, SessionNotFoundError
+from easy_sandbox.models.sandbox import SandboxInfo
 from easy_sandbox.models.session import SessionInfo
-from easy_sandbox.models.sandbox import SandboxInfo, SandboxStatus
 from easy_sandbox.session.local import LocalSessionStore
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture
@@ -28,15 +32,17 @@ def _mock_sandbox(
     sandbox_id: str = "sbx-mgr-001",
     template: str = "base",
 ) -> MagicMock:
-    sb_info = SandboxInfo.model_validate({
-        "sandboxID": sandbox_id,
-        "templateID": template,
-        "status": "running",
-        "region": "cn-hangzhou",
-        "timeout": 300,
-        "envdUrl": f"https://{sandbox_id}.e2b.fc.aliyuncs.com",
-        "envdAccessToken": "tok-test-123",
-    })
+    sb_info = SandboxInfo.model_validate(
+        {
+            "sandboxID": sandbox_id,
+            "templateID": template,
+            "status": "running",
+            "region": "cn-hangzhou",
+            "timeout": 300,
+            "envdUrl": f"https://{sandbox_id}.e2b.fc.aliyuncs.com",
+            "envdAccessToken": "tok-test-123",
+        }
+    )
     mock = MagicMock()
     mock.id = sb_info.sandbox_id
     mock.status = sb_info.status
@@ -46,7 +52,9 @@ def _mock_sandbox(
 
 
 class TestStart:
-    async def test_start_creates_session(self, manager: SessionManager, store: LocalSessionStore) -> None:
+    async def test_start_creates_session(
+        self, manager: SessionManager, store: LocalSessionStore
+    ) -> None:
         mock_sb = _mock_sandbox()
         with patch(
             "easy_sandbox.api.session_manager.Sandbox.create",
@@ -74,17 +82,21 @@ class TestStart:
         ):
             await manager.start("dup-session")
 
-        with pytest.raises(SessionAlreadyExistsError):
-            with patch(
+        with (
+            pytest.raises(SessionAlreadyExistsError),
+            patch(
                 "easy_sandbox.api.session_manager.Sandbox.create",
                 new_callable=AsyncMock,
                 return_value=mock_sb,
-            ):
-                await manager.start("dup-session")
+            ),
+        ):
+            await manager.start("dup-session")
 
 
 class TestConnect:
-    async def test_connect_existing(self, manager: SessionManager, store: LocalSessionStore) -> None:
+    async def test_connect_existing(
+        self, manager: SessionManager, store: LocalSessionStore
+    ) -> None:
         # Pre-populate a session
         session = SessionInfo(
             name="saved-session",
@@ -135,7 +147,9 @@ class TestListSessions:
 
 
 class TestStop:
-    async def test_stop_kills_and_deletes(self, manager: SessionManager, store: LocalSessionStore) -> None:
+    async def test_stop_kills_and_deletes(
+        self, manager: SessionManager, store: LocalSessionStore
+    ) -> None:
         session = SessionInfo(
             name="to-stop",
             sandbox_id="sbx-stop-001",
@@ -174,7 +188,9 @@ class TestStop:
 
 
 class TestGetInfo:
-    async def test_get_info_existing(self, manager: SessionManager, store: LocalSessionStore) -> None:
+    async def test_get_info_existing(
+        self, manager: SessionManager, store: LocalSessionStore
+    ) -> None:
         session = SessionInfo(
             name="info-session",
             sandbox_id="sbx-info-001",

@@ -1,4 +1,5 @@
 """Tests for protocol.terminal module — PTY WebSocket terminal."""
+
 from __future__ import annotations
 
 import json
@@ -83,6 +84,7 @@ class TestTerminalURLConversion:
         captured_args: dict = {}
 
         import easy_sandbox.protocol.terminal as term_mod
+
         original_ws_class = term_mod.WebSocketClient
 
         class FakeWS:
@@ -103,7 +105,7 @@ class TestTerminalURLConversion:
 
         term_mod.WebSocketClient = FakeWS  # type: ignore
         try:
-            session = await TerminalSession.create(envd_url, envd_token, config, cols=80, rows=24)
+            await TerminalSession.create(envd_url, envd_token, config, cols=80, rows=24)
             assert captured_args["url"] == "wss://envd-sbx-123.example.com/terminal"
             assert "X-Access-Token" in captured_args["headers"]
             assert captured_args["headers"]["X-Access-Token"] == "tok-123"
@@ -119,6 +121,7 @@ class TestTerminalURLConversion:
         captured_args: dict = {}
 
         import easy_sandbox.protocol.terminal as term_mod
+
         original_ws_class = term_mod.WebSocketClient
 
         class FakeWS:

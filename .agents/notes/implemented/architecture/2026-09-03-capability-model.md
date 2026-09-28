@@ -48,6 +48,11 @@ Effective set resolution:
 - Assert `CapabilityNotSupportedError` (E3004) is raised with a populated `suggestion` when calling a capability outside the effective set.
 - Validate declared capabilities against the vocabulary (unknown value rejected).
 
+## Acceptance criteria
+- Omitting `capabilities` in `template.yaml` yields `DEFAULT_CAPABILITIES = {shell, files, code}`
+- Declared subsets/supersets (e.g. baseline + `terminal`) validate against the vocabulary; unknown tokens are rejected
+- Invoking a capability outside the effective set raises `CapabilityNotSupportedError` (E3004) with a populated `suggestion`
+
 ## Consequences
 - Templates gain an explicit, discoverable contract for what a sandbox can do.
 - Missing capabilities fail fast at the API boundary with actionable errors.

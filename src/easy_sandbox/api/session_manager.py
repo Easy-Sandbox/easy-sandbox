@@ -3,15 +3,14 @@
 A *session* is a thin wrapper that pairs a human-friendly name with a
 sandbox ID and persists the mapping so a user can resume work later.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
 
 from easy_sandbox.api.sandbox import Sandbox
-from easy_sandbox.models.errors import SessionNotFoundError, SessionAlreadyExistsError
+from easy_sandbox.models.errors import SessionAlreadyExistsError, SessionNotFoundError
 from easy_sandbox.models.session import SessionInfo
-from easy_sandbox.session.base import SessionStore
 from easy_sandbox.session.local import LocalSessionStore
 from easy_sandbox.utils.logging import get_logger
 
@@ -27,7 +26,7 @@ class SessionManager:
         Pluggable storage backend.  Defaults to ``LocalSessionStore``.
     """
 
-    def __init__(self, store: SessionStore | None = None) -> None:
+    def __init__(self, store: LocalSessionStore | None = None) -> None:
         self._store = store or LocalSessionStore()
 
     # ------------------------------------------------------------------
@@ -66,7 +65,7 @@ class SessionManager:
             domain=domain,
         )
 
-        session_info = SessionInfo(
+        session_info = SessionInfo(  # type: ignore[call-arg]
             name=name,
             sandbox_id=sandbox.id,
             template=template,

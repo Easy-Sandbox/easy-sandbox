@@ -103,14 +103,19 @@ class TestBrowserDisabledByDefault:
 
     def test_navigate_404(self, server_port: int) -> None:
         status, _body = _request(
-            server_port, "POST", "/browser/navigate",
+            server_port,
+            "POST",
+            "/browser/navigate",
             body={"url": "https://example.com"},
         )
         assert status == 404
 
     def test_screenshot_404(self, server_port: int) -> None:
         status, _body = _request(
-            server_port, "POST", "/browser/screenshot", body={},
+            server_port,
+            "POST",
+            "/browser/screenshot",
+            body={},
         )
         assert status == 404
 
@@ -120,28 +125,37 @@ class TestBrowserDisabledByDefault:
 
     def test_click_404(self, server_port: int) -> None:
         status, _body = _request(
-            server_port, "POST", "/browser/click",
+            server_port,
+            "POST",
+            "/browser/click",
             body={"selector": "#btn"},
         )
         assert status == 404
 
     def test_type_404(self, server_port: int) -> None:
         status, _body = _request(
-            server_port, "POST", "/browser/type",
+            server_port,
+            "POST",
+            "/browser/type",
             body={"selector": "#input", "text": "hi"},
         )
         assert status == 404
 
     def test_evaluate_404(self, server_port: int) -> None:
         status, _body = _request(
-            server_port, "POST", "/browser/evaluate",
+            server_port,
+            "POST",
+            "/browser/evaluate",
             body={"script": "1+1"},
         )
         assert status == 404
 
     def test_pdf_404(self, server_port: int) -> None:
         status, _body = _request(
-            server_port, "POST", "/browser/pdf", body={},
+            server_port,
+            "POST",
+            "/browser/pdf",
+            body={},
         )
         assert status == 404
 
@@ -175,7 +189,9 @@ class TestPlaywrightUnavailable:
     def test_navigate_503(self, server_port: int) -> None:
         with mock.patch.dict("sys.modules", {"playwright": None, "playwright.sync_api": None}):
             status, body = _request(
-                server_port, "POST", "/browser/navigate",
+                server_port,
+                "POST",
+                "/browser/navigate",
                 body={"url": "https://example.com"},
             )
         assert status == 503
@@ -184,7 +200,10 @@ class TestPlaywrightUnavailable:
     def test_screenshot_503(self, server_port: int) -> None:
         with mock.patch.dict("sys.modules", {"playwright": None, "playwright.sync_api": None}):
             status, body = _request(
-                server_port, "POST", "/browser/screenshot", body={},
+                server_port,
+                "POST",
+                "/browser/screenshot",
+                body={},
             )
         assert status == 503
 
@@ -196,7 +215,9 @@ class TestPlaywrightUnavailable:
     def test_click_503(self, server_port: int) -> None:
         with mock.patch.dict("sys.modules", {"playwright": None, "playwright.sync_api": None}):
             status, body = _request(
-                server_port, "POST", "/browser/click",
+                server_port,
+                "POST",
+                "/browser/click",
                 body={"selector": "#x"},
             )
         assert status == 503
@@ -204,7 +225,9 @@ class TestPlaywrightUnavailable:
     def test_evaluate_503(self, server_port: int) -> None:
         with mock.patch.dict("sys.modules", {"playwright": None, "playwright.sync_api": None}):
             status, body = _request(
-                server_port, "POST", "/browser/evaluate",
+                server_port,
+                "POST",
+                "/browser/evaluate",
                 body={"script": "1"},
             )
         assert status == 503
@@ -233,21 +256,29 @@ class TestInputValidation:
 
     def test_navigate_missing_url(self, server_port: int) -> None:
         status, body = _request(
-            server_port, "POST", "/browser/navigate", body={},
+            server_port,
+            "POST",
+            "/browser/navigate",
+            body={},
         )
         assert status == 400
         assert "url" in body["error"].lower()
 
     def test_click_missing_selector(self, server_port: int) -> None:
         status, body = _request(
-            server_port, "POST", "/browser/click", body={},
+            server_port,
+            "POST",
+            "/browser/click",
+            body={},
         )
         assert status == 400
         assert "selector" in body["error"].lower()
 
     def test_type_missing_selector(self, server_port: int) -> None:
         status, body = _request(
-            server_port, "POST", "/browser/type",
+            server_port,
+            "POST",
+            "/browser/type",
             body={"text": "hello"},
         )
         assert status == 400
@@ -255,7 +286,9 @@ class TestInputValidation:
 
     def test_type_missing_text(self, server_port: int) -> None:
         status, body = _request(
-            server_port, "POST", "/browser/type",
+            server_port,
+            "POST",
+            "/browser/type",
             body={"selector": "#x"},
         )
         assert status == 400
@@ -263,7 +296,10 @@ class TestInputValidation:
 
     def test_evaluate_missing_script(self, server_port: int) -> None:
         status, body = _request(
-            server_port, "POST", "/browser/evaluate", body={},
+            server_port,
+            "POST",
+            "/browser/evaluate",
+            body={},
         )
         assert status == 400
         assert "script" in body["error"].lower()
@@ -314,7 +350,9 @@ class TestMockBrowserHandlers:
         page.goto.return_value = mock_resp
 
         status, body = _request(
-            server_port, "POST", "/browser/navigate",
+            server_port,
+            "POST",
+            "/browser/navigate",
             body={"url": "https://example.com"},
         )
         assert status == 200
@@ -329,7 +367,9 @@ class TestMockBrowserHandlers:
         page.screenshot.return_value = b"\x89PNG\r\n\x1a\n"
 
         status, body = _request(
-            server_port, "POST", "/browser/screenshot",
+            server_port,
+            "POST",
+            "/browser/screenshot",
             body={"full_page": True},
         )
         assert status == 200
@@ -345,7 +385,9 @@ class TestMockBrowserHandlers:
         page.query_selector.return_value = elem
 
         status, body = _request(
-            server_port, "POST", "/browser/screenshot",
+            server_port,
+            "POST",
+            "/browser/screenshot",
             body={"selector": "#logo"},
         )
         assert status == 200
@@ -353,13 +395,17 @@ class TestMockBrowserHandlers:
         assert body["height"] == 50
 
     def test_screenshot_selector_not_found(
-        self, server_port: int, _enable_and_mock_browser: Any,
+        self,
+        server_port: int,
+        _enable_and_mock_browser: Any,
     ) -> None:
         page = _enable_and_mock_browser
         page.query_selector.return_value = None
 
         status, body = _request(
-            server_port, "POST", "/browser/screenshot",
+            server_port,
+            "POST",
+            "/browser/screenshot",
             body={"selector": "#nonexistent"},
         )
         assert status == 404
@@ -385,7 +431,9 @@ class TestMockBrowserHandlers:
         page = _enable_and_mock_browser
 
         status, body = _request(
-            server_port, "POST", "/browser/click",
+            server_port,
+            "POST",
+            "/browser/click",
             body={"selector": "#btn"},
         )
         assert status == 200
@@ -397,7 +445,9 @@ class TestMockBrowserHandlers:
         page = _enable_and_mock_browser
 
         status, body = _request(
-            server_port, "POST", "/browser/type",
+            server_port,
+            "POST",
+            "/browser/type",
             body={"selector": "#search", "text": "hello", "delay": 100},
         )
         assert status == 200
@@ -409,7 +459,9 @@ class TestMockBrowserHandlers:
         page = _enable_and_mock_browser
 
         status, body = _request(
-            server_port, "POST", "/browser/type",
+            server_port,
+            "POST",
+            "/browser/type",
             body={"selector": "#input", "text": "new", "clear": True},
         )
         assert status == 200
@@ -421,7 +473,9 @@ class TestMockBrowserHandlers:
         page.evaluate.return_value = 42
 
         status, body = _request(
-            server_port, "POST", "/browser/evaluate",
+            server_port,
+            "POST",
+            "/browser/evaluate",
             body={"script": "1 + 41"},
         )
         assert status == 200
@@ -433,7 +487,9 @@ class TestMockBrowserHandlers:
         page.pdf.return_value = b"%PDF-1.4 /Type /Page endobj"
 
         status, body = _request(
-            server_port, "POST", "/browser/pdf",
+            server_port,
+            "POST",
+            "/browser/pdf",
             body={"format": "A4", "landscape": False},
         )
         assert status == 200
@@ -448,10 +504,12 @@ class TestMockBrowserHandlers:
 
     def test_console_with_logs(self, server_port: int, _enable_and_mock_browser: Any) -> None:
         # Inject fake console log entries.
-        routes_browser_mod._console_logs.extend([
-            {"type": "log", "text": "hello", "timestamp": 1234567890.0},
-            {"type": "error", "text": "oops", "timestamp": 1234567891.0},
-        ])
+        routes_browser_mod._console_logs.extend(
+            [
+                {"type": "log", "text": "hello", "timestamp": 1234567890.0},
+                {"type": "error", "text": "oops", "timestamp": 1234567891.0},
+            ]
+        )
 
         status, body = _request(server_port, "GET", "/browser/console")
         assert status == 200
@@ -469,7 +527,9 @@ class TestMockBrowserHandlers:
         page.goto.side_effect = Exception("net::ERR_NAME_NOT_RESOLVED")
 
         status, body = _request(
-            server_port, "POST", "/browser/navigate",
+            server_port,
+            "POST",
+            "/browser/navigate",
             body={"url": "https://nonexistent.invalid"},
         )
         assert status == 500

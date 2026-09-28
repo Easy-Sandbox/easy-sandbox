@@ -6,12 +6,13 @@ and transport layers.
 
 Run with: pytest tests/integration/ -m integration -v
 """
+
 from __future__ import annotations
 
 import base64
 import json
-from typing import Any, AsyncIterator
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import TYPE_CHECKING, Any
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
@@ -22,13 +23,14 @@ from easy_sandbox.models.errors import (
     QuotaExceededError,
     TemplateNotFoundError,
 )
-from easy_sandbox.models.filesystem import FileInfo, FileType
+from easy_sandbox.models.filesystem import FileType
 from easy_sandbox.models.process import ProcessChunk, ProcessChunkType
-from easy_sandbox.models.sandbox import SandboxInfo, SandboxStatus
-from easy_sandbox.transport.auth import ApiKeyAuth, EnvdTokenManager
-from easy_sandbox.transport.config import TransportConfig, reset_config
+from easy_sandbox.models.sandbox import SandboxStatus
+from easy_sandbox.transport.config import reset_config
 from easy_sandbox.transport.http import HttpClient
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -96,7 +98,7 @@ async def test_full_sandbox_lifecycle():
     """Create → get info → run command → read/write file → kill."""
     with (
         patch.object(HttpClient, "platform_request", new_callable=AsyncMock) as mock_platform,
-        patch.object(HttpClient, "envd_request", new_callable=AsyncMock) as mock_envd,
+        patch.object(HttpClient, "envd_request", new_callable=AsyncMock),
         patch.object(HttpClient, "envd_http_request", new_callable=AsyncMock) as mock_envd_http,
         patch.object(HttpClient, "envd_stream") as mock_stream,
         patch.object(HttpClient, "close", new_callable=AsyncMock),
@@ -124,11 +126,13 @@ async def test_full_sandbox_lifecycle():
         assert info.template == "python-base"
 
         # --- 3. Run command (streaming start_and_wait) ---
-        mock_stream.return_value = _async_gen_frames([
-            {"event": {"start": {"pid": 1}}},
-            {"event": {"data": {"stdout": base64.b64encode(b"hello\n").decode()}}},
-            {"event": {"end": {"exitCode": 0}}},
-        ])
+        mock_stream.return_value = _async_gen_frames(
+            [
+                {"event": {"start": {"pid": 1}}},
+                {"event": {"data": {"stdout": base64.b64encode(b"hello\n").decode()}}},
+                {"event": {"end": {"exitCode": 0}}},
+            ]
+        )
 
         result = await sb.commands.run("echo hello")
         assert result.stdout == "hello\n"
@@ -167,7 +171,7 @@ async def test_sandbox_context_manager():
     with (
         patch.object(HttpClient, "platform_request", new_callable=AsyncMock) as mock_platform,
         patch.object(HttpClient, "envd_request", new_callable=AsyncMock) as mock_envd,
-        patch.object(HttpClient, "envd_stream") as mock_stream,
+        patch.object(HttpClient, "envd_stream"),
         patch.object(HttpClient, "close", new_callable=AsyncMock) as mock_close,
     ):
         mock_platform.return_value = _make_httpx_response(
@@ -195,10 +199,7 @@ async def test_sandbox_context_manager():
             assert result.exit_code == 0
 
         # Verify kill was called (platform DELETE + close)
-        delete_calls = [
-            c for c in mock_platform.call_args_list
-            if c.args[0] == "DELETE"
-        ]
+        delete_calls = [c for c in mock_platform.call_args_list if c.args[0] == "DELETE"]
         assert len(delete_calls) >= 1
         mock_close.assert_called()
 
@@ -226,13 +227,15 @@ async def test_command_streaming():
         )
 
         # Simulate interleaved stdout/stderr
-        mock_stream.return_value = _async_gen_frames([
-            {"event": {"start": {"pid": 1}}},
-            {"event": {"data": {"stdout": base64.b64encode(b"line1\n").decode()}}},
-            {"event": {"data": {"stderr": base64.b64encode(b"warn: something\n").decode()}}},
-            {"event": {"data": {"stdout": base64.b64encode(b"line2\n").decode()}}},
-            {"event": {"end": {"exitCode": 0}}},
-        ])
+        mock_stream.return_value = _async_gen_frames(
+            [
+                {"event": {"start": {"pid": 1}}},
+                {"event": {"data": {"stdout": base64.b64encode(b"line1\n").decode()}}},
+                {"event": {"data": {"stderr": base64.b64encode(b"warn: something\n").decode()}}},
+                {"event": {"data": {"stdout": base64.b64encode(b"line2\n").decode()}}},
+                {"event": {"end": {"exitCode": 0}}},
+            ]
+        )
 
         chunks: list[ProcessChunk] = []
         async for chunk in sb.commands.stream("python script.py"):
@@ -332,7 +335,9 @@ async def test_file_operations_e2e():
 async def test_error_template_not_found():
     """Create with bad template → TemplateNotFoundError."""
     with patch.object(
-        HttpClient, "platform_request", new_callable=AsyncMock,
+        HttpClient,
+        "platform_request",
+        new_callable=AsyncMock,
     ) as mock_platform:
         # Simulate 404 from Platform API
         resp_404 = httpx.Response(
@@ -360,7 +365,9 @@ async def test_error_template_not_found():
 async def test_error_quota_exceeded():
     """Create with quota exceeded → QuotaExceededError."""
     with patch.object(
-        HttpClient, "platform_request", new_callable=AsyncMock,
+        HttpClient,
+        "platform_request",
+        new_callable=AsyncMock,
     ) as mock_platform:
         resp_429 = httpx.Response(
             status_code=429,
@@ -435,11 +442,13 @@ async def test_connect_to_existing_sandbox():
         assert sb.id == SANDBOX_ID
 
         # Run a command
-        mock_stream.return_value = _async_gen_frames([
-            {"event": {"start": {"pid": 1}}},
-            {"event": {"data": {"stdout": base64.b64encode(b"connected!\n").decode()}}},
-            {"event": {"end": {"exitCode": 0}}},
-        ])
+        mock_stream.return_value = _async_gen_frames(
+            [
+                {"event": {"start": {"pid": 1}}},
+                {"event": {"data": {"stdout": base64.b64encode(b"connected!\n").decode()}}},
+                {"event": {"end": {"exitCode": 0}}},
+            ]
+        )
         result = await sb.commands.run("echo connected!")
         assert result.stdout == "connected!\n"
         assert result.exit_code == 0
@@ -453,8 +462,16 @@ async def test_connect_to_existing_sandbox():
 @pytest.mark.integration
 async def test_multiple_sandbox_management():
     """Create two sandboxes → list → kill both."""
-    sb1_info = {**SANDBOX_INFO_JSON, "sandboxID": "sbx-multi-001", "envdUrl": "https://sbx-multi-001.cn-hangzhou.e2b.fc.aliyuncs.com"}
-    sb2_info = {**SANDBOX_INFO_JSON, "sandboxID": "sbx-multi-002", "envdUrl": "https://sbx-multi-002.cn-hangzhou.e2b.fc.aliyuncs.com"}
+    sb1_info = {
+        **SANDBOX_INFO_JSON,
+        "sandboxID": "sbx-multi-001",
+        "envdUrl": "https://sbx-multi-001.cn-hangzhou.e2b.fc.aliyuncs.com",
+    }
+    sb2_info = {
+        **SANDBOX_INFO_JSON,
+        "sandboxID": "sbx-multi-002",
+        "envdUrl": "https://sbx-multi-002.cn-hangzhou.e2b.fc.aliyuncs.com",
+    }
 
     with (
         patch.object(HttpClient, "platform_request", new_callable=AsyncMock) as mock_platform,
@@ -463,14 +480,18 @@ async def test_multiple_sandbox_management():
         # Create sandbox 1
         mock_platform.return_value = _make_httpx_response(json_data=sb1_info)
         sandbox1 = await Sandbox.create(
-            template="python-base", api_key=API_KEY, api_url=PLATFORM_BASE,
+            template="python-base",
+            api_key=API_KEY,
+            api_url=PLATFORM_BASE,
         )
         assert sandbox1.id == "sbx-multi-001"
 
         # Create sandbox 2
         mock_platform.return_value = _make_httpx_response(json_data=sb2_info)
         sandbox2 = await Sandbox.create(
-            template="python-base", api_key=API_KEY, api_url=PLATFORM_BASE,
+            template="python-base",
+            api_key=API_KEY,
+            api_url=PLATFORM_BASE,
         )
         assert sandbox2.id == "sbx-multi-002"
 
@@ -479,6 +500,7 @@ async def test_multiple_sandbox_management():
             json_data=[sb1_info, sb2_info],
         )
         from easy_sandbox.protocol.sandbox import SandboxProtocol
+
         proto = SandboxProtocol(sandbox1._http_client)
         sandboxes = await proto.list()
         assert len(sandboxes) == 2
@@ -501,14 +523,16 @@ async def test_code_execution_languages():
     with (
         patch.object(HttpClient, "platform_request", new_callable=AsyncMock) as mock_platform,
         patch.object(HttpClient, "envd_request", new_callable=AsyncMock) as mock_envd,
-        patch.object(HttpClient, "envd_stream") as mock_stream,
+        patch.object(HttpClient, "envd_stream"),
         patch.object(HttpClient, "close", new_callable=AsyncMock),
     ):
         mock_platform.return_value = _make_httpx_response(
             json_data=SANDBOX_INFO_JSON,
         )
         sb = await Sandbox.create(
-            template="python-base", api_key=API_KEY, api_url=PLATFORM_BASE,
+            template="python-base",
+            api_key=API_KEY,
+            api_url=PLATFORM_BASE,
         )
 
         # Code execution now goes through CodeInterpreterProtocol.run_code()

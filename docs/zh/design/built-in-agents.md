@@ -1,6 +1,6 @@
 # 内置 Agent 高级 API 设计
 
-> Easy Sandbox 内置 Agent 采用极简架构：沙箱模板内预装 AI CLI 工具（Codex、Qwen CLI 等），SDK Agent API 只是 `commands.run()` 的语法糖封装。SDK 零 LLM 依赖，保持轻量。
+> Easy Sandbox 内置 Agent 采用极简架构：沙箱模板内预装 AI CLI 工具（Codex 等），SDK Agent API 只是 `commands.run()` 的语法糖封装。SDK 零 LLM 依赖，保持轻量。
 
 ---
 
@@ -42,7 +42,7 @@ Easy Sandbox 的定位是**「AI 能力平台」**— 底层能力 + 预装 AI C
 
 1. **SDK 零 LLM 依赖**：SDK 不引入任何 LLM 客户端库（不依赖 openai / anthropic / dashscope），保持轻量
 2. **Agent API = 语法糖**：`sb.agent.code("task")` 本质上是 `sb.commands.run(f"codex {shlex.quote(task)}")` 的封装
-3. **AI 能力在模板内**：AI CLI 工具（Codex、Qwen CLI）预装在沙箱模板中，认证信息通过沙箱环境变量注入
+3. **AI 能力在模板内**：AI CLI 工具（Codex）预装在沙箱模板中，认证信息通过沙箱环境变量注入
 4. **用户可选择模板**：Codex 模板 / Qwen 模板 / 自定义模板，灵活切换不同 AI 后端
 5. **可热更新**：升级模板内的 AI CLI 版本即可获得新能力，无需升级 SDK
 
@@ -56,12 +56,8 @@ Easy Sandbox 的定位是**「AI 能力平台」**— 底层能力 + 预装 AI C
 graph LR
     A1["sb.agent.code('fix bug')"] --> B1["commands.run('codex fix bug')"]
     B1 --> C1[codex CLI 执行]
-    A2["sb.agent.browse('截图')"] --> B2["commands.run('qwen-cli browse 截图')"]
-    B2 --> C2[qwen-cli 执行]
     A3["sb.agent.shell('装 nginx')"] --> B3["commands.run('codex install nginx...')"]
     B3 --> C3[codex CLI 执行]
-    A4["sb.agent.analyze('分析数据')"] --> B4["commands.run('qwen-cli analyze 分析数据')"]
-    B4 --> C4[qwen-cli 执行]
 ```
 
 ### 为什么这样设计？
@@ -94,19 +90,16 @@ AgentChain / FanOut / DAG 编排      不内置编排（用户用标准 Python �
 ### 映射关系
 
 | Agent 方法 | 实质执行 | 使用模板 |
-|-----------|---------|---------|
+|-----------|---------|--------|
 | `sb.agent.code("fix bug")` | `sb.commands.run("codex 'fix bug'")` | `codex` |
-| `sb.agent.browse("打开百度")` | `sb.commands.run("qwen-cli browse '打开百度'")` | `qwen-browser` |
 | `sb.agent.shell("安装 nginx")` | `sb.commands.run("codex 'install nginx and configure'")` | `codex` |
-| `sb.agent.analyze("分析数据")` | `sb.commands.run("qwen-cli analyze '分析数据'")` | `qwen-code` |
 
 ### 模板与 Agent 能力的对应
 
 | 模板名 | 支持的 Agent 方法 | 预装工具 | 典型场景 |
 |--------|------------------|---------|----------|
 | `codex` | `code()`, `shell()` | OpenAI Codex CLI | 代码生成/修复、Shell 自动化 |
-| `qwen-browser` | `browse()` | Qwen CLI + Playwright | 浏览器自动化、网页截图 |
-| `qwen-code` | `code()`, `analyze()`, `shell()` | Qwen CLI + 多语言运行时 | 代码分析、数据分析 |
+| `qwen-code` | `code()`, `shell()` | Qwen Code 运行时 | 代码生成、AI 驱动部署 |
 
 ---
 
@@ -115,10 +108,9 @@ AgentChain / FanOut / DAG 编排      不内置编排（用户用标准 Python �
 ### 官方 Agent 模板
 
 | 模板名 | 描述 | 预装工具 | 资源默认值 |
-|--------|------|---------|-----------|
+|--------|------|---------|----------|
 | `codex` | Codex CLI 代码 Agent | OpenAI Codex CLI | 2C/4G/20G |
-| `qwen-browser` | Qwen 浏览器 Agent | Qwen CLI + Playwright | 2C/4G/15G |
-| `qwen-code` | Qwen 代码 Agent | Qwen CLI + 多语言运行时 | 2C/4G/20G |
+| `qwen-code` | Qwen 代码 Agent | Qwen Code 运行时 | 2C/4G/20G |
 
 > **说明**：Agent 模板内的 AI CLI 工具认证已预配置（通过沙箱环境变量注入），用户无需额外配置 API Key。
 
@@ -128,18 +120,13 @@ Agent 模板本质上是在基础模板之上预装了 AI CLI 工具：
 
 ```
 codex 模板:
-  base: code-interpreter
+  base: base
   预装: OpenAI Codex CLI
   环境变量: OPENAI_API_KEY（平台注入）
 
-qwen-browser 模板:
-  base: browser-automation
-  预装: Qwen CLI + Playwright + Chromium
-  环境变量: DASHSCOPE_API_KEY（平台注入）
-
 qwen-code 模板:
-  base: code-interpreter
-  预装: Qwen CLI + 多语言运行时
+  base: base
+  预装: Qwen Code 运行时
   环境变量: DASHSCOPE_API_KEY（平台注入）
 ```
 
@@ -194,19 +181,9 @@ class AgentModule:
         cmd = self._build_command("code", task, context)
         return await self._execute(cmd, timeout)
 
-    async def browse(self, task: str, *, timeout: int = 120) -> AgentResult:
-        """浏览器自动化"""
-        cmd = self._build_command("browse", task)
-        return await self._execute(cmd, timeout)
-
     async def shell(self, task: str, *, timeout: int = 120) -> AgentResult:
         """Shell 自动化"""
         cmd = self._build_command("shell", task)
-        return await self._execute(cmd, timeout)
-
-    async def analyze(self, task: str, *, timeout: int = 120) -> AgentResult:
-        """数据分析"""
-        cmd = self._build_command("analyze", task)
         return await self._execute(cmd, timeout)
 
     def _build_command(self, action: str, task: str, context: dict | None = None) -> str:
@@ -214,7 +191,6 @@ class AgentModule:
 
         映射逻辑：
           codex 模板      → codex '{task}'
-          qwen-* 模板     → qwen-cli {action} '{task}'
           自定义模板       → 读取模板 agent 配置
         """
         template = self._sandbox._template_name
@@ -222,8 +198,6 @@ class AgentModule:
 
         if template.startswith("codex"):
             return f"codex {safe_task}"
-        elif template.startswith("qwen-"):
-            return f"qwen-cli {action} {safe_task}"
         else:
             # 自定义模板：尝试读取模板配置中的命令模式
             return self._build_custom_command(action, safe_task)
@@ -272,31 +246,11 @@ result = await sb.commands.run("codex '分析 /app/main.py 的复杂度并给出
 print(result.stdout)
 ```
 
-### 浏览器 Agent
-
-```python
-sb = await Sandbox.create(template="qwen-browser")
-result = await sb.agent.browse("访问 https://example.com 并截图首页")
-print(result.output)
-
-# 等价于：
-result = await sb.commands.run("qwen-cli browse '访问 https://example.com 并截图首页'")
-```
-
 ### Shell 自动化
 
 ```python
 sb = await Sandbox.create(template="codex")
 result = await sb.agent.shell("安装 nginx 并配置反向代理到 8080 端口")
-print(result.output)
-```
-
-### 数据分析
-
-```python
-sb = await Sandbox.create(template="qwen-code")
-await sb.files.write("/app/data.csv", csv_content)
-result = await sb.agent.analyze("对这个 CSV 做趋势分析并生成图表")
 print(result.output)
 ```
 
@@ -351,10 +305,8 @@ async def parallel_review():
 ```mermaid
 graph TD
     NL[自然语言描述] --> Server["Server 端 AI 推断接口 - 最优精度"]
-    NL --> Local["Qwen CLI / DashScope API - Fallback"]
-    NL --> Rules["关键词规则匹配（完全离线）- 最终兜底"]
+    NL --> Rules["关键词规则匹配（完全离线）- 最终兖底"]
     Server --> Plan["SandboxPlan<br/>template, cpu, memory, gpu, confidence, reasoning"]
-    Local --> Plan
     Rules --> Plan
 ```
 
@@ -362,7 +314,6 @@ graph TD
 
 | 关键词 | 推断模板 | 推断资源 |
 |--------|---------|---------|
-| python, pandas, 数据分析, CSV | python-data-science | 2C/4G |
 | node, web, 前端, react, vue | node-web | 1C/2G |
 | playwright, 浏览器, 爬虫, 截图 | browser-automation | 2C/4G |
 | GPU, CUDA, tensorflow, pytorch | ml-gpu | 4C/16G+GPU |
@@ -370,19 +321,21 @@ graph TD
 
 ### SDK API
 
+> **⚠️ 设计愿景——非当前实现。** `Sandbox.create()` 当前以 `template` 为首个位置参数；`description` 为 keyword-only 参数。`Sandbox.plan()` 尚未实现。
+
 ```python
 from easy_sandbox import Sandbox
 
-# 自然语言创建
+# 自然语言创建（设计愿景——非当前 API）
 sb = await Sandbox.create("运行 python 数据分析环境，需要 GPU")
 # → 推断：template=python-data-science, gpu=auto, memory=8192
 
-# 查看推断结果（不实际创建）
+# 查看推断结果（设计愿景——尚未实现）
 plan = await Sandbox.plan("需要一个能跑 TensorFlow 的环境")
 print(plan)
 # SandboxPlan(template='ml-gpu', cpu=4, memory=16384, gpu='A10', confidence=0.92, ...)
 
-# 覆盖推断结果
+# 覆盖推断结果（设计愿景）
 sb = await Sandbox.create(plan, memory=32768)
 ```
 
@@ -404,30 +357,6 @@ tools = get_tool_schema(format="openai")
 tools = get_tool_schema(format="langchain")
 ```
 
-### LangChain 适配器
-
-```python
-from easy_sandbox.integrations import LangChainToolkit
-
-toolkit = LangChainToolkit(sandbox_config={"template": "code-interpreter"})
-tools = toolkit.get_tools()
-
-# 在 LangChain Agent 中使用
-from langchain.agents import AgentExecutor
-agent = AgentExecutor(tools=tools, llm=llm)
-```
-
-### CrewAI 适配器
-
-```python
-from easy_sandbox.integrations import CrewAIToolkit
-
-toolkit = CrewAIToolkit()
-tools = toolkit.get_tools()
-```
-
-> **说明**：框架集成层仅导出 Tool Schema 和提供适配器，不包含 LLM Provider 适配。LLM 的选择和配置由用户在各自的 Agent 框架中完成。SDK 本身不依赖任何 LLM 库。
-
 ---
 
 ## 9. 版本管理与热更新
@@ -438,7 +367,7 @@ AI CLI 工具的版本由模板管理，与 SDK 版本解耦：
 
 ```
 SDK 版本   →  控制 Agent API 接口（AgentModule 的方法签名）
-模板版本   →  控制 AI CLI 工具版本（Codex CLI / Qwen CLI 的具体版本）
+模板版本   →  控制 AI CLI 工具版本（Codex CLI 的具体版本）
 ```
 
 ### 热更新机制

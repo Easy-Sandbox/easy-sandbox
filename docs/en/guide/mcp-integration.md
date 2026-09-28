@@ -51,13 +51,15 @@ The MCP Server provides 7 tools:
 |------|-------------|------------|
 | `create_sandbox` | Create a new sandbox | `template` (optional, default code-interpreter-v1), `timeout` (optional) |
 | `run_code` | Execute code in the sandbox | `sandbox_id`, `code`, `language` (optional, default python) |
-| `run_command` | Execute a shell command in the sandbox | `sandbox_id`, `command`, `timeout` (optional) |
+| `run_command` | Execute a **bare shell** command in the sandbox | `sandbox_id`, `command`, `timeout` (optional) |
 | `read_file` | Read a file from the sandbox | `sandbox_id`, `path` |
 | `write_file` | Write a file to the sandbox | `sandbox_id`, `path`, `content` |
 | `list_files` | List directory contents in the sandbox | `sandbox_id`, `path` (optional, default /app) |
 | `kill_sandbox` | Destroy a sandbox | `sandbox_id` |
 
 > **Note**: When `path` is omitted in `list_files`, it defaults to listing the `/app` directory. To view the root directory, explicitly pass `path="/"`.
+>
+> **Naming clarification**: The MCP tool `run_command` executes a **raw shell command** (equivalent to `sandbox.commands.run()` in the SDK). It is **not** related to the deprecated SDK method `Sandbox.run_command()`, which dispatches named custom commands — use `Sandbox.custom()` for that purpose.
 
 ---
 

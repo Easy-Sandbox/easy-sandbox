@@ -41,9 +41,7 @@ def _require_known(name: str) -> CapabilityGroup:
     """Return the capability group for *name* or raise ``ValueError``."""
     group = _BUILTIN_GROUP_MAP.get(name)
     if group is None:
-        raise ValueError(
-            f"Unknown built-in route {name!r}; allowed: {sorted(_KNOWN_BUILTINS)}"
-        )
+        raise ValueError(f"Unknown built-in route {name!r}; allowed: {sorted(_KNOWN_BUILTINS)}")
     return group
 
 

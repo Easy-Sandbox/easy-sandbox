@@ -12,6 +12,9 @@ Adopt a staged flow with a hard end-to-end gate:
 3. **Real GitHub install E2E passes** — `ebx install owner/repo --registry-type github` end-to-end against the published release must succeed.
 4. Only after step 3 is the work considered complete.
 
+## API Design
+N/A — this decision defines a release/publish process, not code APIs.
+
 ## Alternatives considered
 - **Consider "done" at local test** — Misses real registry resolution, release asset packaging, and auth paths; regressions surface only after users hit them.
 - **Agent performs `git push` / release** — Out of scope and unsafe; publishing is an outward-facing action reserved for the user.

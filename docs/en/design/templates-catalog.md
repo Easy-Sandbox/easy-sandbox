@@ -297,8 +297,8 @@ are not 1:1, so two explicit whitelists pin "intentional asymmetries,"
 leaving any remaining discrepancy as a bug:
 
 ```python
-# Provided by platform built-in images / online catalog; this collection intentionally has no folder
-PLATFORM_ONLY_TEMPLATES = {"base", "code-interpreter", "python-data-science", "full-stack"}
+# Provided by platform built-in images / online catalog; intentionally has no local folder
+PLATFORM_ONLY_TEMPLATES = {"base"}
 
 # Example/test fixtures only, not participating in natural language inference
 EXAMPLE_ONLY_TEMPLATES = {"python-hello"}

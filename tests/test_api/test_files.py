@@ -1,14 +1,17 @@
 """Tests for the FilesModule API."""
+
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, patch
+from typing import TYPE_CHECKING
 
 import pytest
 
 from easy_sandbox.api.files import FilesModule
 from easy_sandbox.models.filesystem import FileInfo, FileType
-
 from tests.test_api.conftest import TEST_ENVD_URL
+
+if TYPE_CHECKING:
+    from unittest.mock import AsyncMock
 
 
 class TestFilesRead:

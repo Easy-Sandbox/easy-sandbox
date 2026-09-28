@@ -105,7 +105,7 @@ templates:
     path: node-web
     tags: [nodejs, web, express, api, javascript]
     author: Easy-Sandbox
-    capabilities: [shell, files, ports]
+    capabilities: [shell, files, code, ports]
     status: official
 
   - name: openclaw
@@ -114,7 +114,7 @@ templates:
     path: openclaw
     tags: [openclaw, ai-agent, ai-coding, gateway]
     author: Easy-Sandbox
-    capabilities: [shell, files, ports]
+    capabilities: [shell, files, code, ports]
     status: official
 
   # === Community Templates ===

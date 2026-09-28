@@ -21,9 +21,13 @@
 
 ## Core Design Philosophy: Natural Language First
 
-> **Users don't need to know template names, resource specs, or configuration parameters — just describe what you want to do, and the SDK handles everything automatically.** This is true AI-First.
+> **⚠️ Design Vision — Not Current Implementation**
+>
+> The examples in this section illustrate the *long-term design goal*. In the **current implementation**, `Sandbox.create()` accepts `template` as its first positional parameter and `description` as an optional keyword-only parameter that is merely recorded as a hint log entry. **Template inference via LLM is performed by the CLI / Agent layer, not by `Sandbox.create()` itself.** `Sandbox.plan()` is not yet implemented.
 
-The first parameter of `Sandbox.create()` can be either a traditional `template` keyword argument or a **natural language description**. The SDK internally uses a "configuration inference Agent" to automatically parse intent and select the optimal template and resource configuration.
+> **Users don’t need to know template names, resource specs, or configuration parameters — just describe what you want to do, and the system handles everything automatically.** This is the AI-First vision.
+
+In the envisioned design, `Sandbox.create()` would accept a natural language description as its first positional parameter. The CLI / Agent layer would parse the intent via a “configuration inference Agent” and select the optimal template and resource configuration.
 
 ### Natural Language Sandbox Creation
 
@@ -44,7 +48,9 @@ sb = await Sandbox.create("Run python, run codex")
 # Inferred: template=code-interpreter, cpu=2
 ```
 
-### Inference Transparency
+### Inference Transparency (Design Vision)
+
+> **Not yet implemented.** The `Sandbox.plan()` API shown below is part of the design roadmap.
 
 ```python
 # Preview inference result (without actually creating)
@@ -64,7 +70,9 @@ sb = await Sandbox.create(plan)                     # Use inference result direc
 sb = await Sandbox.create(plan, memory=32768)        # Override some parameters
 ```
 
-### Natural Language + File Context
+### Natural Language + File Context (Design Vision)
+
+> **Not yet implemented.** The `upload=` and `project_dir=` parameters shown below are part of the design roadmap.
 
 ```python
 # Include local files, SDK auto-infers environment requirements
@@ -81,11 +89,13 @@ sb = await Sandbox.create(
 )
 ```
 
-### Backward Compatibility
+### Backward Compatibility (Design Vision)
 
-Natural language creation is **fully compatible** with the traditional template parameter. `create()` intelligently determines the first argument:
+In this envisioned design, natural language creation and the traditional template parameter would be **fully compatible**, with `create()` intelligently determining the first argument:
 - If it matches a known template name (e.g., `"base"`, `"code-interpreter"`) → create by template
-- If it's a natural language description → invoke the configuration inference Agent
+- If it’s a natural language description → the CLI / Agent layer invokes the configuration inference Agent
+
+> **Current behaviour:** `Sandbox.create(template="code-interpreter")` is the standard API. Pass `description=` as a keyword arg to record a hint.
 
 ```python
 # Traditional mode — 100% E2B compatible
@@ -442,53 +452,39 @@ class Sandbox:
     @classmethod
     async def create(
         cls,
-        description: str | None = None,      # Natural language description (AI-First)
-        *,
         template: str = "base",
+        *,
         timeout: int = 300,
-        metadata: dict | None = None,
-        env: dict[str, str] | None = None,
+        request_timeout: float | None = None,
+        metadata: dict[str, str] | None = None,
+        envs: dict[str, str] | None = None,
         cpu: int | None = None,
-        memory: int | None = None,            # MB, None lets the inference Agent decide
-        disk: int | None = None,              # MB
-        gpu: str | None = None,               # GPU model or "auto"
-        persistent: bool = False,
-        hibernate_after: int | None = None,   # seconds
-        region: str | None = None,
-        vpc: VPCConfig | None = None,
-        on_exit: Literal["destroy", "hibernate", "keep"] = "destroy",
-        upload: list[str] | None = None,      # Auto-upload local files
-        project_dir: str | None = None,       # Auto-deploy project directory
+        memory: int | None = None,
+        disk: int | None = None,
+        gpu: str | None = None,
+        description: str | None = None,
+        secure: bool = True,
+        api_key: str | None = None,
+        api_url: str | None = None,
+        domain: str | None = None,
+        access_key_id: str | None = None,
+        access_key_secret: str | None = None,
     ) -> "Sandbox":
         """
         Create a sandbox.
 
-        The first parameter description supports two modes:
-        - Pass a known template name (e.g., 'code-interpreter') → create by template
-        - Pass a natural language description → invoke the configuration inference Agent
-
-        When description is natural language, explicitly passed template/cpu/memory
-        parameters will override inference results (user intent takes priority).
+        Args:
+            template: Sandbox template name (default "base").
+            description: Natural language hint — recorded as a log
+                entry. LLM inference happens at the CLI / Agent layer,
+                not inside this method.
         """
         ...
 
     @classmethod
-    async def plan(
-        cls,
-        description: str,
-        **kwargs,
-    ) -> "SandboxPlan":
-        """Preview natural language inference results without actually creating a sandbox."""
-        ...
-
-    @classmethod
-    async def connect(cls, sandbox_id: str) -> "Sandbox": ...
+    async def connect(cls, sandbox_id: str, **kwargs) -> "Sandbox": ...
 
     async def kill(self) -> None: ...
-    async def hibernate(self) -> None: ...
-    async def wake_up(self) -> "Sandbox": ...
-    async def snapshot(self, name: str) -> str: ...
-    async def keep_alive(self, duration: int) -> None: ...
 
     # ── Properties ──────────────────────────────────────────
     
@@ -523,20 +519,46 @@ class Sandbox:
         """
         ...
 
-    def list_commands(self) -> list[dict[str, Any]]:
-        """Template-declared custom commands, returns a list of dicts (not objects).
-        Each dict is shaped like:
-            {"name": str,
-             "description": str,
-             "args": [{"name": str, "required": bool,
-                       "default": str | None, "description": str}]}
+    async def list_commands(
+        self,
+        *,
+        server_port: int = 9000,
+    ) -> list[dict[str, Any]]:
+        """Return the merged command catalogue (template + server).
+        Combines two command sources into a single list:
+        * Template custom_commands (source="template")
+        * SandboxServer /commands (source="server")
+        Each dict contains: name, description, args, source, shadowed.
+        When both sources define the same name, the template entry wins
+        and the server entry is marked shadowed=True.
         """
         ...
 
-    async def run(self, name: str, **args: str) -> ProcessResult:
-        """Explicit dynamic dispatch of template-declared named commands (no __getattr__ magic).
-        Argument values are escaped with shlex.quote() before filling {placeholders};
-        raises error if name is undeclared or required parameters are missing.
+    async def run(
+        self,
+        cmd: str,
+        *,
+        timeout: int = 60,
+        env: dict[str, str] | None = None,
+        cwd: str = "",
+        user: str = "",
+        background: bool = False,
+    ) -> ProcessResult | StreamReader[ProcessChunk]:
+        """Execute a bare shell command. Shortcut for `self.commands.run(cmd, ...)`.
+        This is NOT named-command dispatch; use `custom()` for that.
+        """
+        ...
+
+    async def custom(
+        self,
+        name: str,
+        *,
+        server_port: int = 9000,
+        **kwargs: Any,
+    ) -> CommandResult:
+        """Execute a named command, resolving template (A) then server (B).
+        Returns a unified CommandResult with value, stdout, stderr,
+        exit_code, execution_time, source ("template" | "server").
         """
         ...
 
@@ -614,9 +636,10 @@ class NetworkModule:
 
 The SDK adopts a **capability-driven + type-safe dynamic** command surface:
 
-- **Standard capabilities retain typed methods** (`sandbox.commands.run` / `sandbox.files.upload`, etc.), gated by capabilities; calling a standard capability not in the effective capability set throws `CapabilityNotSupportedError` (E3004).
-- **Custom commands use explicit dynamic dispatch** `sandbox.run("name", **args)` — no `__getattr__` magic attributes, maintaining mypy + `py.typed` type safety.
-- **Discovery API**: `sandbox.capabilities` to view the effective capability set, `sandbox.list_commands()` to list template-declared custom commands.
+- **Standard capabilities retain typed methods** (`sandbox.commands.run` / `sandbox.files.upload`, etc.). Capabilities are declared in `template.yaml` for discovery and documentation; **only the `code` capability is fail-closed at runtime** — `CodeContextModule` methods raise `CapabilityNotSupportedError` (E3004) when `code` is not in the effective capability set. Other modules (`commands`, `files`, `network`) forward requests to the sandbox without a runtime gate.
+- **Custom commands use `sandbox.custom("name", **kwargs)`** — explicit dispatch with A→B fallback (template then server), returning `CommandResult`. No `__getattr__` magic, maintaining mypy + `py.typed` type safety.
+- **Bare shell shortcut**: `sandbox.run(cmd)` is a convenience alias for `sandbox.commands.run(cmd)` — it runs a raw shell command, *not* a named command.
+- **Discovery API**: `sandbox.capabilities` to view the effective capability set, `sandbox.list_commands()` to list the merged command catalogue (template + server, with source and shadowed flags).
 
 ```python
 sb = await Sandbox.create(template="python-base")
@@ -627,20 +650,24 @@ for c in sb.list_commands():          # c is a dict, not an object
     print(c["name"], c["description"], c["args"])
     # c["args"] is a list of {name, required, default, description} dicts
 
-# Standard capabilities: typed, gated
-result = await sb.commands.run("ls -la /app")   # Requires 'shell' capability
-await sb.files.upload("./data.csv", "/app/data.csv")  # Requires 'files' capability
+# Standard capabilities: typed, forwarded to sandbox
+result = await sb.commands.run("ls -la /app")   # 'shell' — no runtime gate
+await sb.files.upload("./data.csv", "/app/data.csv")  # 'files' — no runtime gate
 
-# Custom commands: explicit dynamic dispatch (args escaped with shlex.quote())
-result = await sb.run("serve", port="9000")
-
-# Calling a capability the sandbox doesn't have → explicit error, no silent degradation
-from easy_sandbox.errors import CapabilityNotSupportedError
+# Code capability: fail-closed runtime gate
+from easy_sandbox.models.errors import CapabilityNotSupportedError
 try:
-    await sb.commands.run("tmux new-session")   # Requires 'terminal', not declared
+    await sb.run_code("print(1)")   # Requires 'code' — DOES raise E3004 if missing
 except CapabilityNotSupportedError as e:
     print(f"[{e.code}] {e.message}")
     print(f"Fix suggestion: {e.suggestion}")   # Suggests declaring the capability in template.yaml
+
+# Custom commands: A→B dispatch returning CommandResult
+result = await sb.custom("serve", port="9000")
+print(result.value, result.source)   # source is "template" or "server"
+
+# Bare shell shortcut (equivalent to sb.commands.run(...))
+result = await sb.run("echo hello")
 ```
 
 > For the capability vocabulary, default baseline `DEFAULT_CAPABILITIES = {shell, files, code}`, and gating semantics, see ADR
@@ -911,7 +938,7 @@ classDiagram
 | `E3004` | Execution | Capability not supported (CapabilityNotSupportedError) | Sandbox does not declare this standard capability; declare it in template.yaml's `capabilities` |
 | `E4001` | File | File not found | Verify the path is correct, use `files.list()` to check |
 | `E5001` | Network | Connection failed | Check network connectivity and firewall rules |
-| `E6001` | Session | Session not found | Run `ebx session list` to see available sessions |
+| `E6001` | Session | Session not found | Check session files in ~/.ebx/sessions/ or use LocalSessionStore().list() |
 
 ### Error Handling Example
 

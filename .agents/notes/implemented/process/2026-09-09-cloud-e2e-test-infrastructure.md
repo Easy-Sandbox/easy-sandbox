@@ -1,56 +1,70 @@
-# Decision: 云端端到端测试基础设施
+# Decision: Cloud end-to-end test infrastructure
 
 Status: implemented
 
 ## Problem
-项目此前仅有本地单元测试（mock 后端），无法验证 SDK/CLI/Server 在真实阿里云 FC Agent Sandbox 环境下的完整功能。需要一套云端 E2E 测试基础设施，覆盖：
+The project previously had only local unit tests (a mocked backend) and could not
+validate the full functionality of the SDK/CLI/Server against a real Alibaba Cloud
+FC Agent Sandbox environment. A cloud E2E test infrastructure was needed, covering:
 
-1. 官方预置模板（`code-interpreter-v1`、`base`）的基础能力验证
-2. 自定义模板（`examples/templates/` 下 10 个模板）的构建→部署→运行全链路验证
-3. 并行执行以缩短总测试时间
+1. Basic-capability validation of the official prebuilt templates
+   (`code-interpreter-v1`, `base`).
+2. Full build → deploy → run validation of the custom templates (the 10 templates
+   under `examples/templates/`).
+3. Parallel execution to shorten total test time.
 
 ## Decision
-创建 `scripts/cloud_e2e_test.py` 脚本，分两大场景（Part）组织测试用例，支持并行执行。
+Create a `scripts/cloud_e2e_test.py` script that organizes test cases into two
+scenarios (Parts) and supports parallel execution.
 
-### 场景 A：官方预置模板（Part 1）
+### Scenario A: official prebuilt templates (Part 1)
 
-验证平台已有模板的 CLI + SDK envd 能力（shell/files/code）：
-- **模板**：`code-interpreter-v1`（templateID: `8d926meb1xzckz1a83ib`）、`base`（templateID: `216g37mamkdfhzrauvxk`）
-- **测试内容**：`ebx create`/`ebx exec`（CLI）+ `Sandbox.create()`/`sandbox.commands.run()`（SDK）
-- **覆盖能力**：shell 命令执行、文件读写、代码解释器
+Validate the CLI + SDK envd capabilities (shell/files/code) of existing platform
+templates:
+- **Templates**: `code-interpreter-v1` (templateID: `8d926meb1xzckz1a83ib`),
+  `base` (templateID: `216g37mamkdfhzrauvxk`)
+- **Test content**: `ebx create`/`ebx exec` (CLI) + `Sandbox.create()`/
+  `sandbox.commands.run()` (SDK)
+- **Capabilities covered**: shell command execution, file read/write, code interpreter
 
-### 场景 B：自定义模板（Part 2）
+### Scenario B: custom templates (Part 2)
 
-验证 CLI 本地构建→ACR 推送→模板创建→沙箱启动→Server 能力全链路：
-- **模板**：`examples/templates/` 下的 10 个模板（python-hello, codex, node-web, browser-automation, claude-code, deepseek-harness, hermes-agent, openclaw, qoder, qwen-code）
-- **测试内容**：`ebx template build-local`（CLI）+ `DockerBuilder`（SDK）+ Sandbox Server 能力
-- **覆盖能力**：Docker 构建、ACR 推送、模板注册、沙箱创建、Server 启动与调用
+Validate the full chain CLI local build → ACR push → template creation → sandbox
+startup → Server capabilities:
+- **Templates**: the 10 templates under `examples/templates/` (python-hello, codex,
+  node-web, browser-automation, claude-code, deepseek-harness, hermes-agent,
+  openclaw, qoder, qwen-code)
+- **Test content**: `ebx template build-local` (CLI) + `DockerBuilder` (SDK) +
+  Sandbox Server capabilities
+- **Capabilities covered**: Docker build, ACR push, template registration, sandbox
+  creation, Server startup and invocation
 
-### 并行架构
+### Parallel architecture
 
-- `MAX_CONCURRENCY = 5` — 最大并行沙箱数
-- 使用 `asyncio.Semaphore` 控制并发
-- 每个测试用例独立创建/销毁沙箱，互不影响
-- 测试结果汇总输出（通过/失败/跳过）
+- `MAX_CONCURRENCY = 5` — maximum number of concurrent sandboxes
+- Uses `asyncio.Semaphore` to control concurrency
+- Each test case creates/destroys its own sandbox independently, without interference
+- Test results are summarized in the output (pass/fail/skip)
 
-### 凭证配置
+### Credential configuration
 
-通过项目根目录 `.env` 文件配置（已加入 `.gitignore`）：
-- `E2B_API_KEY` — FC Agent Sandbox 平台 API Key
-- `ALIBABA_CLOUD_ACCESS_KEY_ID` / `ALIBABA_CLOUD_ACCESS_KEY_SECRET` — ACR 推送所需的阿里云 AK/SK
+Configured via a `.env` file in the project root (already in `.gitignore`):
+- `E2B_API_KEY` — the FC Agent Sandbox platform API key
+- `ALIBABA_CLOUD_ACCESS_KEY_ID` / `ALIBABA_CLOUD_ACCESS_KEY_SECRET` — the Alibaba
+  Cloud AK/SK required for ACR push
 
 ## API Design
 ```bash
-# 运行全部 E2E 测试
+# run all E2E tests
 cd <project-root>
 python3 scripts/cloud_e2e_test.py
 
-# 依赖项
+# dependencies
 pip install "easy-sandbox[cli]" httpx pyyaml python-dotenv
 ```
 
 ```python
-# 核心结构
+# core structure
 OFFICIAL_TEMPLATES = {
     "code-interpreter-v1": "8d926meb1xzckz1a83ib",
     "base": "216g37mamkdfhzrauvxk",
@@ -66,29 +80,38 @@ MAX_CONCURRENCY = 5
 ```
 
 ## Alternatives considered
-- **使用 pytest + pytest-asyncio 集成到标准测试套件** — E2E 测试需要真实凭证且耗时长（分钟级），混入单元测试会拖慢 `make test`。独立脚本更灵活。Rejected 作为默认方式（但可通过 `@pytest.mark.integration` 桥接）。
-- **单线程顺序执行** — 10 个自定义模板顺序构建耗时过长。Rejected。
-- **使用 GitHub Actions 中的 service container** — FC 沙箱是远程服务非本地容器，无法用 service container 模拟。Rejected。
+- **Integrate into the standard test suite with pytest + pytest-asyncio** — E2E
+  tests require real credentials and are slow (minutes-scale); mixing them into the
+  unit tests would slow down `make test`. A standalone script is more flexible.
+  Rejected as the default approach (but can be bridged via
+  `@pytest.mark.integration`).
+- **Single-threaded sequential execution** — building the 10 custom templates
+  sequentially takes too long. Rejected.
+- **Use a service container in GitHub Actions** — the FC sandbox is a remote
+  service, not a local container, and cannot be simulated with a service container.
+  Rejected.
 
 ## Dependencies
-- `api/sandbox.py`（`Sandbox.create()` SDK 接口）
-- `api/template.py`（`TemplateManager` 模板管理）
-- `api/docker_builder.py`（`DockerBuilder` 本地构建）
-- `transport/auth.py`（`create_auth_provider` 认证）
-- `transport/config.py`（`load_config` 配置加载）
-- `examples/templates/`（10 个自定义模板目录）
+- `api/sandbox.py` (`Sandbox.create()` SDK interface)
+- `api/template.py` (`TemplateManager` template management)
+- `api/docker_builder.py` (`DockerBuilder` local build)
+- `transport/auth.py` (`create_auth_provider` authentication)
+- `transport/config.py` (`load_config` configuration loading)
+- `examples/templates/` (the 10 custom-template directories)
 
 ## Test Strategy
-- 场景 A 的每个官方模板验证：创建沙箱 → 执行 shell 命令 → 验证输出 → 销毁沙箱。
-- 场景 B 的每个自定义模板验证：构建镜像 → 推送 ACR → 创建模板 → 创建沙箱 → 启动 Server → 调用命令 → 销毁。
-- 失败用例记录详细 traceback，不阻塞其他用例。
-- 最终输出汇总表（通过数/失败数/跳过数）。
+- Scenario A, per official template: create sandbox → run shell command → verify
+  output → destroy sandbox.
+- Scenario B, per custom template: build image → push to ACR → create template →
+  create sandbox → start Server → invoke command → destroy.
+- Failing cases record a detailed traceback and do not block other cases.
+- Final output is a summary table (pass count / fail count / skip count).
 
 ## Acceptance criteria
-- `python3 scripts/cloud_e2e_test.py` 可在配置 `.env` 凭证后端到端运行。
-- 官方模板和自定义模板均有独立测试用例。
-- 并行执行不超过 `MAX_CONCURRENCY` 个并发沙箱。
-- 测试结果有清晰的汇总输出。
+- `python3 scripts/cloud_e2e_test.py` runs end to end after `.env` credentials are configured.
+- Both official and custom templates have independent test cases.
+- Parallel execution never exceeds `MAX_CONCURRENCY` concurrent sandboxes.
+- Test results have a clear summary output.
 
 ## Files changed
-- `scripts/cloud_e2e_test.py` — 新建，922 行
+- `scripts/cloud_e2e_test.py` — new, 922 lines

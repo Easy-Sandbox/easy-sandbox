@@ -1,10 +1,10 @@
 """Tests for the DeployModule and DeployResult."""
+
 from __future__ import annotations
 
 import json
-import os
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -12,8 +12,8 @@ from easy_sandbox.api.deploy import (
     DeployModule,
     DeployResult,
     _build_prompt,
-    _extract_json_from_output,
     _exit_code_to_status,
+    _extract_json_from_output,
     _parse_wall_time,
     resolve_llm_env,
 )
@@ -22,7 +22,6 @@ from easy_sandbox.models.errors import (
     DeployLLMKeyMissingError,
 )
 from easy_sandbox.models.process import ProcessResult
-
 
 # ---------------------------------------------------------------------------
 # DeployResult tests
@@ -194,7 +193,11 @@ class TestExtractJson:
     """Test JSON extraction from qwen-code output."""
 
     def test_valid_json_last_line(self) -> None:
-        output = 'Some logs\nMore logs\n{"status": "success", "url": "http://localhost:8080", "port": 8080, "logs": "ok"}'
+        output = (
+            "Some logs\nMore logs\n"
+            '{"status": "success", "url": "http://localhost:8080",'
+            ' "port": 8080, "logs": "ok"}'
+        )
         result = _extract_json_from_output(output)
         assert result is not None
         assert result["status"] == "success"
@@ -243,12 +246,14 @@ class TestDeployModule:
     @pytest.mark.asyncio
     async def test_deploy_success(self, deployer: DeployModule, mock_sandbox: MagicMock) -> None:
         """Test successful deployment with JSON output."""
-        json_output = json.dumps({
-            "status": "success",
-            "url": "http://localhost:8080",
-            "port": 8080,
-            "logs": "Deployed successfully",
-        })
+        json_output = json.dumps(
+            {
+                "status": "success",
+                "url": "http://localhost:8080",
+                "port": 8080,
+                "logs": "Deployed successfully",
+            }
+        )
         mock_sandbox.commands.run = AsyncMock(
             return_value=ProcessResult(
                 stdout=f"Installing deps...\n{json_output}",
@@ -260,14 +265,13 @@ class TestDeployModule:
 
         # Create a temp project dir
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create a marker file
             Path(tmpdir, "requirements.txt").write_text("flask\n")
             Path(tmpdir, "app.py").write_text("print('hello')\n")
 
-            result = await deployer.deploy_project(
-                tmpdir, "部署这个 Flask 项目"
-            )
+            result = await deployer.deploy_project(tmpdir, "部署这个 Flask 项目")
 
         assert result.status == "success"
         assert result.port == 8080
@@ -275,7 +279,9 @@ class TestDeployModule:
         assert result.sandbox_id == "sbx-deploy-test"
 
     @pytest.mark.asyncio
-    async def test_deploy_agent_failure(self, deployer: DeployModule, mock_sandbox: MagicMock) -> None:
+    async def test_deploy_agent_failure(
+        self, deployer: DeployModule, mock_sandbox: MagicMock
+    ) -> None:
         """Test deployment with non-zero exit code."""
         mock_sandbox.commands.run = AsyncMock(
             return_value=ProcessResult(
@@ -287,6 +293,7 @@ class TestDeployModule:
         mock_sandbox.files.write = AsyncMock()
 
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             Path(tmpdir, "app.py").write_text("print('hello')\n")
 
@@ -308,6 +315,7 @@ class TestDeployModule:
         mock_sandbox.files.write = AsyncMock()
 
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             Path(tmpdir, "app.py").write_text("print('hello')\n")
             result = await deployer.deploy_project(tmpdir, "deploy")
@@ -324,12 +332,17 @@ class TestDeployModule:
     async def test_deploy_file_instead_of_dir(self, deployer: DeployModule) -> None:
         """Test with a file instead of directory."""
         import tempfile
-        with tempfile.NamedTemporaryFile(suffix=".py") as tmp:
-            with pytest.raises(DeployAgentError, match="not a directory"):
-                await deployer.deploy_project(tmp.name, "deploy")
+
+        with (
+            tempfile.NamedTemporaryFile(suffix=".py") as tmp,
+            pytest.raises(DeployAgentError, match="not a directory"),
+        ):
+            await deployer.deploy_project(tmp.name, "deploy")
 
     @pytest.mark.asyncio
-    async def test_deploy_skips_git_and_venv(self, deployer: DeployModule, mock_sandbox: MagicMock) -> None:
+    async def test_deploy_skips_git_and_venv(
+        self, deployer: DeployModule, mock_sandbox: MagicMock
+    ) -> None:
         """Test that .git, __pycache__, node_modules are skipped."""
         mock_sandbox.commands.run = AsyncMock(
             return_value=ProcessResult(stdout="ok", stderr="", exit_code=0)
@@ -337,6 +350,7 @@ class TestDeployModule:
         mock_sandbox.files.write = AsyncMock()
 
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create files in skip dirs
             (Path(tmpdir) / ".git").mkdir()
@@ -364,11 +378,10 @@ class TestDeployModule:
         progress_msgs: list[str] = []
 
         import tempfile
+
         with tempfile.TemporaryDirectory() as tmpdir:
             Path(tmpdir, "app.py").write_text("print('hello')")
-            await deployer.deploy_project(
-                tmpdir, "deploy", on_progress=progress_msgs.append
-            )
+            await deployer.deploy_project(tmpdir, "deploy", on_progress=progress_msgs.append)
 
         assert len(progress_msgs) >= 3  # upload, start, parse, finish
         assert any("Uploading" in m for m in progress_msgs)

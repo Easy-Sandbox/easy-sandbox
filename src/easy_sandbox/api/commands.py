@@ -1,11 +1,11 @@
 """Commands module — run commands in sandboxes."""
+
 from __future__ import annotations
 
 import shlex
 import time
-from typing import AsyncIterator
+from typing import TYPE_CHECKING
 
-from easy_sandbox.api.capability import check_capability
 from easy_sandbox.models.process import (
     ProcessChunk,
     ProcessChunkType,
@@ -13,13 +13,41 @@ from easy_sandbox.models.process import (
     ProcessResult,
 )
 from easy_sandbox.models.template import DEFAULT_CAPABILITIES
-from easy_sandbox.protocol.process import ProcessProtocol
-from easy_sandbox.transport.auth import EnvdTokenManager
-from easy_sandbox.transport.streaming import StreamReader
 from easy_sandbox.utils.async_bridge import make_sync
 from easy_sandbox.utils.logging import get_logger
 
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from easy_sandbox.protocol.process import ProcessProtocol
+    from easy_sandbox.transport.auth import EnvdTokenManager
+    from easy_sandbox.transport.streaming import StreamReader
+
 logger = get_logger("api.commands")
+
+# Shell punctuation characters that indicate the command requires ``sh -c``
+# wrapping because the envd process API executes ``cmd`` directly (not via a
+# shell).  Only *unquoted* occurrences trigger wrapping.
+_SHELL_PUNCT: frozenset[str] = frozenset("();<>|&")
+
+
+def _needs_shell_wrap(cmd: str) -> bool:
+    """Return ``True`` if *cmd* contains unquoted shell operators.
+
+    Uses :class:`shlex.shlex` with ``punctuation_chars=True`` so that
+    operators inside quoted sections (single or double) are *not* flagged.
+    """
+    try:
+        lex = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+        lex.whitespace_split = True
+        for token in lex:
+            if token and all(c in _SHELL_PUNCT for c in token):
+                return True
+    except ValueError:
+        # Malformed quoting — let it through; the caller will get an error
+        # from shlex.split or the remote side.
+        pass
+    return False
 
 
 class CommandsModule:
@@ -27,6 +55,10 @@ class CommandsModule:
 
     Wraps ProcessProtocol and provides convenient methods for
     executing shell commands, streaming output, and managing processes.
+
+    Note: Commands containing unquoted shell operators (|, ;, &&, ||, >, <, ())
+    are automatically wrapped in ``sh -c``. Variable expansion ($VAR), backticks,
+    and glob patterns still require explicit ``sh -c '...'`` wrapping.
     """
 
     def __init__(
@@ -45,8 +77,13 @@ class CommandsModule:
     def _parse_cmd(cmd: str) -> tuple[str, list[str]]:
         """Parse a command string into command and args.
 
-        Uses shlex.split to properly handle quoting and escaping.
+        When the command contains unquoted shell operators (pipes, redirects,
+        semicolons, etc.) it is wrapped in ``sh -c`` so the remote shell
+        interprets the full pipeline.  Simple commands are split via
+        :func:`shlex.split` as before.
         """
+        if _needs_shell_wrap(cmd):
+            return "sh", ["-c", cmd]
         parts = shlex.split(cmd)
         if not parts:
             return cmd, []
@@ -82,10 +119,13 @@ class CommandsModule:
         """
         if background:
             return await self.start(
-                cmd, timeout=timeout, env=env, cwd=cwd, user=user,
+                cmd,
+                timeout=timeout,
+                env=env,
+                cwd=cwd,
+                user=user,
             )
 
-        check_capability(self._capabilities, "shell")
         command, args = self._parse_cmd(cmd)
 
         # start_and_wait logic (previously in ProcessProtocol, now in API layer)
@@ -144,7 +184,6 @@ class CommandsModule:
         Yields:
             ProcessChunk items (stdout, stderr, exit events).
         """
-        check_capability(self._capabilities, "shell")
         command, args = self._parse_cmd(cmd)
         reader = await self._process.start(
             self._envd_url,
@@ -180,7 +219,6 @@ class CommandsModule:
         Returns:
             StreamReader for consuming output asynchronously.
         """
-        check_capability(self._capabilities, "shell")
         command, args = self._parse_cmd(cmd)
         return await self._process.start(
             self._envd_url,
@@ -261,9 +299,9 @@ class CommandsModule:
         *,
         timeout: int = 60,
         env: dict[str, str] | None = None,
-        cwd: str = "/app",
-        user: str = "user",
-    ) -> list[ProcessChunk]:
+        cwd: str = "",
+        user: str = "",
+    ) -> list[ProcessChunk]:  # type: ignore[valid-type]
         """Synchronous variant of :meth:`stream`.
 
         Collects all chunks from the async generator and returns them
@@ -279,7 +317,11 @@ class CommandsModule:
         async def _collect() -> list[ProcessChunk]:
             chunks: list[ProcessChunk] = []
             async for chunk in self.stream(
-                cmd, timeout=timeout, env=env, cwd=cwd, user=user,
+                cmd,
+                timeout=timeout,
+                env=env,
+                cwd=cwd,
+                user=user,
             ):
                 chunks.append(chunk)
             return chunks

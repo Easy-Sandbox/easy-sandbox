@@ -10,28 +10,23 @@ Usage:
     result = await sb.commands.run("echo hello")
     await sb.kill()
 """
+
 from __future__ import annotations
 
 import functools
 import json
 import re
 import shlex
-from typing import Any, Callable
+import warnings
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from easy_sandbox.api.capability import (
     ResolvedCapabilities,
-    check_capability,
     resolve_capabilities,
 )
-from easy_sandbox.models.errors import CapabilityNotSupportedError
-from easy_sandbox.models.process import CodeResult, ProcessResult
 from easy_sandbox.models.sandbox import SandboxConfig, SandboxInfo, SandboxStatus
-from easy_sandbox.models.template import (
-    DEFAULT_CAPABILITIES,
-    CustomCommand,
-)
 from easy_sandbox.protocol.code_interpreter import CodeInterpreterProtocol
 from easy_sandbox.protocol.filesystem import FilesystemProtocol
 from easy_sandbox.protocol.process import ProcessProtocol
@@ -45,6 +40,26 @@ from easy_sandbox.transport.config import TransportConfig, load_config
 from easy_sandbox.transport.http import HttpClient
 from easy_sandbox.utils.async_bridge import make_sync
 from easy_sandbox.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    import builtins
+    from collections.abc import Callable
+
+    from easy_sandbox.api.code import CodeContextModule as CodeContextModule
+    from easy_sandbox.api.commands import CommandsModule as CommandsModule
+    from easy_sandbox.api.files import FilesModule as FilesModule
+    from easy_sandbox.api.network import NetworkModule as NetworkModule
+    from easy_sandbox.models.process import (
+        CodeResult,
+        CommandResult,
+        ProcessChunk,
+        ProcessResult,
+    )
+    from easy_sandbox.models.template import (
+        CustomCommand,
+    )
+    from easy_sandbox.protocol.terminal import TerminalSession as TerminalSession
+    from easy_sandbox.transport.streaming import StreamReader as StreamReader
 
 logger = get_logger("api.sandbox")
 
@@ -118,7 +133,9 @@ class Sandbox:
         self._sandbox_protocol = sandbox_protocol or SandboxProtocol(http_client)
         self._process_protocol = process_protocol or ProcessProtocol(http_client)
         self._filesystem_protocol = filesystem_protocol or FilesystemProtocol(http_client)
-        self._code_interpreter_protocol = code_interpreter_protocol or CodeInterpreterProtocol(http_client)
+        self._code_interpreter_protocol = code_interpreter_protocol or CodeInterpreterProtocol(
+            http_client
+        )
 
         # Capability model
         if resolved_capabilities is not None:
@@ -126,9 +143,13 @@ class Sandbox:
         else:
             self._resolved = ResolvedCapabilities()
         self._capabilities: set[str] = set(self._resolved.capabilities)
-        self._custom_commands: dict[str, CustomCommand] = dict(
-            self._resolved.custom_commands
-        )
+        self._custom_commands: dict[str, CustomCommand] = dict(self._resolved.custom_commands)
+
+        # Cache flag for mechanism-B (SandboxServer) reachability.  Once a
+        # connection attempt fails, subsequent custom() calls skip the probe
+        # to avoid repeated connect-timeout stalls.  Reset via
+        # reset_server_probe().
+        self._server_probe_failed: bool = False
 
     # ---- Properties ----
 
@@ -163,6 +184,7 @@ class Sandbox:
     def commands(self) -> CommandsModule:
         """Commands sub-module for running shell commands."""
         from easy_sandbox.api.commands import CommandsModule
+
         return CommandsModule(
             envd_url=self.url,
             envd_token=self._envd_token,
@@ -174,6 +196,7 @@ class Sandbox:
     def files(self) -> FilesModule:
         """Files sub-module for filesystem operations."""
         from easy_sandbox.api.files import FilesModule
+
         return FilesModule(
             envd_url=self.url,
             envd_token=self._envd_token,
@@ -187,6 +210,7 @@ class Sandbox:
     def network(self) -> NetworkModule:
         """Network sub-module for port URL calculation."""
         from easy_sandbox.api.network import NetworkModule
+
         return NetworkModule(
             sandbox_id=self.id,
             domain=self._domain,
@@ -199,6 +223,7 @@ class Sandbox:
     def code(self) -> CodeContextModule:
         """Code sub-module for code interpretation."""
         from easy_sandbox.api.code import CodeContextModule
+
         return CodeContextModule(
             sandbox_id=self.id,
             envd_url=self.url,
@@ -216,6 +241,7 @@ class Sandbox:
         template: str = "base",
         *,
         timeout: int = 300,
+        request_timeout: float | None = None,
         metadata: dict[str, str] | None = None,
         envs: dict[str, str] | None = None,
         cpu: int | None = None,
@@ -234,42 +260,70 @@ class Sandbox:
 
         Args:
             template: Sandbox template name.
-            timeout: Sandbox timeout in seconds.
+            timeout: Sandbox lifetime (TTL) in seconds — how long the sandbox
+                stays alive on the platform.  This is **not** an HTTP timeout;
+                use *request_timeout* to bound how long the client waits for
+                the create HTTP response.
+            request_timeout: Per-request HTTP timeout override, in seconds,
+                applied only to the ``POST /sandboxes`` create call.  When
+                *None* (default), the client-level default is used unchanged
+                (``SANDBOX_HTTP_TIMEOUT`` / ``Config.http_timeout``).  Aligns
+                with the E2B SDK's ``request_timeout``.  Note: raising this
+                value does not work around platform-side create stalls — it
+                only controls how long the client waits before timing out.
             metadata: Arbitrary metadata key-value pairs.
-            envs: Environment variables for the sandbox.
+            envs: Environment variables injected into the envd root process.
+                These are inherited by all subsequent ``commands.run()``,
+                ``run_code()``, and terminal sessions.  Per-call overrides
+                can be passed via ``commands.run(env=)`` or
+                ``run_code(envs=)``.  Note: envd uses **direct exec**;
+                shell expansion (``$VAR``, pipes, redirects) requires
+                ``sh -c '...'``.  Use ``printenv VAR`` to read a single
+                variable.  See the Environment Variables guide for details.
             cpu: Number of CPU cores (optional).
             memory: Memory in MB (optional).
             disk: Disk size in MB (optional).
             gpu: GPU specification, e.g. ``'A10'`` (optional).
             description: Natural-language description for the sandbox.
-                Inference only triggers when *description* is provided **and**
-                *template* is left at its default value ``"base"``.  When
-                triggered, the agent/infer engine resolves the best template
-                and resource defaults.  Explicit *template*, *cpu*, or
-                *memory* values always override any inferred values.
-            secure: 是否启用安全模式（默认 True），启用后端口访问需要 access token。
+                When *description* is provided and *template* is left at its
+                default value ``"base"``, a hint is logged suggesting the
+                user specify ``--template`` for better resource defaults.
+                Template inference via ``agent.infer`` should be invoked
+                at the CLI layer, not in this API method.
+            secure: Whether to enable secure mode (default True); when
+                enabled, port access requires an access token.
             api_key: API key override.
             api_url: Platform API URL override.
-            domain: 平台域名，用于端口 URL 计算。
+            domain: Platform domain for port URL computation.
             access_key_id: AK/SK access key ID.
             access_key_secret: AK/SK access key secret.
 
         Returns:
             A connected Sandbox instance.
+
+        Raises:
+            ValueError: If *request_timeout* is not None and not a positive
+                number.
         """
-        # NL-first: infer template/resources when description is given and
-        # template was not explicitly overridden (still at default value).
+        if request_timeout is not None and request_timeout <= 0:
+            raise ValueError(
+                f"request_timeout must be a positive number of seconds, "
+                f"got {request_timeout!r}"
+            )
+
+        # NL-first hint: when description is given but template is still the
+        # default, log a hint so the user knows they can pick a more specific
+        # template.  Actual inference (agent.infer) should be invoked at the
+        # CLI layer to keep the API layer free of L6 Agent dependencies.
         effective_template = template
         effective_cpu = cpu
         effective_memory = memory
         if description and template == "base":
-            from easy_sandbox.agent.infer import infer_template  # lazy import
-            infer_result = await infer_template(description)
-            effective_template = infer_result.template
-            if effective_cpu is None:
-                effective_cpu = infer_result.cpu
-            if effective_memory is None:
-                effective_memory = infer_result.memory
+            logger.info(
+                "description provided with default template 'base'; "
+                "consider using --template to select a more specific "
+                "template for better resource defaults."
+            )
 
         config, auth, http_client, sandbox_protocol = _build_infra(
             api_key=api_key,
@@ -278,36 +332,42 @@ class Sandbox:
             access_key_secret=access_key_secret,
         )
 
-        sandbox_config = SandboxConfig(
-            template=effective_template,
-            timeout=timeout,
-            metadata=metadata or {},
-            env_vars=envs or {},
-            cpu=effective_cpu,
-            memory=effective_memory,
-            disk=disk,
-            gpu=gpu,
-        )
-        info = await sandbox_protocol.create(sandbox_config)
+        try:
+            sandbox_config = SandboxConfig(  # type: ignore[call-arg]
+                template=effective_template,
+                timeout=timeout,
+                metadata=metadata or {},
+                env_vars=envs or {},
+                cpu=effective_cpu,
+                memory=effective_memory,
+                disk=disk,
+                gpu=gpu,
+            )
+            info = await sandbox_protocol.create(
+                sandbox_config, request_timeout=request_timeout
+            )
 
-        envd_token = EnvdTokenManager(info.envd_access_token, sandbox_id=info.sandbox_id)
+            envd_token = EnvdTokenManager(info.envd_access_token, sandbox_id=info.sandbox_id)
 
-        logger.info("Sandbox created: %s", info.sandbox_id)
+            logger.info("Sandbox created: %s", info.sandbox_id)
 
-        # Resolve capabilities for the template
-        resolved = await resolve_capabilities(effective_template)
+            # Resolve capabilities for the template
+            resolved = await resolve_capabilities(effective_template)
 
-        return cls(
-            info=info,
-            config=config,
-            http_client=http_client,
-            auth=auth,
-            envd_token=envd_token,
-            sandbox_protocol=sandbox_protocol,
-            domain=domain or config.domain,
-            secure=secure,
-            resolved_capabilities=resolved,
-        )
+            return cls(
+                info=info,
+                config=config,
+                http_client=http_client,
+                auth=auth,
+                envd_token=envd_token,
+                sandbox_protocol=sandbox_protocol,
+                domain=domain or config.domain,
+                secure=secure,
+                resolved_capabilities=resolved,
+            )
+        except Exception:
+            await http_client.close()
+            raise
 
     @classmethod
     async def connect(
@@ -326,7 +386,7 @@ class Sandbox:
             sandbox_id: The ID of the sandbox to connect to.
             api_key: API key override.
             api_url: Platform API URL override.
-            domain: 平台域名，用于端口 URL 计算。
+            domain: Platform domain for port URL computation.
             access_key_id: AK/SK access key ID.
             access_key_secret: AK/SK access key secret.
 
@@ -340,24 +400,28 @@ class Sandbox:
             access_key_secret=access_key_secret,
         )
 
-        info = await sandbox_protocol.connect(sandbox_id)
-        envd_token = EnvdTokenManager(info.envd_access_token, sandbox_id=info.sandbox_id)
+        try:
+            info = await sandbox_protocol.connect(sandbox_id)
+            envd_token = EnvdTokenManager(info.envd_access_token, sandbox_id=info.sandbox_id)
 
-        logger.info("Connected to sandbox: %s", sandbox_id)
+            logger.info("Connected to sandbox: %s", sandbox_id)
 
-        # Resolve capabilities for the template
-        resolved = await resolve_capabilities(info.template)
+            # Resolve capabilities for the template
+            resolved = await resolve_capabilities(info.template)
 
-        return cls(
-            info=info,
-            config=config,
-            http_client=http_client,
-            auth=auth,
-            envd_token=envd_token,
-            sandbox_protocol=sandbox_protocol,
-            domain=domain or config.domain,
-            resolved_capabilities=resolved,
-        )
+            return cls(
+                info=info,
+                config=config,
+                http_client=http_client,
+                auth=auth,
+                envd_token=envd_token,
+                sandbox_protocol=sandbox_protocol,
+                domain=domain or config.domain,
+                resolved_capabilities=resolved,
+            )
+        except Exception:
+            await http_client.close()
+            raise
 
     @classmethod
     async def list(
@@ -491,18 +555,16 @@ class Sandbox:
             code: Source code to execute.
             language: Programming language (default: python).
             timeout: Execution timeout in seconds.
-            envs: Optional environment variables for this execution.
+            envs: Optional environment variables for this execution
+                (envd scope, single-invocation lifetime).  These are
+                merged with creation-time envs for this call only.
             on_stdout: Optional callback invoked with stdout content.
             on_stderr: Optional callback invoked with stderr content.
             on_result: Optional callback invoked with the execution result dict.
 
         Returns:
             CodeResult with stdout, stderr, and output files.
-
-        Raises:
-            CapabilityNotSupportedError: If ``code`` capability is not enabled.
         """
-        check_capability(self._capabilities, "code")
         return await self.code.run(
             code,
             language=language,
@@ -528,12 +590,9 @@ class Sandbox:
             cols: Terminal columns (default 80).
             rows: Terminal rows (default 24).
             shell: Shell binary (default ``/bin/bash``).
-
-        Raises:
-            CapabilityNotSupportedError: If ``terminal`` capability is not enabled.
         """
-        check_capability(self._capabilities, "terminal")
         from easy_sandbox.protocol.terminal import TerminalSession
+
         return await TerminalSession.create(
             envd_url=self.url,
             envd_token=self._envd_token,
@@ -545,15 +604,27 @@ class Sandbox:
 
     # ---- Custom command dispatch ----
 
-    def list_commands(self) -> list[dict[str, Any]]:
-        """Return the custom command catalogue.
+    async def list_commands(
+        self,
+        *,
+        server_port: int = 9000,
+    ) -> builtins.list[dict[str, Any]]:
+        """Return the merged command catalogue (template + server).
 
-        Requires the ``shell`` capability and valid envd authentication.
+        Combines two command sources into a single list:
+
+        * **template** commands declared in ``template.yaml``'s
+          ``custom_commands`` (always available; requires valid envd auth).
+        * **server** commands registered on an in-sandbox SandboxServer,
+          discovered best-effort via ``GET /commands`` on *server_port*.
+          When the server is unreachable, only template commands are
+          returned (the failure is logged at debug level, never raised).
 
         Each entry is a dict shaped as::
 
             {
                 "name": str,
+                "source": "template" | "server",
                 "description": str,
                 "args": [
                     {"name": str, "required": bool,
@@ -561,18 +632,28 @@ class Sandbox:
                      "type": str},
                     ...
                 ],
+                "shadowed": bool,
             }
 
+        Template commands take priority: a server command whose name also
+        exists in the template catalogue is marked ``shadowed=True`` so the
+        overlap is surfaced rather than silently hidden.
+
+        Args:
+            server_port: Port the in-sandbox SandboxServer listens on
+                (default 9000).
+
         Raises:
-            CapabilityNotSupportedError: If ``shell`` capability is missing.
             TokenExpiredError: If the sandbox is not authenticated.
         """
-        check_capability(self._capabilities, "shell")
         # Verify sandbox authentication (raises TokenExpiredError if invalid)
         self._envd_token.get_headers()
-        return [
+
+        template_names = set(self._custom_commands)
+        results: list[dict[str, Any]] = [
             {
                 "name": name,
+                "source": "template",
                 "description": cmd.description,
                 "args": [
                     {
@@ -584,40 +665,231 @@ class Sandbox:
                     }
                     for arg in cmd.args
                 ],
+                "shadowed": False,
             }
             for name, cmd in self._custom_commands.items()
         ]
 
-    async def run(
-        self,
-        name: str,
-        **kwargs: str,
-    ) -> ProcessResult:
-        """Execute a named custom command.
+        # Server commands (best-effort; never raise on connection failure).
+        try:
+            server_cmds = await self._fetch_server_commands(server_port)
+        except httpx.RequestError as exc:
+            logger.debug("Could not fetch server commands (server may be down): %s", exc)
+            server_cmds = []
 
-        Looks up *name* in the template's ``custom_commands``, fills
-        ``{placeholder}`` tokens using *kwargs*, and runs the resulting
-        shell command.
-
-        Args:
-            name: Custom command name.
-            **kwargs: Argument values keyed by placeholder name.
-
-        Returns:
-            :class:`ProcessResult` with stdout/stderr/exit_code.
-
-        Raises:
-            ValueError: If the command name is unknown, a required arg
-                is missing, an undeclared arg is passed, or a placeholder
-                in the template cannot be filled.
-        """
-        if name not in self._custom_commands:
-            available = ", ".join(sorted(self._custom_commands)) or "(none)"
-            raise ValueError(
-                f"Unknown custom command {name!r}; "
-                f"available commands: {available}"
+        for cmd_entry in server_cmds:
+            srv_name = str(cmd_entry.get("name", ""))
+            results.append(
+                {
+                    "name": srv_name,
+                    "source": "server",
+                    "description": cmd_entry.get("description", ""),
+                    "args": cmd_entry.get("args", []),
+                    "shadowed": srv_name in template_names,
+                }
             )
 
+        return results
+
+    async def run(
+        self,
+        cmd: str,
+        *,
+        timeout: int = 60,
+        env: dict[str, str] | None = None,
+        cwd: str = "",
+        user: str = "",
+        background: bool = False,
+    ) -> ProcessResult | StreamReader[ProcessChunk]:
+        """Run a bare shell command — top-level shortcut for ``commands.run``.
+
+        ``sandbox.run("echo hi")`` is exactly equivalent to
+        ``sandbox.commands.run("echo hi")``; the argument is a shell command
+        string, not a named command.
+
+        To execute a *named* command (template ``custom_commands`` or a
+        SandboxServer registry function) use :meth:`custom` instead.
+
+        .. note::
+
+            envd uses **direct exec**: shell features (``$VAR`` expansion,
+            pipes, redirects, globs) require ``sh -c '...'``.  Use
+            ``printenv VAR`` to read a single environment variable.
+
+        Args:
+            cmd: Shell command string (e.g. ``"echo hello"``).
+            timeout: Max execution time in seconds.
+            env: Additional environment variables (envd scope,
+                single-command lifetime).
+            cwd: Working directory.
+            user: OS user to run the command as.
+            background: If True, return a StreamReader handle immediately.
+
+        Returns:
+            :class:`ProcessResult` with stdout/stderr/exit_code, or a
+            :class:`StreamReader` when ``background=True``.
+        """
+        return await self.commands.run(
+            cmd,
+            timeout=timeout,
+            env=env,
+            cwd=cwd,
+            user=user,
+            background=background,
+        )
+
+    # ---- Named command dispatch (template A → server B) ----
+
+    async def custom(
+        self,
+        name: str,
+        *,
+        server_port: int = 9000,
+        **kwargs: Any,
+    ) -> CommandResult:
+        """Execute a named command, resolving template (A) then server (B).
+
+        Resolution order:
+
+        1. **Template** ``custom_commands`` (mechanism A): fills
+           ``{placeholder}`` tokens with *kwargs* (shlex-quoted) and runs the
+           resulting shell command over envd.
+        2. **Server** registry (mechanism B): ``POST /commands/{name}`` to a
+           SandboxServer on *server_port*, forwarding *kwargs* as JSON.
+
+        Args:
+            name: Named command to execute.
+            server_port: SandboxServer port for mechanism B (default 9000).
+            **kwargs: Argument values (template placeholders / JSON body).
+
+        Returns:
+            A :class:`CommandResult`.  ``source`` is ``"template"`` or
+            ``"server"``; see :class:`CommandResult` for field semantics.
+
+        Raises:
+            CommandNotFoundError: If *name* is unknown in both sources, or
+                the SandboxServer cannot be reached.
+            ValueError: If a template command's arguments are invalid.
+        """
+        from easy_sandbox.models.errors import CommandNotFoundError
+        from easy_sandbox.models.process import CommandResult
+
+        # Phase 1: template custom_commands (A).
+        if name in self._custom_commands:
+            process_result = await self._run_template_command(name, kwargs)
+            return CommandResult(
+                value=process_result.stdout.strip(),
+                stdout=process_result.stdout,
+                stderr=process_result.stderr,
+                exit_code=process_result.exit_code,
+                execution_time=process_result.execution_time,
+                source="template",
+            )
+
+        checked = ["template custom_commands", "sandbox server"]
+
+        # Phase 2: server registry (B).  Skip if a prior probe already failed.
+        if self._server_probe_failed:
+            raise CommandNotFoundError(
+                name,
+                checked=checked,
+                template_commands=list(self._custom_commands),
+                server_status=(
+                    "skipped after a previous connection failure; "
+                    "is the SandboxServer running?"
+                ),
+            )
+
+        try:
+            response, body = await self._call_server_command(name, server_port, kwargs)
+        except httpx.RequestError as exc:
+            self._server_probe_failed = True
+            raise CommandNotFoundError(
+                name,
+                checked=checked,
+                template_commands=list(self._custom_commands),
+                server_status=(f"connection failed ({exc}); is the SandboxServer running?"),
+            ) from exc
+
+        if response.is_success:
+            return CommandResult(
+                value=body.get("result"),
+                exit_code=0,
+                source="server",
+            )
+
+        if getattr(response, "status_code", None) == 404:
+            raise CommandNotFoundError(
+                name,
+                checked=checked,
+                template_commands=list(self._custom_commands),
+                server_status="reachable but command not found (HTTP 404)",
+            )
+
+        # Reachable, command exists, but validation/execution failed.
+        error_msg = str(body.get("error", "Unknown error"))
+        error_type = str(body.get("type", "UnknownError"))
+        return CommandResult(
+            value=body.get("result"),
+            stderr=f"{error_type}: {error_msg}",
+            exit_code=1,
+            source="server",
+        )
+
+    def reset_server_probe(self) -> None:
+        """Clear the cached SandboxServer-unreachable flag.
+
+        Call this after (re)starting a SandboxServer so that a subsequent
+        :meth:`custom` invocation retries mechanism B instead of skipping it.
+        """
+        self._server_probe_failed = False
+
+    async def run_command(
+        self,
+        name: str,
+        *,
+        server_port: int = 9000,
+        **kwargs: Any,
+    ) -> Any:
+        """Deprecated alias for :meth:`custom` returning only ``.value``.
+
+        .. deprecated::
+            Use :meth:`custom` instead, which returns a
+            :class:`CommandResult` exposing ``value`` plus process metadata.
+
+        Args:
+            name: Command name registered on the in-sandbox server.
+            server_port: Port the server is listening on (default 9000).
+            **kwargs: Keyword arguments forwarded to :meth:`custom`.
+
+        Returns:
+            The ``value`` field of the resulting :class:`CommandResult`
+            (preserving the historical ``run_command`` return contract).
+        """
+        warnings.warn(
+            "Sandbox.run_command() is deprecated; use Sandbox.custom() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        result = await self.custom(name, server_port=server_port, **kwargs)
+        return result.value
+
+    # ---- Named command internals ----
+
+    async def _run_template_command(
+        self,
+        name: str,
+        kwargs: dict[str, Any],
+    ) -> ProcessResult:
+        """Run a template ``custom_commands`` entry (mechanism A).
+
+        Fills ``{placeholder}`` tokens using *kwargs* (shlex-quoted) and runs
+        the resulting shell command.  Preserves the single-pass substitution
+        that closes the argv-injection hole.
+
+        Raises:
+            ValueError: On undeclared/missing args or unfilled placeholders.
+        """
         cmd_def = self._custom_commands[name]
 
         declared = {arg.name for arg in cmd_def.args}
@@ -635,8 +907,7 @@ class Sandbox:
         for arg in cmd_def.args:
             if arg.required and arg.name not in kwargs and arg.default is None:
                 raise ValueError(
-                    f"Required argument {arg.name!r} missing "
-                    f"for custom command {name!r}"
+                    f"Required argument {arg.name!r} missing for custom command {name!r}"
                 )
 
         # Build substitution map (declared args only, shlex-quoted).
@@ -650,8 +921,8 @@ class Sandbox:
         # Single-pass substitution over the ORIGINAL template only.  Because
         # ``re.sub`` never re-scans inserted text, a user value that itself
         # looks like ``{other}`` cannot be expanded a second time — this
-        # closes the argv-injection hole that the previous cumulative
-        # ``str.replace`` loop opened.
+        # closes the argv-injection hole that a cumulative ``str.replace``
+        # loop would open.
         def _sub(m: re.Match[str]) -> str:
             return subs.get(m.group(1), m.group(0))
 
@@ -660,13 +931,9 @@ class Sandbox:
         # Detect unfilled placeholders against the ORIGINAL template (not the
         # substituted string), so a legitimate value like ``{id}`` is not
         # mistaken for an unfilled placeholder.
-        unfilled = [
-            k for k in re.findall(r"\{(\w+)\}", cmd_def.cmd) if k not in subs
-        ]
+        unfilled = [k for k in re.findall(r"\{(\w+)\}", cmd_def.cmd) if k not in subs]
         if unfilled:
-            raise ValueError(
-                f"Unfilled placeholders in command {name!r}: {unfilled}"
-            )
+            raise ValueError(f"Unfilled placeholders in command {name!r}: {unfilled}")
 
         result = await self.commands.run(
             cmd_str,
@@ -678,33 +945,21 @@ class Sandbox:
         # but custom commands always run in foreground.
         return result  # type: ignore[return-value]
 
-    # ---- Server command dispatch ----
-
-    async def run_command(
+    async def _call_server_command(
         self,
         name: str,
-        *,
-        server_port: int = 9000,
-        **kwargs: Any,
-    ) -> Any:
-        """Execute a named command on a server running inside the sandbox.
+        server_port: int,
+        kwargs: dict[str, Any],
+    ) -> tuple[httpx.Response, dict[str, Any]]:
+        """POST ``/commands/{name}`` to the in-sandbox SandboxServer (B).
 
-        Sends ``POST {port_url}/commands/{name}`` with *kwargs* as the
-        JSON body to a server listening on *server_port* inside the
-        sandbox.
-
-        Args:
-            name: Command name registered on the in-sandbox server.
-            server_port: Port the server is listening on (default 9000).
-            **kwargs: Keyword arguments forwarded as JSON body.
-
-        Returns:
-            The ``result`` field from the server's JSON response.
+        Returns the raw ``(response, parsed_body)`` pair so the caller can
+        map status codes to the unified :class:`CommandResult` semantics.
 
         Raises:
-            CapabilityNotSupportedError: If ``ports`` capability is not
-                enabled for the sandbox template.
-            RuntimeError: If the server responds with a non-2xx status.
+            httpx.RequestError: If the request cannot be delivered
+                (connection refused, timeout, ...).
+            RuntimeError: If the server returns a non-JSON body.
         """
         url = self.network.get_url(server_port)
         access_headers = self.network.get_access_headers()
@@ -712,16 +967,11 @@ class Sandbox:
         client = self._http_client._create_envd_client(url)
         headers = {"Content-Type": "application/json", **access_headers}
 
-        try:
-            response = await client.post(
-                f"/commands/{name}",
-                json=kwargs,
-                headers=headers,
-            )
-        except httpx.RequestError as exc:
-            raise RuntimeError(
-                f"Request to sandbox server failed: {exc}"
-            ) from exc
+        response = await client.post(
+            f"/commands/{name}",
+            json=kwargs,
+            headers=headers,
+        )
 
         try:
             body: dict[str, Any] = response.json()
@@ -731,12 +981,32 @@ class Sandbox:
                 f"(status {response.status_code}): {response.text[:200]}"
             ) from exc
 
-        if response.is_success:
-            return body.get("result")
+        return response, body
 
-        error_msg = body.get("error", "Unknown error")
-        error_type = body.get("type", "UnknownError")
-        raise RuntimeError(f"{error_type}: {error_msg}")
+    async def _fetch_server_commands(
+        self,
+        server_port: int,
+    ) -> builtins.list[dict[str, Any]]:
+        """GET ``/commands`` from the in-sandbox SandboxServer (B).
+
+        Returns the ``commands`` list from the JSON body, or an empty list
+        when the response is malformed.  Connection errors propagate as
+        :class:`httpx.RequestError` for the caller to handle.
+        """
+        url = self.network.get_url(server_port)
+        access_headers = self.network.get_access_headers()
+
+        client = self._http_client._create_envd_client(url)
+        response = await client.get("/commands", headers=access_headers)
+
+        if not response.is_success:
+            return []
+        try:
+            body: dict[str, Any] = response.json()
+        except (ValueError, json.JSONDecodeError):
+            return []
+        commands = body.get("commands", [])
+        return commands if isinstance(commands, list) else []
 
     # ---- E2B-compatible URL stubs ----
 
@@ -838,8 +1108,8 @@ class Sandbox:
             logger.error("Deploy failed, killing sandbox %s", sandbox.id)
             try:
                 await sandbox.kill()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Failed to kill sandbox after deploy error: %s", e)
             raise
 
         return sandbox
@@ -881,7 +1151,10 @@ class Sandbox:
     resume_sync = make_sync(resume)
     refresh_info_sync = make_sync(refresh_info)
     get_terminal_sync = make_sync(get_terminal)
-    run_command_sync = make_sync(run)
+    run_sync = make_sync(run)
+    custom_sync = make_sync(custom)
+    list_commands_sync = make_sync(list_commands)
+    run_command_sync = make_sync(run_command)
     deploy_sync = staticmethod(make_sync(deploy.__func__))  # type: ignore[attr-defined]
 
     def __repr__(self) -> str:
@@ -889,8 +1162,3 @@ class Sandbox:
 
 
 # Avoid circular imports — these are used only for type annotation in cached_property
-from easy_sandbox.api.code import CodeContextModule as CodeContextModule  # noqa: E402
-from easy_sandbox.api.commands import CommandsModule as CommandsModule  # noqa: E402
-from easy_sandbox.api.files import FilesModule as FilesModule  # noqa: E402
-from easy_sandbox.api.network import NetworkModule as NetworkModule  # noqa: E402
-from easy_sandbox.protocol.terminal import TerminalSession as TerminalSession  # noqa: E402

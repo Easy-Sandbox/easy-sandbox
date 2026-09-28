@@ -100,7 +100,7 @@ capabilities:
 
 **Default capability set** (when `capabilities` is not declared): `shell`, `files`, `code`
 
-`terminal` and `ports` must be explicitly declared in the template to be used. The SDK performs a gate check via `check_capability()` before calling related features; if the capability is not enabled, it raises `CapabilityNotSupportedError` (E3004).
+`terminal` and `ports` must be explicitly declared in the template to be used. Capability tokens are used at the template resolution layer (`resolve_capabilities()`) which is fail-closed: if a template’s YAML is malformed or missing, the resolver raises `TemplateParseError` (E2004) rather than silently granting capabilities. All API methods remain callable regardless of declared capabilities; capability declarations serve as metadata for template validation and model inference.
 
 > **Server-side capability groups**: The server has 8 capability groups (CORE, COMMANDS, FILE_OPS, PROCESS, TERMINAL, SYSTEM, DEV_TOOLS, BROWSER). TERMINAL is enabled by default; only DEV_TOOLS and BROWSER are disabled by default (`_DEFAULT_DISABLED = {DEV_TOOLS, BROWSER}`).
 
@@ -176,7 +176,9 @@ sandbox.register.upload()    # POST /upload
 sandbox.register.download()  # GET  /download
 ```
 
-Registered commands are served by the in-sandbox HTTP server; clients invoke them via `sandbox.run_command()` or `ebx run`.
+Registered commands are served by the in-sandbox HTTP server; clients invoke them via `sandbox.custom()` or `ebx run`.
+
+> **Note:** `sandbox.run_command()` is a deprecated alias for `sandbox.custom()`. New code should use `sandbox.custom()`, which returns a full `CommandResult`.
 
 ---
 
@@ -221,9 +223,9 @@ ebx template install ./my-template --registry-type local
 
 Installed templates are saved in the `~/.ebx/templates/` directory.
 
-### Building and Registering Templates Locally (build-local)
+### Building and Registering Templates Locally (template deploy)
 
-When you need to register a custom Docker image as a sandbox template, use the `build-local` subcommand. It automatically performs: local Docker build → ACR push → CreateTemplate API call.
+When you need to register a custom Docker image as a sandbox template, use the `template deploy` subcommand. It automatically performs: local Docker build → ACR push → CreateTemplate API call.
 
 > **Prerequisites**:
 > - Docker daemon is running
@@ -232,15 +234,15 @@ When you need to register a custom Docker image as a sandbox template, use the `
 
 ```bash
 # Default: official CreateTemplate API
-ebx template build-local ./my-template \
+ebx template deploy ./my-template \
   --acr-namespace my-ns --acr-repo my-template
 
 # Specify resource parameters
-ebx template build-local ./my-template \
+ebx template deploy ./my-template \
   --acr-namespace my-ns --cpu 4 --memory 4096 --disk-size 10240 --internet-access
 
 # Use legacy v3/v2 API (old script compatibility)
-ebx template build-local ./my-template \
+ebx template deploy ./my-template \
   --acr-namespace my-ns --legacy-api
 ```
 

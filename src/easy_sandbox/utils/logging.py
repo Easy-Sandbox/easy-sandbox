@@ -1,4 +1,5 @@
 """Structured logging for Easy Sandbox SDK."""
+
 from __future__ import annotations
 
 import logging

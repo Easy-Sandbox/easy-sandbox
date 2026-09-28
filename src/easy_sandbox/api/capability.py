@@ -3,12 +3,12 @@
 Phase 1: local-only resolution from ``~/.ebx/templates/`` cache.
 Phase 2 will add online fallback via ``GET /templates/{id}`` metadata.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-import yaml
 from pydantic import BaseModel, Field
 
 from easy_sandbox.models.errors import (
@@ -38,6 +38,7 @@ class ResolvedCapabilities(BaseModel):
 # Capability gate helper
 # ---------------------------------------------------------------------------
 
+
 def check_capability(capabilities: set[str], required: str) -> None:
     """Raise :class:`CapabilityNotSupportedError` when *required* is missing."""
     if required not in capabilities:
@@ -47,6 +48,7 @@ def check_capability(capabilities: set[str], required: str) -> None:
 # ---------------------------------------------------------------------------
 # Local resolution
 # ---------------------------------------------------------------------------
+
 
 def _template_matches(
     data: dict[str, Any],
@@ -97,6 +99,8 @@ def _find_local_template(template_id: str) -> SandboxTemplate | None:
     for yaml_path in TEMPLATE_CACHE_DIR.rglob("template.yaml"):
         # (a) Unreadable file / non-dict document → skip, keep scanning.
         try:
+            import yaml
+
             data = yaml.safe_load(yaml_path.read_text())
         except Exception:  # noqa: BLE001
             logger.debug("Skipping unreadable template at %s", yaml_path, exc_info=True)
@@ -126,7 +130,7 @@ def _find_local_template(template_id: str) -> SandboxTemplate | None:
 
 def _parse_template(data: dict[str, Any]) -> SandboxTemplate:
     """Parse a raw YAML dict into a :class:`SandboxTemplate`."""
-    resources = data.pop("resources", {}) or {}
+    resources = data.get("resources", {}) or {}
     if "cpu" in resources and "cpu_count" not in data:
         data["cpu_count"] = resources["cpu"]
     if "memory" in resources and "memory_mb" not in data:
@@ -137,6 +141,7 @@ def _parse_template(data: dict[str, Any]) -> SandboxTemplate:
 # ---------------------------------------------------------------------------
 # Public resolver
 # ---------------------------------------------------------------------------
+
 
 async def resolve_capabilities(
     template_id: str | None = None,
@@ -164,6 +169,8 @@ async def resolve_capabilities(
         if path.exists():
             # (a) Unreadable / non-dict → skip, fall through to scan+default.
             try:
+                import yaml
+
                 data = yaml.safe_load(path.read_text())
             except Exception:  # noqa: BLE001
                 logger.warning(
@@ -198,8 +205,7 @@ async def resolve_capabilities(
     # 4. Fallback
     if template is None:
         logger.warning(
-            "Could not resolve capabilities for template %r; "
-            "falling back to DEFAULT_CAPABILITIES",
+            "Could not resolve capabilities for template %r; falling back to DEFAULT_CAPABILITIES",
             template_id,
         )
         return ResolvedCapabilities()

@@ -3,7 +3,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y python3 python3-pip && rm -rf /var/lib/apt/lists/*
 
 # Install easy-sandbox SDK.
-# When building locally via `ebx template build-local`, the SDK wheel
+# When building locally via `ebx template deploy`, the SDK wheel
 # is automatically injected into the build context as .whl file.
 # Fallback: install from PyPI if the wheel is not present.
 COPY *.whl /tmp/

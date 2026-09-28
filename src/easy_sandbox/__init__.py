@@ -1,5 +1,9 @@
 """Easy Sandbox SDK — Create, manage, and interact with cloud sandboxes."""
 
+from __future__ import annotations
+
+from typing import Any
+
 from easy_sandbox._version import __version__
 
 __all__ = [
@@ -15,9 +19,10 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> Any:
     if name == "Sandbox":
         from easy_sandbox.api.sandbox import Sandbox
+
         return Sandbox
     if name in (
         "SandboxError",
@@ -28,8 +33,10 @@ def __getattr__(name: str):
         "NetworkError",
     ):
         from easy_sandbox.models import errors
+
         return getattr(errors, name)
     if name == "sandbox":
         from easy_sandbox.declarative.decorator import sandbox as _sandbox
+
         return _sandbox
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

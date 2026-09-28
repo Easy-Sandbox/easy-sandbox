@@ -4,6 +4,7 @@ Priority (4 layers): code params > environment variables (E2B_* first, SANDBOX_*
 > .env file > defaults.
 ~/.ebx/config.toml is an optional SDK-extension source loaded between .env and defaults.
 """
+
 from __future__ import annotations
 
 import os
@@ -124,14 +125,14 @@ def _load_toml_file(path: Path) -> dict[str, Any]:
         return {}
     try:
         try:
-            import tomllib  # Python 3.11+
+            import tomllib  # type: ignore[import-not-found]  # Python 3.11+
         except ImportError:
-            import tomli as tomllib  # type: ignore[no-redef]
+            import tomli as tomllib
 
         with open(path, "rb") as f:
             data = tomllib.load(f)
         logger.debug("Loaded config from %s", path)
-        return data
+        return dict(data)
     except Exception as exc:
         logger.warning("Failed to load %s: %s", path, exc)
         return {}
@@ -260,3 +261,21 @@ def reset_config() -> None:
     """Clear the cached configuration (useful for testing)."""
     global _cached_config
     _cached_config = None
+
+
+def http_timeout_configured() -> bool:
+    """Return True when the user explicitly configured ``http_timeout``.
+
+    Checks the same sources as :func:`load_config` (env vars, .env file,
+    ``~/.ebx/config.toml``) without applying defaults.  The CLI uses this
+    to decide whether a slow operation (e.g. sandbox create) should get a
+    longer built-in HTTP timeout instead of the 30s default.
+    """
+    if os.environ.get("SANDBOX_HTTP_TIMEOUT"):
+        return True
+    # .env files use env-var-style keys (see _ENV_VAR_MAP), not field names.
+    if "SANDBOX_HTTP_TIMEOUT" in _load_dotenv_file():
+        return True
+    toml_data = _load_toml_file(_CONFIG_FILE)
+    section = toml_data.get("transport", toml_data)
+    return "http_timeout" in section

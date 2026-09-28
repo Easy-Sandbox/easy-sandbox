@@ -1,10 +1,10 @@
 """Tests for CLI output formatters."""
+
 from __future__ import annotations
 
 import json
 
 import click
-import pytest
 from click.testing import CliRunner
 
 from easy_sandbox.cli.formatters import OutputFormatter, get_formatter
@@ -70,9 +70,7 @@ class TestOutputFormatterError:
     def test_error_no_suggestion_when_quiet(self) -> None:
         runner = CliRunner()
         fmt = OutputFormatter(quiet=True, no_color=True)
-        result = runner.invoke(
-            _make_cmd(lambda: fmt.print_error("Error", suggestion="Hint"))
-        )
+        result = runner.invoke(_make_cmd(lambda: fmt.print_error("Error", suggestion="Hint")))
         # Click 8.5 separates stderr by default; Click <8.5 mixes into output
         try:
             err = result.stderr
@@ -120,9 +118,7 @@ class TestOutputFormatterDict:
     def test_json_mode(self) -> None:
         runner = CliRunner()
         fmt = OutputFormatter(use_json=True)
-        result = runner.invoke(
-            _make_cmd(lambda: fmt.print_dict({"key": "value", "num": 42}))
-        )
+        result = runner.invoke(_make_cmd(lambda: fmt.print_dict({"key": "value", "num": 42})))
         data = json.loads(result.output)
         assert data["key"] == "value"
         assert data["num"] == 42
@@ -130,9 +126,7 @@ class TestOutputFormatterDict:
     def test_quiet_mode_values_only(self) -> None:
         runner = CliRunner()
         fmt = OutputFormatter(quiet=True)
-        result = runner.invoke(
-            _make_cmd(lambda: fmt.print_dict({"key": "value", "num": 42}))
-        )
+        result = runner.invoke(_make_cmd(lambda: fmt.print_dict({"key": "value", "num": 42})))
         lines = result.output.strip().split("\n")
         assert "value" in lines[0]
         assert "42" in lines[1]
@@ -140,9 +134,7 @@ class TestOutputFormatterDict:
     def test_normal_mode(self) -> None:
         runner = CliRunner()
         fmt = OutputFormatter(no_color=True)
-        result = runner.invoke(
-            _make_cmd(lambda: fmt.print_dict({"name": "test"}))
-        )
+        result = runner.invoke(_make_cmd(lambda: fmt.print_dict({"name": "test"})))
         assert "name" in result.output
         assert "test" in result.output
 
@@ -201,9 +193,12 @@ class TestPrintData:
 # Helper
 # ---------------------------------------------------------------------------
 
+
 def _make_cmd(fn):
     """Wrap a callable as a Click command for CliRunner."""
+
     @click.command()
     def cmd():
         fn()
+
     return cmd

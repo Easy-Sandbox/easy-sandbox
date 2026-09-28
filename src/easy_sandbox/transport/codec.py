@@ -7,6 +7,7 @@ Streaming responses use binary envelope framing (已实测验证):
   flags (1 byte) + length (4 bytes big-endian) + JSON payload
   flags=0x00: data frame, flags=0x02: end-of-stream/trailer frame
 """
+
 from __future__ import annotations
 
 import struct
@@ -28,11 +29,11 @@ try:
 except ImportError:
     import json
 
-    def json_encode(obj: Any) -> bytes:  # type: ignore[misc]
+    def json_encode(obj: Any) -> bytes:
         """Encode object to JSON bytes."""
         return json.dumps(obj, separators=(",", ":")).encode("utf-8")
 
-    def json_decode(data: bytes | str) -> Any:  # type: ignore[misc]
+    def json_decode(data: bytes | str) -> Any:
         """Decode JSON bytes/str to object."""
         if isinstance(data, bytes):
             data = data.decode("utf-8")

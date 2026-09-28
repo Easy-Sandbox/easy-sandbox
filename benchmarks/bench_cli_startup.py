@@ -26,7 +26,6 @@ def bench_cli_subcommand():
         ["template", "--help"],
         ["session", "--help"],
         ["mcp", "--help"],
-        ["skill", "--help"],
     ]
     for cmd in commands:
         start = time.perf_counter()

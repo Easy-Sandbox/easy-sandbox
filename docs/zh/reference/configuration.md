@@ -175,7 +175,7 @@ E2B_API_KEY=your-api-key
 SANDBOX_REGION=cn-beijing
 ```
 
-`ebx auth login` 命令将 API Key 保存到 `~/.ebx/.env`（文件权限 600）。
+`ebx config set api_key <KEY>` 命令将 API Key 保存到 `~/.ebx/.env`（文件权限 600）。
 
 ---
 

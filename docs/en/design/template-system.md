@@ -496,7 +496,7 @@ capabilities:
   - ports                             # Explicitly add capabilities beyond the default baseline
 
 # === Custom Commands ===
-# Templates can declare named commands, invokable via `ebx run <id> <name> --arg k=v` and SDK `sandbox.run("name", **args)`.
+# Templates can declare named commands, invokable via `ebx run <id> <name> --arg k=v` and SDK `sandbox.custom("name", **kwargs)`.
 # User-supplied arguments are escaped via shlex.quote() before filling {placeholders}, preventing injection.
 custom_commands:
   serve:
@@ -600,8 +600,8 @@ healthcheck:
 3. **`resources` default value semantics**: Templates declare recommended defaults; users can override them via SDK parameters or CLI options when creating sandboxes
 4. **`skills.bundled` + `skills.recommended`**: Links templates with the Skills system — `bundled` auto-loads with the template, `recommended` serves as suggestions only
 5. **`readiness_probe`**: Supports both `tcp` (port probing) and `exec` (command execution) readiness detection methods, ensuring the sandbox is truly available before returning
-6. **`capabilities` capability model**: Command capabilities are declared by templates, no longer assuming all sandboxes have shell/upload/download. The standard capability vocabulary is `shell` / `files` / `code` / `terminal` / `ports` (extensible). The system default baseline is a single constant `DEFAULT_CAPABILITIES = {shell, files, code}`; templates can explicitly declare subsets or add `terminal`/`ports`, omitting `capabilities` inherits the default baseline. Invoking a standard capability not in the effective set throws `CapabilityNotSupportedError` (E3xxx), providing explicit errors without silent degradation, with `suggestion` in the error message. See ADR `2026-09-03-capability-model.md`
-7. **`custom_commands`**: Templates can declare named commands; user arguments are escaped via `shlex.quote()` before filling `{placeholders}` to prevent injection; dispatched via CLI `ebx run` and SDK `sandbox.run("name", **args)`. See ADR `2026-09-03-custom-commands-schema.md`
+6. **`capabilities` capability model**: Command capabilities are declared by templates, no longer assuming all sandboxes have shell/upload/download. The standard capability vocabulary is `shell` / `files` / `code` / `terminal` / `ports` (extensible). The system default baseline is a single constant `DEFAULT_CAPABILITIES = {shell, files, code}`; templates can explicitly declare subsets or add `terminal`/`ports`, omitting `capabilities` inherits the default baseline. **Only the `code` capability is enforced at runtime (fail-closed)**: `CodeContextModule` methods raise `CapabilityNotSupportedError` (E3004) when `code` is missing from the effective set. Other modules (`commands`, `files`, `network`) forward requests without a runtime gate — capabilities serve as a discovery and documentation mechanism for those modules. See ADR `2026-09-03-capability-model.md`
+7. **`custom_commands`**: Templates can declare named commands; user arguments are escaped via `shlex.quote()` before filling `{placeholders}` to prevent injection; dispatched via CLI `ebx run` and SDK `sandbox.custom("name", **kwargs)`. See ADR `2026-09-03-custom-commands-schema.md`
 
 ### Example: Extension Based on a GitHub Template
 

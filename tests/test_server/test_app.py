@@ -88,6 +88,7 @@ def _request(
 @pytest.fixture(autouse=True)
 def _reset_builtins() -> Any:
     """Reset all capability groups to their defaults before/after each test."""
+
     def _reset() -> None:
         table = default_table()
         for group in CapabilityGroup:
@@ -178,11 +179,13 @@ class TestListCommands:
         def greet(name: str) -> str:
             return f"hi {name}"
 
-        test_registry.register("greet", greet, args=[
-            CommandArg(
-                name="name", type="string", required=True, description="Who"
-            ),
-        ])
+        test_registry.register(
+            "greet",
+            greet,
+            args=[
+                CommandArg(name="name", type="string", required=True, description="Who"),
+            ],
+        )
         status, body = _request(server_port, "GET", "/commands")
         assert status == 200
         assert len(body["commands"]) == 1
@@ -204,23 +207,23 @@ class TestRunCommand:
         def add(a: int, b: int) -> int:
             return a + b
 
-        registry.register("add", add, args=[
-            CommandArg(name="a", type="integer", required=True),
-            CommandArg(name="b", type="integer", required=True),
-        ])
+        registry.register(
+            "add",
+            add,
+            args=[
+                CommandArg(name="a", type="integer", required=True),
+                CommandArg(name="b", type="integer", required=True),
+            ],
+        )
 
     def test_success(self, server_port: int, test_registry: CommandRegistry) -> None:
         self._register_add(test_registry)
-        status, body = _request(
-            server_port, "POST", "/commands/add", body={"a": 3, "b": 4}
-        )
+        status, body = _request(server_port, "POST", "/commands/add", body={"a": 3, "b": 4})
         assert status == 200
         assert body == {"result": 7}
 
     def test_unknown_command_404(self, server_port: int) -> None:
-        status, body = _request(
-            server_port, "POST", "/commands/nonexistent", body={}
-        )
+        status, body = _request(server_port, "POST", "/commands/nonexistent", body={})
         assert status == 404
         assert "error" in body
         assert body["type"] == "ValueError"
@@ -228,9 +231,7 @@ class TestRunCommand:
     def test_bad_args_400(self, server_port: int, test_registry: CommandRegistry) -> None:
         self._register_add(test_registry)
         # Missing required arg 'b'
-        status, body = _request(
-            server_port, "POST", "/commands/add", body={"a": 1}
-        )
+        status, body = _request(server_port, "POST", "/commands/add", body={"a": 1})
         assert status == 400
         assert body["type"] == "ValueError"
 
@@ -239,9 +240,7 @@ class TestRunCommand:
             raise RuntimeError("kaboom")
 
         test_registry.register("boom", boom, args=[])
-        status, body = _request(
-            server_port, "POST", "/commands/boom", body={}
-        )
+        status, body = _request(server_port, "POST", "/commands/boom", body={})
         assert status == 500
         assert body["type"] == "RuntimeError"
         assert "kaboom" in body["error"]
@@ -272,9 +271,7 @@ class TestUploadDownload:
         assert body["bytes"] == len(original)
 
         # Download
-        status, body = _request(
-            server_port, "GET", f"/download?path={file_path}"
-        )
+        status, body = _request(server_port, "GET", f"/download?path={file_path}")
         assert status == 200
         decoded = base64.b64decode(body["content_base64"])
         assert decoded == original
@@ -299,9 +296,7 @@ class TestShell:
     """POST /shell — subprocess execution."""
 
     def test_echo(self, server_port: int) -> None:
-        status, body = _request(
-            server_port, "POST", "/shell", body={"command": "echo hello"}
-        )
+        status, body = _request(server_port, "POST", "/shell", body={"command": "echo hello"})
         assert status == 200
         assert body["exit_code"] == 0
         assert "hello" in body["stdout"]
@@ -384,24 +379,18 @@ class TestBuiltinToggle:
 
     def test_disable_download(self, server_port: int) -> None:
         disable_builtin("download")
-        status, body = _request(
-            server_port, "GET", "/download?path=/tmp/x"
-        )
+        status, body = _request(server_port, "GET", "/download?path=/tmp/x")
         assert status == 404
 
     def test_disable_shell(self, server_port: int) -> None:
         disable_builtin("shell")
-        status, body = _request(
-            server_port, "POST", "/shell", body={"command": "echo hi"}
-        )
+        status, body = _request(server_port, "POST", "/shell", body={"command": "echo hi"})
         assert status == 404
 
     def test_enable_after_disable(self, server_port: int) -> None:
         disable_builtin("shell")
         enable_builtin("shell")
-        status, body = _request(
-            server_port, "POST", "/shell", body={"command": "echo re-enabled"}
-        )
+        status, body = _request(server_port, "POST", "/shell", body={"command": "echo re-enabled"})
         assert status == 200
         assert body["exit_code"] == 0
 
@@ -449,9 +438,7 @@ class TestEdgeCases:
         assert status == 404
 
     def test_not_found_post(self, server_port: int) -> None:
-        status, body = _request(
-            server_port, "POST", "/nonexistent", body={}
-        )
+        status, body = _request(server_port, "POST", "/nonexistent", body={})
         assert status == 404
 
     def test_upload_bad_base64(self, server_port: int, tmp_path: Any, monkeypatch: Any) -> None:
@@ -525,15 +512,11 @@ class TestPathTraversal:
         base = str(tmp_path / "sandbox")
         os.makedirs(base, exist_ok=True)
         monkeypatch.setenv("EBX_SERVER_BASE_DIR", base)
-        status, body = _request(
-            server_port, "GET", f"/download?path={base}/../../etc/passwd"
-        )
+        status, body = _request(server_port, "GET", f"/download?path={base}/../../etc/passwd")
         assert status == 400
         assert "Path escapes base directory" in body["error"]
 
-    def test_upload_within_base_ok(
-        self, server_port: int, tmp_path: Any, monkeypatch: Any
-    ) -> None:
+    def test_upload_within_base_ok(self, server_port: int, tmp_path: Any, monkeypatch: Any) -> None:
         monkeypatch.setenv("EBX_SERVER_BASE_DIR", str(tmp_path))
         file_path = str(tmp_path / "project" / "file.py")
         payload = base64.b64encode(b"print('hello')").decode()
@@ -546,9 +529,7 @@ class TestPathTraversal:
         assert status == 200
         assert body["bytes"] == len(b"print('hello')")
 
-    def test_env_var_configures_base_dir(
-        self, tmp_path: Any, monkeypatch: Any
-    ) -> None:
+    def test_env_var_configures_base_dir(self, tmp_path: Any, monkeypatch: Any) -> None:
         custom_base = str(tmp_path / "custom")
         os.makedirs(custom_base, exist_ok=True)
         monkeypatch.setenv("EBX_SERVER_BASE_DIR", custom_base)
@@ -565,9 +546,7 @@ class TestShellSecurity:
     """Verify shell commands use shlex.split (no shell=True)."""
 
     def test_simple_command(self, server_port: int) -> None:
-        status, body = _request(
-            server_port, "POST", "/shell", body={"command": "echo hello"}
-        )
+        status, body = _request(server_port, "POST", "/shell", body={"command": "echo hello"})
         assert status == 200
         assert body["exit_code"] == 0
         assert "hello" in body["stdout"]
@@ -646,3 +625,30 @@ class TestHiddenCommands:
         status, body = _request(server_port, "POST", "/commands/secret", body={})
         assert status == 200
         assert body == {"result": "executed"}
+
+
+# ---------------------------------------------------------------------------
+# Handler crash → structured JSON 500 (BUG-08)
+# ---------------------------------------------------------------------------
+
+
+class TestHandlerExceptionReturnsJSON:
+    """When a route handler raises an unhandled exception, the dispatcher
+    must catch it and respond with a structured JSON 500 (not an HTML error
+    page from the default BaseHTTPRequestHandler).
+    """
+
+    def test_handler_exception_returns_json_500(
+        self, server_port: int, test_registry: CommandRegistry
+    ) -> None:
+        """A command that raises should produce a JSON 500 with 'error'+'type'."""
+
+        def _boom() -> str:
+            raise RuntimeError("intentional test crash")
+
+        test_registry.register("boom", _boom)
+        status, body = _request(server_port, "POST", "/commands/boom", body={})
+        assert status == 500
+        assert "error" in body
+        assert body["type"] == "RuntimeError"
+        assert "intentional test crash" in body["error"]

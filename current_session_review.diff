@@ -1,0 +1,4829 @@
+diff --git a/docs/en/reference/cli-reference.md b/docs/en/reference/cli-reference.md
+index f48dc26..533d276 100644
+--- a/docs/en/reference/cli-reference.md
++++ b/docs/en/reference/cli-reference.md
+@@ -2,6 +2,28 @@
+ 
+ > **Renaming Notice**: This project has been renamed from Serverless Sandbox to **Easy Sandbox**. PyPI package: `easy-sandbox` (`pip install easy-sandbox`), CLI command: `ebx`, Python import: `easy_sandbox`.
+ 
++## Command Overview
++
++```
++ebx
++├── Top-level Shortcuts (12)
++│   create / list / info / kill / exec / connect / run / upload / download / deploy / install / init
++├── sandbox Subgroup (17)
++│   ├── files: list / stat / mkdir / rm / mv / search
++│   ├── process: list / start / info / signal
++│   ├── system: info / env / ports / packages / metrics
++│   ├── capabilities
++│   └── shell-stream
++├── template (10)
++│   init / deploy / build / push / create / install / list / info / delete / search
++├── config (4)
++│   get / set / list / reset
++└── mcp (4)
++    install / start / status / deploy
++```
++
++---
++
+ ## Global Options
+ 
+ ```text
+@@ -113,7 +135,7 @@ Interactively connect to a sandbox (similar to SSH).
+ ebx connect <SANDBOX_ID>
+ ```
+ 
+-Type `exit`, `quit`, or `Ctrl+D` to disconnect. Each command executes in an independent process.
++Type `exit`, `quit`, or `Ctrl+D` to disconnect. Each interactive command has a 30-second timeout. Each command executes in an independent process.
+ 
+ ---
+ 
+@@ -151,49 +173,69 @@ ebx download sbx-xxxx /app/output.log .
+ 
+ ### ebx run
+ 
+-Execute a custom command defined in the template or registered via `@sandbox.register`.
++Execute a custom command defined in the template or registered via `@registry.command`.
+ 
+ ```bash
+ ebx run <SANDBOX_ID> <COMMAND_NAME> [options]
+ ```
+ 
++| Option | Short | Description |
++|--------|-------|-------------|
++| `--arg` | `-a` | Argument `KEY=VALUE` (repeatable) |
++
+ Supports two argument styles:
+ 
+ ```bash
+ # Legacy style
+ ebx run sbx-xxxx dev --arg file=tests/
+ 
+-# New style
++# New style (pass-through --key value)
+ ebx run sbx-xxxx demo --x 1 --y hello
+ ```
+ 
+----
++#### Two Custom Command Mechanisms
+ 
+-## Authentication Commands — ebx auth
++**Mechanism A: template.yaml Declarative**
+ 
+-### ebx auth login
++Define simple shell commands in `template.yaml` via `custom_commands`, using placeholders for parameters:
+ 
+-```bash
+-ebx auth login [--api-key KEY]
++```yaml
++custom_commands:
++  dev:
++    command: "npm run dev"
++  test:
++    command: "pytest {file} -v"
++    description: "Run tests"
+ ```
+ 
+-Interactively enter an API Key and save it to `~/.ebx/.env`.
+-
+-### ebx auth logout
++Usage example:
+ 
+ ```bash
+-ebx auth logout
++ebx run sbx-xxxx test --arg file=tests/test_api.py
++# Actually executes: pytest tests/test_api.py -v
+ ```
+ 
+-Remove saved credentials.
++**Mechanism B: @registry.command Programmatic**
+ 
+-### ebx auth status
++Register custom commands via decorators in Python code running inside the sandbox, with typed parameters and complex logic:
++
++```python
++from easy_sandbox.server.registry import registry
++
++@registry.command("greet")
++def greet(name: str) -> str:
++    return f"Hello, {name}!"
++
++registry.freeze()
++```
++
++Usage example:
+ 
+ ```bash
+-ebx auth status
++ebx run sbx-xxxx greet --name World
+ ```
+ 
+-Show current authentication status (API Key / AK/SK / unauthenticated).
++**Resolution logic**: `ebx run` invokes `Sandbox.custom()` which first tries Mechanism A (template `custom_commands`); if the command is not found, it automatically falls back to Mechanism B (`@registry.command` on SandboxServer), transparent to the user. The unified return type is `CommandResult`, containing `value`, `stdout`, `stderr`, `exit_code`, `execution_time`, and `source` (`"template"` or `"server"`).
+ 
+ ---
+ 
+@@ -231,94 +273,93 @@ ebx config reset [--yes/-y]
+ 
+ ## Template Commands — ebx template
+ 
+-### ebx template install
++### ebx template init
+ 
+-Install a template from GitHub or a local directory.
++Scaffold a new template directory from a built-in case, so you don't have to hand-write `template.yaml` / `Dockerfile` / `commands.py`.
+ 
+ ```bash
+-ebx template install <TEMPLATE_REF> [options]
++ebx template init [DIRECTORY] [options]
+ ```
+ 
+-| Option | Description |
+-|--------|-------------|
+-| `--registry-url` | Registry URL (default GitHub) |
+-| `--registry-type` | `github` / `local` (auto-detected) |
+-| `--token` | Private repository access token |
+-| `--alias` / `-a` | Template alias |
++| Option | Short | Description |
++|--------|-------|-------------|
++| `--template` | `-t` | Built-in scaffold case (`python`, `node`, `minimal`) |
++| `--from` | | Fetch template source from a registry ref |
++| `--name` | | Template name |
++| `--list` | | List available scaffold cases |
++| `--force` | | Overwrite existing files |
+ 
+ ```bash
+-ebx template install owner/repo
+-ebx template install owner/repo@v1.0
+-ebx template install owner/repo//subdir
+-ebx template install ./my-template --registry-type local
+-```
++# List available scaffold cases
++ebx template init --list
+ 
+-### ebx install (shortcut)
++# Scaffold a Python template into ./my-template
++ebx template init -t python ./my-template
++```
+ 
+-Top-level shortcut for `ebx template install`:
++Example output of `--list`:
+ 
+-```bash
+-ebx install owner/repo
++```
++  python       Python 3.11 sandbox with shell, files, and code capabilities
++  node         Node.js 20 sandbox with shell, files, and code capabilities
++  minimal      Bare-minimum template with only template.yaml + Dockerfile
+ ```
+ 
+-### ebx template create
++The scaffold prints the created files and the next steps:
+ 
+-Create a sandbox template from an existing container image. Uses the official Alibaba Cloud FCSandbox CreateTemplate API.
+-
+-> **Prerequisites**: Requires AK/SK credentials and `pip install "easy-sandbox[alicloud]"` SDK extra (or install with CLI via `pip install "easy-sandbox[cli,alicloud]"`).
++```
++✅ Template 'my-template' created in ./my-template
++Created files:
++  Dockerfile
++  README.md
++  commands.py
++  template.yaml
+ 
+-```bash
+-ebx template create <IMAGE> --name <NAME> [options]
++Next steps:
++  ebx template deploy ./my-template --acr-namespace <ns>
++  ebx install ./my-template --acr-namespace <ns>
+ ```
+ 
+-| Option | Description |
+-|--------|-------------|
+-| `--name` / `-n` | Template name (required) |
+-| `--team-id` | Team ID (or env `TEAM_ID` / `E2B_TEAM_ID`; auto-resolved if omitted) |
+-| `--cpu` | CPU cores (default 2) |
+-| `--memory` | Memory in MB (default 2048) |
+-| `--disk-size` | Disk size in MB |
+-| `--internet-access/--no-internet-access` | Internet access (default: platform decides) |
+-| `--generation` | Sandbox generation (default 1) |
+-| `--envd-inject/--no-envd-inject` | Enable envd injection |
+-| `--registry-type` | Registry type: `acr` / `acree` (auto-detected) |
+-| `--acree-instance-id` | ACR EE instance ID |
+-| `--registry-username` | Registry login username |
+-| `--registry-password` | Registry login password |
+-| `--start-cmd` | Container start command |
+-| `--ready-cmd` | Container readiness check command |
++### ebx init (shortcut)
+ 
+-```bash
+-# Create from a pushed ACR image
+-ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag --name my-template
++Top-level shortcut for `ebx template init`:
+ 
+-# Specify resources
+-ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag \
+-  --name my-tpl --cpu 4 --memory 4096 --disk-size 10240 --internet-access
++```text
++Usage: ebx init [OPTIONS] [DIRECTORY]
++
++  Scaffold a new template (shortcut for 'ebx template init').
++
++Options:
++  -t, --template TEXT  Built-in scaffold case (python, node, minimal)
++  --from TEXT          Fetch template source from a registry ref
++  --name TEXT          Template name
++  --list               List available scaffold cases
++  --force              Overwrite existing files
++  --help               Show this message and exit.
+ ```
+ 
+-### ebx template build-local
++### ebx template deploy
+ 
+-Local Docker build → ACR push → create sandbox template.
++One-click deployment: local Docker build → ACR push → create sandbox template (i.e., the end-to-end pipeline of build + push + create).
+ 
+ Defaults to the **official CreateTemplate API** (requires AK/SK and `easy-sandbox[alicloud]`; if CLI is not yet installed use `pip install "easy-sandbox[cli,alicloud]"`).
+ Legacy scripts should use `--legacy-api` to switch back to v3/v2 API.
+ 
+ ```bash
+-ebx template build-local <TEMPLATE_DIR> [options]
++ebx template deploy <TEMPLATE_DIR> [options]
+ ```
+ 
+ | Option | Description |
+ |--------|-------------|
+ | `--acr-registry` | ACR registry host (default `registry.cn-hangzhou.aliyuncs.com`) |
+-| `--acr-namespace` | ACR namespace (required) |
+-| `--acr-repo` | ACR repository name (defaults to template dir name) |
++| `--acr-namespace` | ACR namespace (resolved via CLI > environment variable > `.env` file; errors if not found anywhere — see "Parameter Defaults & Priority" below) |
++| `--acr-repo` | ACR repository name (defaults to the `name` field in the template directory's `template.yaml`, then the template dir name) |
+ | `--acr-username` / `--acr-password` | ACR credentials (defaults to AK/SK from .env) |
+ | `--acree-instance-id` | ACR EE instance ID |
+ | `--tag` / `-t` | Docker image tag (default `latest`) |
+ | `--platform` | Target platform (default `linux/amd64`) |
+-| `--cpu` | CPU cores |
+-| `--memory` | Memory in MB |
++| `--cpu` | CPU cores (defaults to `resources.cpu` in `template.yaml`, fallback 2) |
++| `--memory` | Memory in MB (defaults to `resources.memory` in `template.yaml`, fallback 2048) |
+ | `--disk-size` | Disk size in MB (official API only) |
+ | `--internet-access/--no-internet-access` | Internet access (official API only) |
+ | `--official-api/--legacy-api` | Use official API (default) or legacy v3/v2 API |
+@@ -328,103 +369,240 @@ ebx template build-local <TEMPLATE_DIR> [options]
+ | `--dockerfile` / `-f` | Custom Dockerfile path |
+ | `--start-cmd` / `--ready-cmd` | Start/readiness command |
+ | `--timeout` | Build timeout in seconds |
++| `--vpc-id` | VPC ID for ACR access (env: ACR_VPC_ID) |
++| `--vswitch-ids` | VSwitch IDs (env: ACR_VSWITCH_IDS) |
++| `--security-group-id` | Security group ID (env: ACR_SECURITY_GROUP_ID) |
++| `--alias` / `-a` | Template alias (defaults to the resolved repository name) |
+ 
+ ```bash
+-# Default official API
+-ebx template build-local ./examples/templates/python-hello \
++# One-click deploy (default official API)
++ebx template deploy ./examples/templates/python-hello \
+   --acr-namespace my-ns --acr-repo python-hello
+ 
+ # Specify disk and internet
+-ebx template build-local ./my-template \
++ebx template deploy ./my-template \
+   --acr-namespace prod --disk-size 10240 --internet-access
+ 
+ # ACR EE instance
+-ebx template build-local ./my-template \
++ebx template deploy ./my-template \
+   --acr-namespace prod --acree-instance-id cri-xxx
+ 
+ # Legacy API
+-ebx template build-local ./my-template \
++ebx template deploy ./my-template \
+   --acr-namespace prod --legacy-api
+ ```
+ 
+-> **Two paths explained**:
+-> - **Official path** (default): `build-local` → Docker build → ACR push → `CreateTemplate` API. Requires AK/SK and `easy-sandbox[alicloud]`; default region is `cn-hangzhou`.
+-> - **Legacy path**: `build-local --legacy-api` → Docker build → ACR push → v3/v2 Platform API. Requires E2B API Key.
++> **Three paths explained**:
++> - **One-click deploy** (recommended): `template deploy` → Docker build → ACR push → `CreateTemplate` API.
++> - **Step-by-step**: `template build` → `template push` → `template create`, for scenarios that need custom intermediate steps.
+ > - **Image-only creation**: `ebx template create <IMAGE>` calls CreateTemplate API only — no local build.
+ 
+----
++#### Parameter Defaults & Priority
+ 
+-## Session Commands — ebx session
++Parameters for `template build` / `template deploy` are resolved through the following **5-level priority chain** (highest first):
+ 
+-### ebx session start
++| Priority | Source | Description |
++|----------|--------|-------------|
++| 1 | Explicit CLI flag | e.g., `--acr-namespace my-ns` (highest priority) |
++| 2 | OS environment variable | e.g., `ACR_NAMESPACE` |
++| 3 | `.env` file in the current working directory | e.g., `ACR_NAMESPACE=serverless-sandbox-test` in `.env` |
++| 4 | `template.yaml` in the template directory | `name` → `--acr-repo`/`--alias`; `resources.cpu` → `--cpu`; `resources.memory` → `--memory` |
++| 5 | Hardcoded fallback | cpu=2, memory=2048, tag=latest, platform=linux/amd64 (lowest priority) |
++
++Default resolution order per parameter:
++
++| Parameter | Resolution order |
++|-----------|------------------|
++| `--acr-namespace` | CLI > env var `ACR_NAMESPACE` > `.env` file; raises a friendly `UsageError` if not found anywhere (still **effectively required** — it just no longer has to appear on the command line) |
++| `--acr-repo` | CLI > `name` in `template.yaml` > template directory name |
++| `--alias` | CLI > resolved repository name |
++| `--cpu` | CLI > `resources.cpu` in `template.yaml` > `2` |
++| `--memory` | CLI > `resources.memory` in `template.yaml` > `2048` |
++| `--tag` | CLI > `latest` |
++| `--platform` | CLI > `linux/amd64` |
++
++Example `template.yaml` fields used for resolution:
++
++```yaml
++name: node-web          # → --acr-repo / --alias
++resources:
++  cpu: 2                # → --cpu
++  memory: 2048          # → --memory
++```
++
++#### `.env` File Support
++
++The CLI automatically reads the `.env` file in the **current working directory**, which can provide `ACR_NAMESPACE` and other settings:
+ 
+ ```bash
+-ebx session start <NAME> [options]
++# .env
++ACR_NAMESPACE=serverless-sandbox-test
+ ```
+ 
+-| Option | Short | Description |
+-|--------|-------|-------------|
+-| `--template` | `-T` | Template (default base) |
+-| `--timeout` | `-t` | Timeout in seconds |
+-| `--env` | `-e` | Environment variable `KEY=VALUE` |
+-| `--metadata` | `-m` | Metadata `KEY=VALUE` |
++- OS environment variables take precedence over the `.env` file.
++- It is recommended to add `.env` to `.gitignore` to avoid leaking configuration.
++
++#### Minimal Usage
++
++Thanks to automatic resolution from `template.yaml` and `.env`, most parameters can be omitted:
++
++```bash
++# When ACR_NAMESPACE is set in .env, just pass the template directory:
++ebx template deploy ./examples/templates/node-web
++ebx template build ./examples/templates/node-web
++
++# Without a .env file, specify the namespace inline:
++ebx template deploy ./examples/templates/node-web --acr-namespace serverless-sandbox-test
++```
++
++Repository name, alias, CPU, and memory are read automatically from the template directory's `template.yaml` — no need to repeat them.
++
++### ebx template build
++
++Build Docker image and push to ACR + register template only (same parameters as `deploy`).
++
++```bash
++ebx template build <TEMPLATE_DIR> [options]
++```
++
++Parameters are the same as `template deploy`; see the options table and the "Parameter Defaults & Priority" section above.
+ 
+-### ebx session connect
++### ebx template push
++
++Push an existing local image to ACR only.
+ 
+ ```bash
+-ebx session connect <NAME>
++ebx template push <IMAGE> [options]
+ ```
+ 
+-### ebx session list
++| Option | Description |
++|--------|-------------|
++| `--acr-registry` | ACR registry host (default `registry.cn-hangzhou.aliyuncs.com`) |
++| `--acr-namespace` | ACR namespace (required) |
++| `--acr-username` / `--acr-password` | ACR credentials |
++| `--acree-instance-id` | ACR EE instance ID |
++
++### ebx template create
++
++Create a sandbox template from an existing container image. Uses the official Alibaba Cloud FCSandbox CreateTemplate API.
++
++> **Prerequisites**: Requires AK/SK credentials and `pip install "easy-sandbox[alicloud]"` SDK extra (or install with CLI via `pip install "easy-sandbox[cli,alicloud]"`).
+ 
+ ```bash
+-ebx session list
++ebx template create <IMAGE> --name <NAME> [options]
+ ```
+ 
+-### ebx session stop
++| Option | Description |
++|--------|-------------|
++| `--name` / `-n` | Template name (required) |
++| `--team-id` | Team ID (or env `TEAM_ID` / `E2B_TEAM_ID`; auto-resolved if omitted) |
++| `--cpu` | CPU cores (default 2) |
++| `--memory` | Memory in MB (default 2048) |
++| `--disk-size` | Disk size in MB |
++| `--internet-access/--no-internet-access` | Internet access (default: platform decides) |
++| `--generation` | Sandbox generation (default 1) |
++| `--envd-inject/--no-envd-inject` | Enable envd injection |
++| `--registry-type` | Registry type: `acr` / `acree` (auto-detected) |
++| `--acree-instance-id` | ACR EE instance ID |
++| `--registry-username` | Registry login username |
++| `--registry-password` | Registry login password |
++| `--start-cmd` | Container start command |
++| `--ready-cmd` | Container readiness check command |
+ 
+ ```bash
+-ebx session stop <NAME> [--keep-alive]
++# Create from a pushed ACR image
++ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag --name my-template
++
++# Specify resources
++ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag \
++  --name my-tpl --cpu 4 --memory 4096 --disk-size 10240 --internet-access
+ ```
+ 
+-`--keep-alive` only unregisters the session tracking without destroying the sandbox.
++### ebx template install
++
++Download a template and (by default) build + deploy it. By default, `install` downloads the template, then runs docker build, pushes to ACR, and creates a sandbox template via the official API. Use `--download-only` to skip the build/deploy step and only download to the local cache (`~/.ebx/templates/`).
+ 
+-### ebx session info
++```bash
++ebx template install <TEMPLATE_REF> [options]
++```
++
++| Option | Short | Description |
++|--------|-------|-------------|
++| `--registry-url` | | Registry URL (default GitHub) |
++| `--registry-type` | | `github` / `local` (auto-detected if not specified) |
++| `--token` | | Private repository access token |
++| `--alias` | `-a` | Template alias |
++| `--download-only` | | Only download to local cache (skip build and deploy) |
++| `--acr-namespace` | | ACR namespace for deploy (env `ACR_NAMESPACE`, or set in `.env`) |
++| `--cpu` | | CPU cores (default: from `template.yaml` or 2) |
++| `--memory` | | Memory in MB (default: from `template.yaml` or 2048) |
++| `--yes` | `-y` | Skip confirmation prompt |
+ 
+ ```bash
+-ebx session info <NAME>
++ebx install owner/repo --acr-namespace my-ns    # Download + build + deploy
++ebx install owner/repo --download-only          # Download only
++ebx install owner/repo//subdir --download-only  # Subdirectory of a repo
++ebx install ./my-template --acr-namespace ns    # Local dir + deploy
++ebx install owner/repo@v1.0 --yes               # Skip confirmation
+ ```
+ 
+----
++> ⚠️ **Cost & safety**: without `--download-only`, `install` pushes an image to ACR and calls the official `CreateTemplate` API — these may incur charges on your Alibaba Cloud account. If no ACR namespace is resolved (via `--acr-namespace`, `ACR_NAMESPACE`, or `.env`), install stops before building and prints how to provide one.
++
++### ebx install (shortcut)
++
++Top-level shortcut for `ebx template install` (same options and default full-pipeline behavior):
+ 
+-## Secret Commands — ebx secret
++```bash
++ebx install owner/repo --acr-namespace my-ns
++ebx install owner/repo --download-only
++```
++
++### ebx template list
+ 
+-### ebx secret create
++List available templates.
+ 
+ ```bash
+-ebx secret create <NAME>
++ebx template list [options]
+ ```
+ 
+-Interactively and securely enter the secret value.
++| Option | Description |
++|--------|-------------|
++| `--official-api/--no-official-api` | Use official Alibaba Cloud API (default false) |
++
++### ebx template info
+ 
+-### ebx secret list
++Show template details.
+ 
+ ```bash
+-ebx secret list
++ebx template info <TEMPLATE_ID> [options]
+ ```
+ 
+-### ebx secret delete
++| Argument/Option | Description |
++|-----------------|-------------|
++| `TEMPLATE_ID` | Template ID (required) |
++| `--official-api/--no-official-api` | Use official Alibaba Cloud API |
++
++### ebx template delete
++
++Delete a template.
+ 
+ ```bash
+-ebx secret delete <NAME>
++ebx template delete <TEMPLATE_ID>
+ ```
+ 
+-### ebx secret inject
++### ebx template search
++
++Search templates.
+ 
+ ```bash
+-ebx secret inject <SANDBOX_ID> -s SECRET_NAME [-s ANOTHER_SECRET]
++ebx template search <QUERY> [options]
+ ```
+ 
++| Option | Short | Description |
++|--------|-------|-------------|
++| `--tag` | `-t` | Filter by tag |
++| `--status` | `-s` | Filter by status |
++
+ ---
+ 
+ ## MCP Commands — ebx mcp
+@@ -450,7 +628,7 @@ ebx mcp start [options]
+ | `--api-url` | API URL override |
+ | `--domain` | Domain override |
+ 
+-Start the MCP Server in STDIO mode (typically invoked automatically by the IDE).
++Start the local MCP Server in STDIO mode (typically invoked automatically by the IDE). This mode does not require the HTTP transport dependencies.
+ 
+ ### ebx mcp status
+ 
+@@ -460,32 +638,67 @@ ebx mcp status
+ 
+ Show MCP Server status, number of available tools, and installation status for each IDE.
+ 
+----
+-
+-## Deploy Command — ebx deploy
++### ebx mcp deploy
+ 
+ ```bash
+-ebx deploy <PROJECT_PATH> <DESCRIPTION> [options]
++ebx mcp deploy [options]
+ ```
+ 
+-Automatically deploy a project using the qwen-code agent. See [Deploy & Build](../guide/deploy-and-build.md) for details.
+-
+----
++Generate an artifact for manually deploying the remote MCP Server to Alibaba Cloud Function Compute (FC), using MCP Streamable HTTP (2025-06-18). This command does not call an FC deployment API. The HTTP runtime requires `easy-sandbox[mcp]`; if Starlette is unavailable, application creation raises a clear `RuntimeError`.
+ 
+-## Skill Commands — ebx skill
++| Option | Description |
++|--------|-------------|
++| `--name` | FC function name (default: easy-sandbox-mcp) |
++| `--region` | FC region (default: cn-hangzhou) |
++| `--template` | Default sandbox template |
++| `--memory` | FC function memory in MB (default: 512) |
++| `--timeout` | FC function timeout in seconds (default: 600) |
++| `--auth-token-file` | Path to Bearer token file |
++| `--generate-token` | Auto-generate a random Bearer token |
++| `--enable-session-affinity/--no-session-affinity` | Enable Mcp-Session-Id affinity (default: enabled) |
++| `--api-key` | E2B_API_KEY to inject into FC environment |
++| `--custom-domain` | Custom domain for the MCP endpoint |
++| `--output-dir` | Write the FC deployment artifact to this directory |
+ 
+-### ebx skill search
++**Examples:**
+ 
+ ```bash
+-ebx skill search <QUERY>
++# Generate an artifact with an automatically generated token
++ebx mcp deploy --generate-token --api-key $E2B_API_KEY \
++  --output-dir ./deploy-artifact
++
++# Generate an artifact using a token file
++ebx mcp deploy --auth-token-file ./token.txt --region cn-shanghai \
++  --output-dir ./deploy-artifact
+ ```
+ 
+-### ebx skill install
++The command writes `requirements.txt`, `app.py`, and `config.yaml`, then prints manual steps. `config.yaml` is a provider-neutral manifest, not an FC API payload. Use the official Alibaba Cloud FC console or SDK to package the artifact, create the function and HTTP trigger, and translate the manifest settings. Replace `<FC_HTTP_TRIGGER_URL>` and `<BEARER_TOKEN>` in the IDE template after deployment.
++
++`POST /mcp` handles requests and `DELETE /mcp` terminates a session. Clients should call `DELETE /mcp` when finished. `GET /mcp` currently returns 501; SSE server notifications are deferred to Phase 2. Session affinity requires FC support for routing the same `Mcp-Session-Id` to the same instance.
++
++`config.yaml` can contain `E2B_API_KEY` and the Bearer token in plaintext. Do not commit the artifact or a completed IDE configuration to version control.
++
++---
++
++## Deploy Command — ebx deploy
+ 
+ ```bash
+-ebx skill install <SKILL_REF> [--target cursor|vscode|claude|project|global]
++ebx deploy [PATH] [INSTRUCTION] [options]
+ ```
+ 
++Automatically deploy a project using the qwen-code agent. See [Deploy & Build](../guide/deploy-and-build.md) for details.
++
++| Argument/Option | Short | Description |
++|-----------------|-------|-------------|
++| `PATH` | | Project path (optional) |
++| `INSTRUCTION` | | Natural language deploy instruction (optional) |
++| `--instruction` | `-i` | Natural language deploy instruction (alternative to positional INSTRUCTION) |
++| `--max-wall-time` | | Maximum execution time for qwen-code agent (default: "10m") |
++| `--max-tool-calls` | | Maximum tool calls for qwen-code agent (default: 100) |
++| `--alias` | `-a` | Template alias (traditional mode) |
++| `--watch` | | Watch for file changes and auto-redeploy (traditional mode) |
++| `--traditional` | | Use traditional build+run mode instead of AI deploy |
++
+ ---
+ 
+ ## sandbox Subcommand Group
+@@ -500,16 +713,21 @@ ebx sandbox create / list / info / kill / exec / connect / upload / download / r
+ 
+ | Subcommand | Description | Main Parameters |
+ |------------|-------------|-----------------|
+-| `list` | List directory contents | `SANDBOX_ID`, `--path` (default /home/user), `--recursive` |
+-| `stat` | View file/directory info | `SANDBOX_ID`, `--path` (required) |
+-| `mkdir` | Create directory (including parents) | `SANDBOX_ID`, `--path` (required) |
+-| `rm` | Delete file/directory | `SANDBOX_ID`, `--path` (required), `--yes` |
+-| `mv` | Move/rename file | `SANDBOX_ID`, `--source`, `--dest` |
+-| `search` | Search files by glob pattern | `SANDBOX_ID`, `--path`, `--pattern`, `--max-depth` |
++| `list` | List directory contents | `SANDBOX_ID`, `--path -p` (default /home/user), `--recursive -r` |
++| `stat` | View file/directory info | `SANDBOX_ID`, `--path -p` (required) |
++| `mkdir` | Create directory (including parents) | `SANDBOX_ID`, `--path -p` (required) |
++| `rm` | Delete file/directory | `SANDBOX_ID`, `--path -p` (required), `--yes -y` |
++| `mv` | Move/rename file | `SANDBOX_ID`, `--source -s` (required), `--dest -d` (required) |
++| `search` | Search files by glob pattern | `SANDBOX_ID`, `--path -p` (required), `--pattern` (required), `--max-depth` (default 5) |
+ 
+ ```bash
+ ebx sandbox files list sbx-xxxx --path /app --recursive
++ebx sandbox files stat sbx-xxxx --path /app/main.py
++ebx sandbox files mkdir sbx-xxxx --path /app/data
++ebx sandbox files rm sbx-xxxx --path /app/temp.log --yes
++ebx sandbox files mv sbx-xxxx --source /app/old.py --dest /app/new.py
+ ebx sandbox files search sbx-xxxx --path /home/user --pattern "*.py"
++ebx sandbox files search sbx-xxxx --path /app --pattern "*.log" --max-depth 3
+ ```
+ 
+ ### ebx sandbox process — Process Management
+@@ -517,13 +735,15 @@ ebx sandbox files search sbx-xxxx --path /home/user --pattern "*.py"
+ | Subcommand | Description | Main Parameters |
+ |------------|-------------|-----------------|
+ | `list` | List running processes | `SANDBOX_ID` |
+-| `start` | Start a background process | `SANDBOX_ID`, `--command` (required), `--timeout`, `--cwd` |
++| `start` | Execute a command synchronously | `SANDBOX_ID`, `--command -c` (required), `--timeout -t` (default 300), `--cwd` |
+ | `info` | View process details for a given PID | `SANDBOX_ID`, `PID` |
+-| `signal` | Send a signal to a process | `SANDBOX_ID`, `PID`, `--signal` (default 15/SIGTERM) |
++| `signal` | Send a signal to a process | `SANDBOX_ID`, `PID`, `--signal -s` (default 15/SIGTERM) |
+ 
+ ```bash
+ ebx sandbox process list sbx-xxxx
+ ebx sandbox process start sbx-xxxx --command "python app.py" --cwd /app
++ebx sandbox process start sbx-xxxx -c "make build" --timeout 600
++ebx sandbox process info sbx-xxxx 1234
+ ebx sandbox process signal sbx-xxxx 1234 --signal 9
+ ```
+ 
+@@ -532,13 +752,15 @@ ebx sandbox process signal sbx-xxxx 1234 --signal 9
+ | Subcommand | Description | Main Parameters |
+ |------------|-------------|-----------------|
+ | `info` | View system info (OS, CPU, memory, disk) | `SANDBOX_ID` |
+-| `env` | View environment variables (sensitive values auto-filtered) | `SANDBOX_ID`, `--filter` |
++| `env` | View environment variables (sensitive values auto-filtered) | `SANDBOX_ID`, `--filter -f` |
+ | `ports` | View listening TCP ports | `SANDBOX_ID` |
+-| `packages` | List installed packages (pip/npm) | `SANDBOX_ID`, `--manager` (default pip) |
++| `packages` | List installed packages (pip/npm) | `SANDBOX_ID`, `--manager -m` (default pip) |
+ | `metrics` | View resource usage (CPU load, disk usage) | `SANDBOX_ID` |
+ 
+ ```bash
+ ebx sandbox system info sbx-xxxx
++ebx sandbox system env sbx-xxxx --filter PATH
++ebx sandbox system ports sbx-xxxx
+ ebx sandbox system packages sbx-xxxx --manager npm
+ ebx sandbox system metrics sbx-xxxx
+ ```
+@@ -551,9 +773,9 @@ View the currently enabled capability groups for a sandbox (e.g., shell, files,
+ ebx sandbox capabilities <SANDBOX_ID>
+ ```
+ 
+-### ebx sandbox shell-stream — SSE Streaming Shell
++### ebx sandbox shell-stream — HTTP Streaming Shell
+ 
+-Stream command execution output in real-time via SSE (unlike `exec`, output is printed line by line).
++Stream command execution output in real-time via HTTP streaming (unlike `exec`, output is printed line by line).
+ 
+ ```bash
+ ebx sandbox shell-stream <SANDBOX_ID> --command "pip install numpy"
+diff --git a/docs/zh/reference/cli-reference.md b/docs/zh/reference/cli-reference.md
+index 5661382..6ba1187 100644
+--- a/docs/zh/reference/cli-reference.md
++++ b/docs/zh/reference/cli-reference.md
+@@ -2,6 +2,28 @@
+ 
+ > **项目更名说明**：本项目已从 Serverless Sandbox 更名为 **Easy Sandbox**。PyPI 包名: `easy-sandbox`（`pip install easy-sandbox`），CLI 命令: `ebx`，Python 导入: `easy_sandbox`。
+ 
++## 命令总览
++
++```
++ebx
++├── 顶层快捷方式（12 个）
++│   create / list / info / kill / exec / connect / run / upload / download / deploy / install / init
++├── sandbox 子组（17 个）
++│   ├── files: list / stat / mkdir / rm / mv / search
++│   ├── process: list / start / info / signal
++│   ├── system: info / env / ports / packages / metrics
++│   ├── capabilities
++│   └── shell-stream
++├── template（10 个）
++│   init / deploy / build / push / create / install / list / info / delete / search
++├── config（4 个）
++│   get / set / list / reset
++└── mcp（4 个）
++    install / start / status / deploy
++```
++
++---
++
+ ## 全局选项
+ 
+ ```text
+@@ -113,7 +135,7 @@ ebx exec sbx-xxxx "pip install flask" --timeout 120
+ ebx connect <SANDBOX_ID>
+ ```
+ 
+-输入 `exit`、`quit` 或 `Ctrl+D` 断开连接。每条命令在独立进程中执行。
++输入 `exit`、`quit` 或 `Ctrl+D` 断开连接。每条交互命令有 30 秒超时限制。每条命令在独立进程中执行。
+ 
+ ---
+ 
+@@ -151,49 +173,69 @@ ebx download sbx-xxxx /app/output.log .
+ 
+ ### ebx run
+ 
+-执行模板定义的自定义命令或 `@sandbox.register` 注册的命令。
++执行模板定义的自定义命令或通过 `@registry.command` 注册的命令。
+ 
+ ```bash
+ ebx run <SANDBOX_ID> <COMMAND_NAME> [选项]
+ ```
+ 
++| 选项 | 简写 | 说明 |
++|------|------|------|
++| `--arg` | `-a` | 参数 `KEY=VALUE`（可重复） |
++
+ 支持两种参数风格：
+ 
+ ```bash
+ # Legacy 风格
+ ebx run sbx-xxxx dev --arg file=tests/
+ 
+-# 新风格
++# 新风格（透传 --key value）
+ ebx run sbx-xxxx demo --x 1 --y hello
+ ```
+ 
+----
++#### 自定义命令的两种机制
+ 
+-## 认证命令 — ebx auth
++**机制 A：template.yaml 声明式**
+ 
+-### ebx auth login
++在 `template.yaml` 中通过 `custom_commands` 定义简单 Shell 命令，使用占位符传参：
+ 
+-```bash
+-ebx auth login [--api-key KEY]
++```yaml
++custom_commands:
++  dev:
++    command: "npm run dev"
++  test:
++    command: "pytest {file} -v"
++    description: "Run tests"
+ ```
+ 
+-交互式输入 API Key 并保存到 `~/.ebx/.env`。
+-
+-### ebx auth logout
++执行示例：
+ 
+ ```bash
+-ebx auth logout
++ebx run sbx-xxxx test --arg file=tests/test_api.py
++# 实际执行: pytest tests/test_api.py -v
+ ```
+ 
+-删除已保存的凭证。
++**机制 B：@registry.command 注册式**
+ 
+-### ebx auth status
++在沙箱内运行的 Python 代码中通过装饰器注册自定义命令，支持带类型的参数和复杂逻辑：
++
++```python
++from easy_sandbox.server.registry import registry
++
++@registry.command("greet")
++def greet(name: str) -> str:
++    return f"Hello, {name}!"
++
++registry.freeze()
++```
++
++执行示例：
+ 
+ ```bash
+-ebx auth status
++ebx run sbx-xxxx greet --name World
+ ```
+ 
+-显示当前认证状态（API Key / AK/SK / 未认证）。
++**解析逻辑**：`ebx run` 调用 `Sandbox.custom()`，先尝试机制 A（模板 `custom_commands`），若命令未找到则自动回退到机制 B（SandboxServer 上的 `@registry.command`），对用户透明。统一返回类型为 `CommandResult`，包含 `value`、`stdout`、`stderr`、`exit_code`、`execution_time` 和 `source`（`"template"` 或 `"server"`）。
+ 
+ ---
+ 
+@@ -231,94 +273,93 @@ ebx config reset [--yes/-y]
+ 
+ ## 模板命令 — ebx template
+ 
+-### ebx template install
++### ebx template init
+ 
+-从 GitHub 或本地目录安装模板。
++从内置案例脚手架生成一个新模板目录，无需手写 `template.yaml` / `Dockerfile` / `commands.py`。
+ 
+ ```bash
+-ebx template install <TEMPLATE_REF> [选项]
++ebx template init [DIRECTORY] [选项]
+ ```
+ 
+-| 选项 | 说明 |
+-|------|------|
+-| `--registry-url` | Registry URL（默认 GitHub） |
+-| `--registry-type` | `github` / `local`（自动检测） |
+-| `--token` | 私有仓库访问令牌 |
+-| `--alias` / `-a` | 模板别名 |
++| 选项 | 简写 | 说明 |
++|------|------|------|
++| `--template` | `-t` | 内置脚手架案例（`python`、`node`、`minimal`） |
++| `--from` | | 从 registry 引用拉取模板源码 |
++| `--name` | | 模板名称 |
++| `--list` | | 列出可用脚手架案例 |
++| `--force` | | 覆盖已存在的文件 |
+ 
+ ```bash
+-ebx template install owner/repo
+-ebx template install owner/repo@v1.0
+-ebx template install owner/repo//subdir
+-ebx template install ./my-template --registry-type local
+-```
++# 列出可用脚手架案例
++ebx template init --list
+ 
+-### ebx install（快捷方式）
++# 将 Python 模板脚手架生成到 ./my-template
++ebx template init -t python ./my-template
++```
+ 
+-`ebx template install` 的顶层快捷方式：
++`--list` 输出示例：
+ 
+-```bash
+-ebx install owner/repo
++```
++  python       Python 3.11 sandbox with shell, files, and code capabilities
++  node         Node.js 20 sandbox with shell, files, and code capabilities
++  minimal      Bare-minimum template with only template.yaml + Dockerfile
+ ```
+ 
+-### ebx template create
++脚手架会打印创建的文件和后续步骤：
+ 
+-从已有容器镜像创建沙箱模板。使用阿里云 FCSandbox 官方 CreateTemplate API。
+-
+-> **前置条件**：需要 AK/SK 凭证和 `pip install "easy-sandbox[alicloud]"` SDK 扩展（或直接安装 `pip install "easy-sandbox[cli,alicloud]"`）。
++```
++✅ Template 'my-template' created in ./my-template
++Created files:
++  Dockerfile
++  README.md
++  commands.py
++  template.yaml
+ 
+-```bash
+-ebx template create <IMAGE> --name <NAME> [选项]
++Next steps:
++  ebx template deploy ./my-template --acr-namespace <ns>
++  ebx install ./my-template --acr-namespace <ns>
+ ```
+ 
+-| 选项 | 说明 |
+-|------|------|
+-| `--name` / `-n` | 模板名称（必需） |
+-| `--team-id` | Team ID（或环境变量 `TEAM_ID` / `E2B_TEAM_ID`，缺省自动解析） |
+-| `--cpu` | CPU 核数（默认 2） |
+-| `--memory` | 内存 MB（默认 2048） |
+-| `--disk-size` | 磁盘大小 MB |
+-| `--internet-access/--no-internet-access` | 联网访问（默认由平台决定） |
+-| `--generation` | 沙箱代数（默认 1） |
+-| `--envd-inject/--no-envd-inject` | 启用 envd 注入 |
+-| `--registry-type` | 镜像仓库类型：`acr` / `acree`（自动检测） |
+-| `--acree-instance-id` | ACR EE 实例 ID |
+-| `--registry-username` | 镜像仓库用户名 |
+-| `--registry-password` | 镜像仓库密码 |
+-| `--start-cmd` | 容器启动命令 |
+-| `--ready-cmd` | 容器就绪检查命令 |
++### ebx init（快捷方式）
+ 
+-```bash
+-# 从已推送的 ACR 镜像创建
+-ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag --name my-template
++`ebx template init` 的顶层快捷方式：
+ 
+-# 指定资源和参数
+-ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag \
+-  --name my-tpl --cpu 4 --memory 4096 --disk-size 10240 --internet-access
++```text
++Usage: ebx init [OPTIONS] [DIRECTORY]
++
++  Scaffold a new template (shortcut for 'ebx template init').
++
++Options:
++  -t, --template TEXT  Built-in scaffold case (python, node, minimal)
++  --from TEXT          Fetch template source from a registry ref
++  --name TEXT          Template name
++  --list               List available scaffold cases
++  --force              Overwrite existing files
++  --help               Show this message and exit.
+ ```
+ 
+-### ebx template build-local
++### ebx template deploy
+ 
+-本地 Docker 构建 → ACR 推送 → 创建沙箱模板。
++一键部署：本地 Docker 构建 → ACR 推送 → 创建沙箱模板（即 build + push + create 的端到端流水线）。
+ 
+ 默认使用**官方 CreateTemplate API**（需要 AK/SK 和 `easy-sandbox[alicloud]`；若尚未安装 CLI 请用 `pip install "easy-sandbox[cli,alicloud]"`）。
+ 旧脚本请使用 `--legacy-api` 切换回 v3/v2 API。
+ 
+ ```bash
+-ebx template build-local <TEMPLATE_DIR> [选项]
++ebx template deploy <TEMPLATE_DIR> [选项]
+ ```
+ 
+ | 选项 | 说明 |
+ |------|------|
+ | `--acr-registry` | ACR 注册中心主机（默认 `registry.cn-hangzhou.aliyuncs.com`） |
+-| `--acr-namespace` | ACR 命名空间（必需） |
+-| `--acr-repo` | ACR 仓库名（默认为模板目录名） |
++| `--acr-namespace` | ACR 命名空间（CLI > 环境变量 > `.env` 文件解析；均未找到时报错，参见下方「参数默认值与优先级」） |
++| `--acr-repo` | ACR 仓库名（默认读取模板目录 `template.yaml` 的 `name` 字段，其次为模板目录名） |
+ | `--acr-username` / `--acr-password` | ACR 凭证（默认从 .env 读取 AK/SK） |
+ | `--acree-instance-id` | ACR EE 实例 ID |
+ | `--tag` / `-t` | Docker 镜像标签（默认 `latest`） |
+ | `--platform` | 目标平台（默认 `linux/amd64`） |
+-| `--cpu` | CPU 核数 |
+-| `--memory` | 内存 MB |
++| `--cpu` | CPU 核数（默认读取 `template.yaml` 的 `resources.cpu`，缺省 2） |
++| `--memory` | 内存 MB（默认读取 `template.yaml` 的 `resources.memory`，缺省 2048） |
+ | `--disk-size` | 磁盘大小 MB（仅官方 API） |
+ | `--internet-access/--no-internet-access` | 联网访问（仅官方 API） |
+ | `--official-api/--legacy-api` | 使用官方 API（默认）或旧 v3/v2 API |
+@@ -328,103 +369,240 @@ ebx template build-local <TEMPLATE_DIR> [选项]
+ | `--dockerfile` / `-f` | 自定义 Dockerfile 路径 |
+ | `--start-cmd` / `--ready-cmd` | 启动/就绪命令 |
+ | `--timeout` | 构建超时秒数 |
++| `--vpc-id` | VPC ID，用于 ACR 访问（环境变量：ACR_VPC_ID） |
++| `--vswitch-ids` | VSwitch ID 列表（环境变量：ACR_VSWITCH_IDS） |
++| `--security-group-id` | 安全组 ID（环境变量：ACR_SECURITY_GROUP_ID） |
++| `--alias` / `-a` | 模板别名（默认与解析后的仓库名一致） |
+ 
+ ```bash
+-# 默认官方 API
+-ebx template build-local ./examples/templates/python-hello \
++# 一键部署（默认官方 API）
++ebx template deploy ./examples/templates/python-hello \
+   --acr-namespace my-ns --acr-repo python-hello
+ 
+ # 指定磁盘和联网
+-ebx template build-local ./my-template \
++ebx template deploy ./my-template \
+   --acr-namespace prod --disk-size 10240 --internet-access
+ 
+ # ACR EE 实例
+-ebx template build-local ./my-template \
++ebx template deploy ./my-template \
+   --acr-namespace prod --acree-instance-id cri-xxx
+ 
+ # 旧 API
+-ebx template build-local ./my-template \
++ebx template deploy ./my-template \
+   --acr-namespace prod --legacy-api
+ ```
+ 
+-> **两条路径说明**：
+-> - **官方路径**（默认）：`build-local` → Docker 构建 → ACR 推送 → `CreateTemplate` API。需要 AK/SK 和 `easy-sandbox[alicloud]`，默认 region 为 `cn-hangzhou`。
+-> - **旧路径**：`build-local --legacy-api` → Docker 构建 → ACR 推送 → v3/v2 Platform API。需要 E2B API Key。
++> **三条路径说明**：
++> - **一键部署**（推荐）：`template deploy` → Docker 构建 → ACR 推送 → `CreateTemplate` API。
++> - **分步操作**：`template build` → `template push` → `template create`，适合需要自定义中间步骤的场景。
+ > - **仅镜像创建**：`ebx template create <IMAGE>` 只调用 CreateTemplate API，不做本地构建。
+ 
+----
++#### 参数默认值与优先级
+ 
+-## 会话命令 — ebx session
++`template build` / `template deploy` 的参数按以下 **5 级优先级链**解析（从高到低）：
+ 
+-### ebx session start
++| 优先级 | 来源 | 说明 |
++|--------|------|------|
++| 1 | CLI 显式传入 | 如 `--acr-namespace my-ns`（最高优先级） |
++| 2 | 操作系统环境变量 | 如 `ACR_NAMESPACE` |
++| 3 | 当前工作目录的 `.env` 文件 | 如 `.env` 中写入 `ACR_NAMESPACE=serverless-sandbox-test` |
++| 4 | 模板目录下的 `template.yaml` | `name` → `--acr-repo`/`--alias`；`resources.cpu` → `--cpu`；`resources.memory` → `--memory` |
++| 5 | 硬编码兜底值 | cpu=2、memory=2048、tag=latest、platform=linux/amd64（最低优先级） |
++
++各参数的默认值来源：
++
++| 参数 | 默认值解析顺序 |
++|------|----------------|
++| `--acr-namespace` | CLI > 环境变量 `ACR_NAMESPACE` > `.env` 文件；均未找到时抛出友好的 `UsageError`（该参数仍为**事实上的必填项**，只是不再强制要求出现在命令行上） |
++| `--acr-repo` | CLI > `template.yaml` 的 `name` > 模板目录名 |
++| `--alias` | CLI > 解析后的仓库名 |
++| `--cpu` | CLI > `template.yaml` 的 `resources.cpu` > `2` |
++| `--memory` | CLI > `template.yaml` 的 `resources.memory` > `2048` |
++| `--tag` | CLI > `latest` |
++| `--platform` | CLI > `linux/amd64` |
++
++`template.yaml` 中参与解析的字段示例：
++
++```yaml
++name: node-web          # → --acr-repo / --alias
++resources:
++  cpu: 2                # → --cpu
++  memory: 2048          # → --memory
++```
++
++#### `.env` 文件支持
++
++CLI 会自动读取**当前工作目录**下的 `.env` 文件，可用于提供 `ACR_NAMESPACE` 等配置：
+ 
+ ```bash
+-ebx session start <NAME> [选项]
++# .env
++ACR_NAMESPACE=serverless-sandbox-test
+ ```
+ 
+-| 选项 | 简写 | 说明 |
+-|------|------|------|
+-| `--template` | `-T` | 模板（默认 base） |
+-| `--timeout` | `-t` | 超时秒数 |
+-| `--env` | `-e` | 环境变量 `KEY=VALUE` |
+-| `--metadata` | `-m` | 元数据 `KEY=VALUE` |
++- 操作系统环境变量的优先级高于 `.env` 文件。
++- 建议将 `.env` 加入 `.gitignore`，避免泄露配置。
++
++#### 最简用法
++
++得益于 `template.yaml` 与 `.env` 的自动解析，大多数参数可以省略：
++
++```bash
++# .env 中已配置 ACR_NAMESPACE 时，只需传模板目录：
++ebx template deploy ./examples/templates/node-web
++ebx template build ./examples/templates/node-web
++
++# 没有 .env 时，也可以在命令行内联指定命名空间：
++ebx template deploy ./examples/templates/node-web --acr-namespace serverless-sandbox-test
++```
++
++仓库名、别名、CPU、内存等参数会自动从模板目录的 `template.yaml` 读取，无需重复指定。
++
++### ebx template build
++
++只构建 Docker 镜像并推送到 ACR + 注册模板（与 `deploy` 参数相同）。
++
++```bash
++ebx template build <TEMPLATE_DIR> [选项]
++```
++
++参数与 `template deploy` 相同，参见上方选项表及「参数默认值与优先级」小节。
+ 
+-### ebx session connect
++### ebx template push
++
++只推送已有本地镜像到 ACR。
+ 
+ ```bash
+-ebx session connect <NAME>
++ebx template push <IMAGE> [选项]
+ ```
+ 
+-### ebx session list
++| 选项 | 说明 |
++|------|------|
++| `--acr-registry` | ACR 注册中心主机（默认 `registry.cn-hangzhou.aliyuncs.com`） |
++| `--acr-namespace` | ACR 命名空间（必需） |
++| `--acr-username` / `--acr-password` | ACR 凭证 |
++| `--acree-instance-id` | ACR EE 实例 ID |
++
++### ebx template create
++
++从已有容器镜像创建沙箱模板。使用阿里云 FCSandbox 官方 CreateTemplate API。
++
++> **前置条件**：需要 AK/SK 凭证和 `pip install "easy-sandbox[alicloud]"` SDK 扩展（或直接安装 `pip install "easy-sandbox[cli,alicloud]"`）。
+ 
+ ```bash
+-ebx session list
++ebx template create <IMAGE> --name <NAME> [选项]
+ ```
+ 
+-### ebx session stop
++| 选项 | 说明 |
++|------|------|
++| `--name` / `-n` | 模板名称（必需） |
++| `--team-id` | Team ID（或环境变量 `TEAM_ID` / `E2B_TEAM_ID`，缺省自动解析） |
++| `--cpu` | CPU 核数（默认 2） |
++| `--memory` | 内存 MB（默认 2048） |
++| `--disk-size` | 磁盘大小 MB |
++| `--internet-access/--no-internet-access` | 联网访问（默认由平台决定） |
++| `--generation` | 沙箱代数（默认 1） |
++| `--envd-inject/--no-envd-inject` | 启用 envd 注入 |
++| `--registry-type` | 镜像仓库类型：`acr` / `acree`（自动检测） |
++| `--acree-instance-id` | ACR EE 实例 ID |
++| `--registry-username` | 镜像仓库用户名 |
++| `--registry-password` | 镜像仓库密码 |
++| `--start-cmd` | 容器启动命令 |
++| `--ready-cmd` | 容器就绪检查命令 |
+ 
+ ```bash
+-ebx session stop <NAME> [--keep-alive]
++# 从已推送的 ACR 镜像创建
++ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag --name my-template
++
++# 指定资源和参数
++ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag \
++  --name my-tpl --cpu 4 --memory 4096 --disk-size 10240 --internet-access
+ ```
+ 
+-`--keep-alive` 仅取消跟踪会话，不销毁沙箱。
++### ebx template install
++
++下载模板并（默认）构建 + 部署。默认情况下，`install` 先下载模板，然后执行 docker build、推送到 ACR、并通过官方 API 创建沙箱模板。使用 `--download-only` 跳过构建/部署步骤，仅下载到本地缓存（`~/.ebx/templates/`）。
+ 
+-### ebx session info
++```bash
++ebx template install <TEMPLATE_REF> [选项]
++```
++
++| 选项 | 简写 | 说明 |
++|------|------|------|
++| `--registry-url` | | Registry URL（默认 GitHub） |
++| `--registry-type` | | `github` / `local`（未指定时自动检测） |
++| `--token` | | 私有仓库访问令牌 |
++| `--alias` | `-a` | 模板别名 |
++| `--download-only` | | 仅下载到本地缓存（跳过构建和部署） |
++| `--acr-namespace` | | 部署使用的 ACR 命名空间（环境变量 `ACR_NAMESPACE`，或在 `.env` 中设置） |
++| `--cpu` | | CPU 核数（默认：来自 `template.yaml` 或 2） |
++| `--memory` | | 内存 MB（默认：来自 `template.yaml` 或 2048） |
++| `--yes` | `-y` | 跳过确认提示 |
+ 
+ ```bash
+-ebx session info <NAME>
++ebx install owner/repo --acr-namespace my-ns    # 下载 + 构建 + 部署
++ebx install owner/repo --download-only          # 仅下载
++ebx install owner/repo//subdir --download-only  # 仓库子目录
++ebx install ./my-template --acr-namespace ns    # 本地目录 + 部署
++ebx install owner/repo@v1.0 --yes               # 跳过确认
+ ```
+ 
+----
++> ⚠️ **成本与安全**：不带 `--download-only` 时，`install` 会向 ACR 推送镜像并调用官方 `CreateTemplate` API——这些操作可能在你的阿里云账号上产生费用。若未解析到 ACR 命名空间（通过 `--acr-namespace`、`ACR_NAMESPACE` 或 `.env`），install 会在构建前停下并提示如何提供。
++
++### ebx install（快捷方式）
++
++`ebx template install` 的顶层快捷方式（选项与默认完整流水线行为完全一致）：
+ 
+-## 密钥命令 — ebx secret
++```bash
++ebx install owner/repo --acr-namespace my-ns
++ebx install owner/repo --download-only
++```
++
++### ebx template list
+ 
+-### ebx secret create
++列出可用模板。
+ 
+ ```bash
+-ebx secret create <NAME>
++ebx template list [选项]
+ ```
+ 
+-交互式安全输入密钥值。
++| 选项 | 说明 |
++|------|------|
++| `--official-api/--no-official-api` | 使用阿里云官方 API（默认 false） |
++
++### ebx template info
+ 
+-### ebx secret list
++查看模板详情。
+ 
+ ```bash
+-ebx secret list
++ebx template info <TEMPLATE_ID> [选项]
+ ```
+ 
+-### ebx secret delete
++| 参数/选项 | 说明 |
++|-----------|------|
++| `TEMPLATE_ID` | 模板 ID（必需） |
++| `--official-api/--no-official-api` | 使用阿里云官方 API |
++
++### ebx template delete
++
++删除模板。
+ 
+ ```bash
+-ebx secret delete <NAME>
++ebx template delete <TEMPLATE_ID>
+ ```
+ 
+-### ebx secret inject
++### ebx template search
++
++搜索模板。
+ 
+ ```bash
+-ebx secret inject <SANDBOX_ID> -s SECRET_NAME [-s ANOTHER_SECRET]
++ebx template search <QUERY> [选项]
+ ```
+ 
++| 选项 | 简写 | 说明 |
++|------|------|------|
++| `--tag` | `-t` | 按标签过滤 |
++| `--status` | `-s` | 按状态过滤 |
++
+ ---
+ 
+ ## MCP 命令 — ebx mcp
+@@ -450,7 +628,7 @@ ebx mcp start [选项]
+ | `--api-url` | API URL 覆盖 |
+ | `--domain` | Domain 覆盖 |
+ 
+-以 STDIO 模式启动 MCP Server（通常由 IDE 自动调用）。
++以 STDIO 模式启动本地 MCP Server（通常由 IDE 自动调用）。此模式不需要 HTTP 传输依赖。
+ 
+ ### ebx mcp status
+ 
+@@ -460,32 +638,67 @@ ebx mcp status
+ 
+ 显示 MCP Server 状态、可用工具数量、各 IDE 安装状态。
+ 
+----
+-
+-## 部署命令 — ebx deploy
++### ebx mcp deploy
+ 
+ ```bash
+-ebx deploy <PROJECT_PATH> <DESCRIPTION> [选项]
++ebx mcp deploy [选项]
+ ```
+ 
+-使用 qwen-code agent 自动部署项目。详见 [部署与构建](../guide/deploy-and-build.md)。
+-
+----
++生成用于手动部署远程 MCP Server 到阿里云函数计算（FC）的产物，使用 MCP Streamable HTTP（2025-06-18）。此命令不会调用 FC 部署 API。HTTP 运行时需要安装 `easy-sandbox[mcp]`；若缺少 Starlette，创建应用时会抛出明确的 `RuntimeError`。
+ 
+-## Skill 命令 — ebx skill
++| 选项 | 说明 |
++|------|------|
++| `--name` | FC 函数名（默认 easy-sandbox-mcp） |
++| `--region` | FC 区域（默认 cn-hangzhou） |
++| `--template` | 默认沙箱模板 |
++| `--memory` | FC 函数内存（MB，默认 512） |
++| `--timeout` | FC 函数超时（秒，默认 600） |
++| `--auth-token-file` | Bearer Token 文件路径 |
++| `--generate-token` | 自动生成随机 Bearer Token |
++| `--enable-session-affinity/--no-session-affinity` | 启用 Mcp-Session-Id 会话亲和（默认开启） |
++| `--api-key` | 注入到 FC 环境变量的 E2B_API_KEY |
++| `--custom-domain` | 自定义域名 |
++| `--output-dir` | 将 FC 部署产物写到指定目录 |
+ 
+-### ebx skill search
++**示例：**
+ 
+ ```bash
+-ebx skill search <QUERY>
++# 使用自动生成的 token 创建部署产物
++ebx mcp deploy --generate-token --api-key $E2B_API_KEY \
++  --output-dir ./deploy-artifact
++
++# 使用 token 文件创建部署产物
++ebx mcp deploy --auth-token-file ./token.txt --region cn-shanghai \
++  --output-dir ./deploy-artifact
+ ```
+ 
+-### ebx skill install
++命令会写出 `requirements.txt`、`app.py` 和 `config.yaml`，并输出手动部署步骤。`config.yaml` 是与平台 API 无关的部署清单，不是 FC API 请求体。请使用阿里云 FC 官方控制台或 SDK 打包产物、创建函数与 HTTP Trigger，并将清单设置转换为官方配置。部署后，将 IDE 模板中的 `<FC_HTTP_TRIGGER_URL>` 和 `<BEARER_TOKEN>` 替换为实际值。
++
++`POST /mcp` 处理请求，`DELETE /mcp` 终止会话；客户端结束时应调用 `DELETE /mcp`。`GET /mcp` 当前返回 501，SSE 服务端通知留待 Phase 2 实现。会话亲和要求 FC 能将相同 `Mcp-Session-Id` 的请求路由到同一实例。
++
++`config.yaml` 可能以明文包含 `E2B_API_KEY` 和 Bearer Token。请勿将部署产物或填入真实令牌后的 IDE 配置提交到版本库。
++
++---
++
++## 部署命令 — ebx deploy
+ 
+ ```bash
+-ebx skill install <SKILL_REF> [--target cursor|vscode|claude|project|global]
++ebx deploy [PATH] [INSTRUCTION] [选项]
+ ```
+ 
++使用 qwen-code agent 自动部署项目。详见 [部署与构建](../guide/deploy-and-build.md)。
++
++| 参数/选项 | 简写 | 说明 |
++|-----------|------|------|
++| `PATH` | | 项目路径（可选） |
++| `INSTRUCTION` | | 自然语言部署指令（可选） |
++| `--instruction` | `-i` | 自然语言部署指令（替代位置参数 INSTRUCTION） |
++| `--max-wall-time` | | qwen-code agent 最大执行时间（默认 "10m"） |
++| `--max-tool-calls` | | qwen-code agent 最大工具调用次数（默认 100） |
++| `--alias` | `-a` | 模板别名（传统模式） |
++| `--watch` | | 监听文件变更并自动重新部署（传统模式） |
++| `--traditional` | | 使用传统 build+run 模式替代 AI 部署 |
++
+ ---
+ 
+ ## sandbox 子命令组
+@@ -500,16 +713,21 @@ ebx sandbox create / list / info / kill / exec / connect / upload / download / r
+ 
+ | 子命令 | 说明 | 主要参数 |
+ |--------|------|----------|
+-| `list` | 列出目录内容 | `SANDBOX_ID`、`--path`（默认 /home/user）、`--recursive` |
+-| `stat` | 查看文件/目录信息 | `SANDBOX_ID`、`--path`（必选） |
+-| `mkdir` | 创建目录（含父目录） | `SANDBOX_ID`、`--path`（必选） |
+-| `rm` | 删除文件/目录 | `SANDBOX_ID`、`--path`（必选）、`--yes` |
+-| `mv` | 移动/重命名文件 | `SANDBOX_ID`、`--source`、`--dest` |
+-| `search` | 按 glob 模式搜索文件 | `SANDBOX_ID`、`--path`、`--pattern`、`--max-depth` |
++| `list` | 列出目录内容 | `SANDBOX_ID`、`--path -p`（默认 /home/user）、`--recursive -r` |
++| `stat` | 查看文件/目录信息 | `SANDBOX_ID`、`--path -p`（必选） |
++| `mkdir` | 创建目录（含父目录） | `SANDBOX_ID`、`--path -p`（必选） |
++| `rm` | 删除文件/目录 | `SANDBOX_ID`、`--path -p`（必选）、`--yes -y` |
++| `mv` | 移动/重命名文件 | `SANDBOX_ID`、`--source -s`（必选）、`--dest -d`（必选） |
++| `search` | 按 glob 模式搜索文件 | `SANDBOX_ID`、`--path -p`（必选）、`--pattern`（必选）、`--max-depth`（默认 5） |
+ 
+ ```bash
+ ebx sandbox files list sbx-xxxx --path /app --recursive
++ebx sandbox files stat sbx-xxxx --path /app/main.py
++ebx sandbox files mkdir sbx-xxxx --path /app/data
++ebx sandbox files rm sbx-xxxx --path /app/temp.log --yes
++ebx sandbox files mv sbx-xxxx --source /app/old.py --dest /app/new.py
+ ebx sandbox files search sbx-xxxx --path /home/user --pattern "*.py"
++ebx sandbox files search sbx-xxxx --path /app --pattern "*.log" --max-depth 3
+ ```
+ 
+ ### ebx sandbox process — 进程管理
+@@ -517,13 +735,15 @@ ebx sandbox files search sbx-xxxx --path /home/user --pattern "*.py"
+ | 子命令 | 说明 | 主要参数 |
+ |--------|------|----------|
+ | `list` | 列出运行中的进程 | `SANDBOX_ID` |
+-| `start` | 启动后台进程 | `SANDBOX_ID`、`--command`（必选）、`--timeout`、`--cwd` |
++| `start` | 同步执行命令 | `SANDBOX_ID`、`--command -c`（必选）、`--timeout -t`（默认 300）、`--cwd` |
+ | `info` | 查看指定 PID 的进程详情 | `SANDBOX_ID`、`PID` |
+-| `signal` | 向进程发送信号 | `SANDBOX_ID`、`PID`、`--signal`（默认 15/SIGTERM） |
++| `signal` | 向进程发送信号 | `SANDBOX_ID`、`PID`、`--signal -s`（默认 15/SIGTERM） |
+ 
+ ```bash
+ ebx sandbox process list sbx-xxxx
+ ebx sandbox process start sbx-xxxx --command "python app.py" --cwd /app
++ebx sandbox process start sbx-xxxx -c "make build" --timeout 600
++ebx sandbox process info sbx-xxxx 1234
+ ebx sandbox process signal sbx-xxxx 1234 --signal 9
+ ```
+ 
+@@ -532,13 +752,15 @@ ebx sandbox process signal sbx-xxxx 1234 --signal 9
+ | 子命令 | 说明 | 主要参数 |
+ |--------|------|----------|
+ | `info` | 查看系统信息（OS、CPU、内存、磁盘） | `SANDBOX_ID` |
+-| `env` | 查看环境变量（自动过滤敏感信息） | `SANDBOX_ID`、`--filter` |
++| `env` | 查看环境变量（自动过滤敏感信息） | `SANDBOX_ID`、`--filter -f` |
+ | `ports` | 查看监听中的 TCP 端口 | `SANDBOX_ID` |
+-| `packages` | 列出已安装包（pip/npm） | `SANDBOX_ID`、`--manager`（默认 pip） |
++| `packages` | 列出已安装包（pip/npm） | `SANDBOX_ID`、`--manager -m`（默认 pip） |
+ | `metrics` | 查看资源使用情况（CPU 负载、磁盘用量） | `SANDBOX_ID` |
+ 
+ ```bash
+ ebx sandbox system info sbx-xxxx
++ebx sandbox system env sbx-xxxx --filter PATH
++ebx sandbox system ports sbx-xxxx
+ ebx sandbox system packages sbx-xxxx --manager npm
+ ebx sandbox system metrics sbx-xxxx
+ ```
+@@ -551,9 +773,9 @@ ebx sandbox system metrics sbx-xxxx
+ ebx sandbox capabilities <SANDBOX_ID>
+ ```
+ 
+-### ebx sandbox shell-stream — SSE 流式 Shell
++### ebx sandbox shell-stream — HTTP 流式 Shell
+ 
+-以 SSE 流方式实时输出命令执行结果（与 `exec` 不同，输出逐行打印）。
++以 HTTP streaming 方式实时输出命令执行结果（与 `exec` 不同，输出逐行打印）。
+ 
+ ```bash
+ ebx sandbox shell-stream <SANDBOX_ID> --command "pip install numpy"
+diff --git a/src/easy_sandbox/cli/commands/template.py b/src/easy_sandbox/cli/commands/template.py
+index 42789d6..4247fbb 100644
+--- a/src/easy_sandbox/cli/commands/template.py
++++ b/src/easy_sandbox/cli/commands/template.py
+@@ -1,8 +1,12 @@
+ """模板管理 CLI 命令。"""
++
+ from __future__ import annotations
+ 
++import os
++import shutil
+ import sys
+-from typing import Any
++from pathlib import Path
++from typing import TYPE_CHECKING, Any
+ 
+ import click
+ 
+@@ -10,6 +14,9 @@ from easy_sandbox.cli.formatters import get_formatter
+ from easy_sandbox.cli.main import handle_errors
+ from easy_sandbox.cli.output import get_output
+ 
++if TYPE_CHECKING:
++    from collections.abc import Callable
++
+ 
+ def _extract_platform_error(resp: Any) -> str:
+     """从 Platform 错误响应中提取可读的错误消息。
+@@ -59,19 +66,459 @@ def _translate_platform_error(
+         return TemplateNotFoundError(
+             f"Template '{template_id}' not found on the platform: {detail}",
+             suggestion=(
+-                "Check the TEMPLATE_ID (run 'ebx template list' to see "
+-                "available templates)."
++                "Check the TEMPLATE_ID (run 'ebx template list' to see available templates)."
+             ),
+         )
+     return NetworkError(
+         f"{context} failed (HTTP {status}): {detail}",
+         suggestion=(
+-            "Check your authentication (ebx auth / API key) and the platform "
+-            "status, then retry."
++            "Check your authentication (ebx auth / API key) and the platform status, then retry."
+         ),
+     )
+ 
+ 
++def _find_template_yaml(template_path: Any) -> Any:
++    """Return the template manifest path, or ``None`` if none is present.
++
++    Prefers ``template.yaml`` and falls back to the legacy
++    ``sandbox-template.yaml`` / ``sandbox.yaml`` names.
++    """
++    from pathlib import Path
++
++    base = Path(template_path)
++    for name in ("template.yaml", "sandbox-template.yaml", "sandbox.yaml"):
++        candidate = base / name
++        if candidate.exists():
++            return candidate
++    return None
++
++
++def _read_yaml_defaults(template_dir: str) -> dict[str, Any]:
++    """Read template.yaml and extract default values for cpu, memory, name.
++
++    Returns a dict with keys 'name', 'cpu', 'memory' (values may be None).
++    A missing manifest is normal and yields an empty dict silently; a
++    malformed manifest or unexpected read error prints a warning on stderr
++    so users learn why their declared cpu/memory were ignored.
++    """
++    yaml_path = _find_template_yaml(template_dir)
++    if yaml_path is None:
++        return {}
++    try:
++        import yaml
++
++        with open(yaml_path, encoding="utf-8") as f:
++            yaml_data = yaml.safe_load(f) or {}
++        resources = yaml_data.get("resources", {}) or {}
++        return {
++            "name": yaml_data.get("name"),
++            "cpu": resources.get("cpu") or yaml_data.get("cpu_count"),
++            "memory": resources.get("memory") or yaml_data.get("memory_mb"),
++        }
++    except OSError:
++        # A missing or unreadable manifest is normal — no defaults.
++        return {}
++    except Exception as e:  # includes yaml.YAMLError and any parse failure
++        click.echo(f"Warning: Failed to parse template.yaml: {e}", err=True)
++        return {}
++
++
++def _resolve_acr_namespace(cli_value: str | None) -> str:
++    """Resolve ACR namespace from CLI > os.environ > .env file.
++
++    ``.env`` is looked up in the current working directory first and then in
++    ``~/.ebx/.env`` (mirroring the SDK config loader).  Raises
++    click.UsageError if the namespace is not found in any source.
++    """
++    import os
++    from pathlib import Path
++
++    if cli_value:
++        return cli_value
++    env_val = os.environ.get("ACR_NAMESPACE")
++    if env_val:
++        return env_val
++    # Try .env files: CWD first, then ~/.ebx/.env
++    try:
++        from dotenv import dotenv_values
++
++        for dotenv_path in (Path.cwd() / ".env", Path.home() / ".ebx" / ".env"):
++            if dotenv_path.exists():
++                ns = dotenv_values(dotenv_path).get("ACR_NAMESPACE")
++                if ns:
++                    return ns
++    except ImportError:
++        pass
++    raise click.UsageError(
++        "Missing ACR namespace. Provide via:\n"
++        "  1. --acr-namespace flag\n"
++        "  2. export ACR_NAMESPACE=xxx\n"
++        "  3. ACR_NAMESPACE=xxx in .env (CWD or ~/.ebx/.env)"
++    )
++
++
++class _StepReporter:
++    """Progress reporter for the long-running build/push/deploy steps.
++
++    Each :meth:`phase` starts a Rich spinner for the new step (TTY mode) or
++    prints a plain one-line message in degraded modes (quiet / JSON / CI /
++    non-TTY).  The previous spinner is always stopped before the step
++    message is echoed so output never gets garbled.  In verbose TTY mode
++    plain messages are preferred over spinners so that streamed tool output
++    stays readable.
++    """
++
++    def __init__(self, out: Any, *, verbose: bool = False) -> None:
++        self._out = out
++        self._verbose = verbose
++        self._spinner_cm: Any = None
++
++    def phase(self, message: str) -> None:
++        """Report that a new long-running step has started."""
++        self._stop()
++        if self._verbose or not self._out.use_rich_spinner:
++            self._out.progress(message)
++            return
++        self._spinner_cm = self._out.spinner(message)
++        self._spinner_cm.__enter__()
++
++    def done(self, message: str) -> None:
++        """Stop any spinner and print a completion message."""
++        self._stop()
++        self._out.progress(message)
++
++    def _stop(self) -> None:
++        if self._spinner_cm is not None:
++            self._spinner_cm.__exit__(None, None, None)
++            self._spinner_cm = None
++
++
++def _provenance_notice(out: Any) -> None:
++    """Print a friendly notice when --provenance=false will be auto-injected.
++
++    Only prints when BuildKit is enabled (DOCKER_BUILDKIT != "0") and the
++    output manager is not in quiet/json mode.  The check duplicates the
++    condition in docker_builder.py intentionally to keep the CLI layer
++    responsible for user-facing messages.
++    """
++    if os.environ.get("DOCKER_BUILDKIT", "1") != "0":
++        out.info(
++            "\u2139 已自动添加 --provenance=false"
++            "（避免 FC 镜像优化失败；设置 DOCKER_BUILDKIT=0 可跳过）"
++        )
++
++
++def _build_image(
++    template_dir: str,
++    *,
++    tag: str,
++    repo: str | None,
++    platform: str,
++    dockerfile: str | None,
++    on_progress: Callable[[str], None],
++    on_output: Callable[[str], None] | None = None,
++) -> str:
++    """Build a Docker image locally from a template directory.
++
++    Reads the Dockerfile in *template_dir* (or *dockerfile*) and runs a
++    local ``docker build``.  Returns the local image tag (``<name>:<tag>``).
++    Shared by the ``build`` and ``deploy`` commands.
++
++    Args:
++        on_output: When given (verbose mode), docker build output lines are
++            streamed to this callback instead of being hidden behind the
++            progress indicator.
++    """
++    from pathlib import Path
++
++    from easy_sandbox.api.docker_builder import DockerBuilder
++    from easy_sandbox.models.errors import DockerBuildError
++
++    tdir = Path(template_dir).resolve()
++    image_name = repo or tdir.name
++    local_tag = f"{image_name}:{tag}"
++
++    builder = DockerBuilder()
++    on_progress("[1/3] Checking Docker daemon...")
++    if not builder.check_docker():
++        raise DockerBuildError(
++            "Docker daemon is not running or not accessible.",
++            suggestion="Start Docker Desktop or the Docker daemon.",
++        )
++
++    on_progress("[2/3] Injecting SDK wheel into build context...")
++    injected_wheels = builder.inject_sdk_wheel(tdir)
++
++    on_progress(f"[3/3] Building Docker image locally: {local_tag}")
++    try:
++        builder.build(
++            context_dir=tdir,
++            tag=local_tag,
++            platform=platform,
++            dockerfile=dockerfile,
++            on_output=on_output,
++        )
++    finally:
++        import contextlib
++
++        for whl in injected_wheels:
++            with contextlib.suppress(OSError):
++                whl.unlink(missing_ok=True)
++    return local_tag
++
++
++def _push_image(
++    local_image: str,
++    *,
++    acr: Any,
++    tag: str,
++    region: str,
++    on_progress: Callable[[str], None],
++) -> tuple[str, dict[str, Any]]:
++    """Login to ACR, tag, and push a local image.
++
++    Returns ``(acr_ref, creds)`` where *creds* is the credential dict from
++    the ACR login (temp username/token, or AK/SK fallback).  Shared by the
++    ``push`` and ``deploy`` commands.
++
++    ``on_progress`` is called at the start of each phase; in spinner mode
++    callers pass :meth:`_StepReporter.phase` so the slow ``docker push``
++    phase shows an animated indicator.
++    """
++    from easy_sandbox.api.docker_builder import DockerBuilder
++
++    builder = DockerBuilder()
++    acr_ref = acr.tagged_ref(tag)
++
++    on_progress(f"Logging into ACR: {acr.registry}")
++    creds = builder.login_acr_with_aksk(
++        acr.registry,
++        acr.username,
++        acr.password,
++        region=region,
++        instance_id=acr.acree_instance_id or None,
++    )
++    on_progress(f"Tagging: {local_image} → {acr_ref}")
++    builder.tag(local_image, acr_ref)
++    on_progress(f"Pushing to ACR: {acr_ref}")
++    builder.push(acr_ref)
++    return acr_ref, creds
++
++
++def _do_deploy(
++    template_dir: str,
++    *,
++    acr_namespace: str,
++    acr_registry: str = "registry.cn-hangzhou.aliyuncs.com",
++    acr_repo: str | None = None,
++    acr_username: str | None = None,
++    acr_password: str | None = None,
++    acree_instance_id: str = "",
++    vpc_id: str = "",
++    vswitch_ids: str = "",
++    security_group_id: str = "",
++    alias: str | None = None,
++    tag: str = "latest",
++    platform: str = "linux/amd64",
++    cpu: int | None = None,
++    memory: int | None = None,
++    start_cmd: str | None = None,
++    ready_cmd: str | None = None,
++    timeout: int = 600,
++    dockerfile: str | None = None,
++    disk_size: int | None = None,
++    internet_access: bool | None = None,
++    use_official: bool = True,
++    team_id: str | None = None,
++    envd_inject: bool = True,
++    generation: int = 1,
++    ctx: click.Context | None = None,
++    verbose: bool = False,
++) -> dict[str, Any]:
++    """Shared deploy logic: docker build -> ACR push -> CreateTemplate -> poll.
++
++    Used by both ``template build``/``deploy`` and ``install`` (when not
++    ``--download-only``).  Returns a summary dict with TemplateID, Status,
++    etc.
++
++    Args:
++        template_dir: Path to a template directory containing a Dockerfile.
++        acr_namespace: Resolved ACR namespace (required).
++        ctx: Click context for output manager; falls back to defaults.
++        verbose: Enable verbose docker build output streaming.
++
++    Returns:
++        Dict with keys TemplateID, BuildID, ACR Image, Status.
++    """
++    from easy_sandbox.api.docker_builder import ACRConfig, DockerBuilder
++    from easy_sandbox.transport.config import load_config
++    from easy_sandbox.utils.async_bridge import run_sync
++
++    config = load_config(
++        region=(ctx.obj.get("region") if ctx and ctx.obj else None)
++    )
++
++    yaml_defaults = _read_yaml_defaults(template_dir)
++    resolved_cpu: int = cpu if cpu is not None else int(yaml_defaults.get("cpu") or 2)
++    resolved_memory: int = (
++        memory if memory is not None else int(yaml_defaults.get("memory") or 2048)
++    )
++    resolved_acr_username = acr_username or config.access_key_id or ""
++    resolved_acr_password = acr_password or config.access_key_secret or ""
++    resolved_repo = (
++        acr_repo or yaml_defaults.get("name") or Path(template_dir).resolve().name
++    )
++
++    if not resolved_acr_username or not resolved_acr_password:
++        raise click.ClickException(
++            "ACR credentials missing. Set --acr-username/--acr-password or "
++            "ALICLOUD_ACCESS_KEY_ID/ALICLOUD_ACCESS_KEY_SECRET in .env"
++        )
++
++    platform_ak = config.access_key_id or ""
++    platform_sk = config.access_key_secret or ""
++
++    acr = ACRConfig(
++        registry=acr_registry,
++        namespace=acr_namespace,
++        repo=resolved_repo,
++        username=resolved_acr_username,
++        password=resolved_acr_password,
++        acree_instance_id=acree_instance_id,
++        vpc_id=vpc_id,
++        vswitch_ids=vswitch_ids,
++        security_group_id=security_group_id,
++    )
++    template_name = alias or resolved_repo
++    region = config.region or "cn-hangzhou"
++
++    out = get_output(ctx)
++    reporter = _StepReporter(out, verbose=verbose)
++
++    # Provenance notice (Task #9)
++    _provenance_notice(out)
++
++    if use_official:
++        local_tag = _build_image(
++            template_dir,
++            tag=tag,
++            repo=resolved_repo,
++            platform=platform,
++            dockerfile=dockerfile,
++            on_progress=reporter.phase,
++            on_output=click.echo if verbose else None,
++        )
++        acr_ref, creds = _push_image(
++            local_tag,
++            acr=acr,
++            tag=tag,
++            region=region,
++            on_progress=reporter.phase,
++        )
++        reporter.done(f"Image pushed to ACR: {acr_ref}")
++
++        from easy_sandbox.api.fc_template import (
++            create_official_template,
++            wait_for_template_ready,
++        )
++        from easy_sandbox.models.errors import TemplateBuildError
++
++        registry_type = "acree" if acr.acree_instance_id else "acr"
++        reporter.phase(f"Creating template via official API: {template_name}")
++        api_result = create_official_template(
++            name=template_name,
++            image=acr_ref,
++            access_key_id=platform_ak,
++            access_key_secret=platform_sk,
++            region=region,
++            team_id=team_id,
++            cpu=resolved_cpu,
++            memory_size=resolved_memory,
++            disk_size=disk_size,
++            internet_access=internet_access,
++            generation=generation,
++            start_command=start_cmd,
++            ready_command=ready_cmd,
++            envd_inject=envd_inject,
++            registry_type=registry_type,
++            acr_instance_id=acr.acree_instance_id or None,
++            registry_username=creds.get("tempUserName"),
++            registry_password=creds.get("authorizationToken"),
++            registry_vpc_id=acr.vpc_id or None,
++            registry_vswitch_id=acr.vswitch_ids or None,
++            registry_security_group_id=acr.security_group_id or None,
++        )
++        template_id = api_result.get("templateID", "")
++        if not template_id:
++            raise TemplateBuildError(
++                "CreateTemplate returned no template ID.",
++                suggestion="Check the official API response and retry.",
++            )
++        reporter.done(f"Waiting for template to become READY: {template_id}")
++        with out.live_spinner(
++            f"Waiting for template to become READY: {template_id}"
++        ) as update_status:
++
++            def on_poll(state: str, elapsed: float) -> None:
++                update_status(
++                    f"Waiting for template {template_id} ({state}, {elapsed:.0f}s)"
++                )
++
++            final_data = wait_for_template_ready(
++                template_id,
++                access_key_id=platform_ak,
++                access_key_secret=platform_sk,
++                region=region,
++                team_id=team_id,
++                timeout=timeout,
++                on_poll=on_poll,
++            )
++        final_status = final_data.get("status") or {}
++        build_status = (
++            str(final_status.get("state", "unknown")).lower()
++            if isinstance(final_status, dict)
++            else str(final_status).lower()
++        )
++        build_id = ""
++        build_logs: list[str] = []
++    else:
++        builder = DockerBuilder()
++        result = run_sync(
++            builder.build_and_register(
++                template_dir=template_dir,
++                acr=acr,
++                name=template_name,
++                tag=tag,
++                platform=platform,
++                dockerfile=dockerfile,
++                cpu_count=resolved_cpu,
++                memory_mb=resolved_memory,
++                start_cmd=start_cmd,
++                ready_cmd=ready_cmd,
++                on_progress=reporter.phase,
++                api_key=config.api_key,
++                api_url=config.api_url,
++                access_key_id=config.access_key_id,
++                access_key_secret=config.access_key_secret,
++                timeout=timeout,
++            )
++        )
++        reporter.done(f"Template registration finished: {result.template_id or 'N/A'}")
++        template_id = result.template_id
++        build_id = result.build_id
++        acr_ref = result.acr_ref
++        build_status = result.build_status
++        build_logs = result.logs
++
++    return {
++        "TemplateID": template_id or "N/A",
++        "BuildID": build_id or "N/A",
++        "ACR Image": acr_ref or "N/A",
++        "Status": build_status,
++        "_build_logs": build_logs if not use_official else [],
++    }
++
++
+ @click.group()
+ def template() -> None:
+     """模板管理。"""
+@@ -92,6 +539,31 @@ def template() -> None:
+ )
+ @click.option("--token", default=None, help="访问令牌（私有仓库需要）")
+ @click.option("--alias", "-a", default=None, help="模板别名")
++@click.option(
++    "--download-only",
++    is_flag=True,
++    default=False,
++    help="Only download to local cache (skip build and deploy)",
++)
++@click.option(
++    "--acr-namespace",
++    envvar="ACR_NAMESPACE",
++    default=None,
++    help="ACR namespace for deploy (env: ACR_NAMESPACE, or set in .env file)",
++)
++@click.option(
++    "--cpu",
++    type=int,
++    default=None,
++    help="CPU cores (default: from template.yaml or 2)",
++)
++@click.option(
++    "--memory",
++    type=int,
++    default=None,
++    help="Memory in MB (default: from template.yaml or 2048)",
++)
++@click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompt")
+ @click.pass_context
+ @handle_errors
+ def install(
+@@ -101,142 +573,253 @@ def install(
+     registry_type: str | None,
+     token: str | None,
+     alias: str | None,
++    download_only: bool,
++    acr_namespace: str | None,
++    cpu: int | None,
++    memory: int | None,
++    yes: bool,
+ ) -> None:
+-    """Install a template from GitHub or a local directory.
++    """Download a template and (by default) build + deploy it.
+ 
+-    There is no central template registry.  Templates are sourced from
+-    GitHub repos (fetched by tag/branch/sha via the GitHub tarball API,
+-    no Release required) or local directories.
++    By default, install downloads the template, then runs docker build,
++    pushes to ACR, and creates a sandbox template via the official API.
++    Use --download-only to skip the build/deploy step and only download
++    to the local cache (~/.ebx/templates/).
+ 
+     示例：\n
+-      ebx template install owner/repo              # GitHub repo (default branch)\n
+-      ebx template install owner/repo//subdir      # Subdirectory of a repo\n
+-      ebx template install owner/repo//subdir@v1.0 # Subdirectory + tag/branch/sha\n
+-      ebx template install owner/repo@main         # Specific branch\n
+-      ebx template install owner/repo@v1.0         # Specific tag\n
+-      ebx template install owner/repo --token xxx  # Private repo\n
+-      ebx template install ./my-template           # Local directory\n
+-      ebx template install /path/to/tmpl --registry-type local
++      ebx install owner/repo --acr-namespace my-ns  # Download + build + deploy\n
++      ebx install owner/repo --download-only        # Download only\n
++      ebx install owner/repo//subdir --download-only # Subdirectory of a repo\n
++      ebx install ./my-template --acr-namespace ns  # Local dir + deploy\n
++      ebx install owner/repo@v1.0 --yes             # Skip confirmation
+     """
+     from easy_sandbox.utils.async_bridge import run_sync
+-    from easy_sandbox.utils.registry import RegistryClient, load_template_from_yaml
++    from easy_sandbox.utils.registry import (
++        TEMPLATE_CACHE_DIR,
++        RegistryClient,
++        load_template_from_yaml,
++    )
+ 
+     fmt = get_formatter(ctx)
++    out = get_output(ctx)
++
++    # BUG-05: Early validation for local paths to avoid raw traceback.
++    from easy_sandbox.cli.main import EXIT_NOT_FOUND
++
++    local_path = Path(template_ref)
++    _looks_local = (
++        registry_type == "local"
++        or template_ref.startswith(("./", "../", "/"))
++        or local_path.exists()
++    )
++    if _looks_local and not local_path.exists():
++        fmt.print_error(
++            f"Path not found: {template_ref}",
++            suggestion="Verify the path exists, or use owner/repo format "
++            "for GitHub templates.",
++        )
++        sys.exit(EXIT_NOT_FOUND)
+ 
+     client = RegistryClient(registry_url=registry_url, token=token)
+     ref = run_sync(client.resolve(template_ref, registry_type=registry_type))
+ 
+     if ref.is_builtin:
+-        fmt.print_success(
+-            f"'{template_ref}' is a built-in template. No installation needed."
+-        )
+-        fmt.print_success(
+-            f"Use it directly: ebx create --template {template_ref}"
+-        )
++        fmt.print_success(f"'{template_ref}' is a built-in template. No installation needed.")
++        fmt.print_success(f"Use it directly: ebx create --template {template_ref}")
+         return
+ 
+-    # 拉取模板（本地或 GitHub）
++    # Fetch the template sources.
+     if ref.registry_type == "local":
+         fmt.print_success(f"Using local template from {ref.local_path}...")
+     else:
+         fmt.print_success(f"Fetching template from {ref.owner}/{ref.repo}...")
+-    template_path = run_sync(client.fetch(ref))
+-
+-    # 加载 template.yaml（或 sandbox-template.yaml / sandbox.yaml 向后兼容）
+-    yaml_path = template_path / "template.yaml"
+-    if not yaml_path.exists():
+-        alt = template_path / "sandbox-template.yaml"
+-        if alt.exists():
+-            yaml_path = alt
+-        else:
+-            alt2 = template_path / "sandbox.yaml"
+-            if alt2.exists():
+-                yaml_path = alt2
+-            else:
+-                fmt.print_error(
+-                    f"No template.yaml (or sandbox-template.yaml / sandbox.yaml) found in {template_path}",
+-                    suggestion=(
+-                        "Ensure the repository contains a template.yaml"
+-                        " at the root."
+-                    ),
+-                )
+-                sys.exit(1)
++    if ref.registry_type == "local":
++        source_path = run_sync(client.fetch(ref))
++    else:
++        with out.spinner(f"Fetching template {template_ref}"):
++            source_path = run_sync(client.fetch(ref))
++
++    # Locate template.yaml
++    yaml_path = _find_template_yaml(source_path)
++    if yaml_path is None:
++        fmt.print_error(
++            f"No template.yaml (or sandbox-template.yaml / sandbox.yaml) found in {source_path}",
++            suggestion="Ensure the repository contains a template.yaml at the root.",
++        )
++        sys.exit(1)
+ 
+     tmpl = load_template_from_yaml(yaml_path)
+-    dockerfile = tmpl.to_dockerfile()
++    install_name = alias or tmpl.name or Path(source_path).name
++
++    # Copy to local cache
++    if ref.registry_type == "local":
++        dest = TEMPLATE_CACHE_DIR / install_name
++        if Path(source_path).resolve() != dest.resolve():
++            dest.mkdir(parents=True, exist_ok=True)
++            shutil.copytree(source_path, dest, dirs_exist_ok=True)
++        cached_path: Path = dest
++    else:
++        cached_path = Path(source_path)
++
++    cache_data = {
++        "Alias": install_name or "N/A",
++        "Source": str(source_path),
++        "Cached": str(cached_path),
++        "Status": "installed-locally",
++    }
++
++    if download_only:
++        if fmt.use_json:
++            fmt.print_data(cache_data)
++        else:
++            fmt.print_dict(cache_data)
++            fmt.print_success(
++                f"Template '{install_name}' installed to the local cache. "
++                "Build and push the image with 'ebx template build'."
++            )
++        return
+ 
+-    # 调用 Platform API 构建模板
++    # --- Build + deploy precheck ---
++    missing: list[str] = []
++
++    # Docker available?
++    docker_path = shutil.which("docker")
++    if not docker_path:
++        missing.append("Docker not found in PATH. Install Docker or start Docker Desktop.")
++
++    # ACR namespace resolvable?
++    try:
++        resolved_ns = _resolve_acr_namespace(acr_namespace)
++    except click.UsageError as exc:
++        missing.append(str(exc))
++        resolved_ns = None
++
++    # AK/SK credentials?
+     from easy_sandbox.transport.config import load_config
+-    from easy_sandbox.transport.auth import create_auth_provider
+-    from easy_sandbox.transport.http import HttpClient
+ 
+-    config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
+-    auth = create_auth_provider(
+-        api_key=config.api_key,
+-        access_key_id=config.access_key_id,
+-        access_key_secret=config.access_key_secret,
++    config = load_config(
++        region=(ctx.obj.get("region") if ctx.obj else None),
+     )
+-    http_client = HttpClient(config, auth)
+-
+-    build_alias = alias or tmpl.name
+-    body = {"dockerfile": dockerfile}
+-    if build_alias:
+-        body["alias"] = build_alias
++    if not (config.access_key_id and config.access_key_secret):
++        missing.append(
++            "Alibaba Cloud AK/SK credentials not found. "
++            "Set ALICLOUD_ACCESS_KEY_ID / ALICLOUD_ACCESS_KEY_SECRET in .env or environment."
++        )
+ 
+-    async def _submit_and_close():
+-        import httpx
++    if missing:
++        msg = (
++            "Cannot build + deploy. Missing prerequisites:\n"
++            + "\n".join(f"  • {m}" for m in missing)
++            + "\n\nRun with --download-only to just download the template."
++        )
++        raise click.ClickException(msg)
+ 
+-        from easy_sandbox.models.errors import TemplateBuildError
++    assert resolved_ns is not None  # ensured by precheck above
+ 
+-        try:
+-            resp = await http_client.platform_request("POST", "/templates", json=body)
+-            return resp.json()
+-        except httpx.HTTPStatusError as exc:
+-            detail = _extract_platform_error(exc.response)
+-            raise TemplateBuildError(
+-                f"Build submission rejected by platform: {detail}",
+-                suggestion=(
+-                    "Review the template's Dockerfile/config and try again. "
+-                    "Run 'ebx template list' to check existing builds."
+-                ),
+-            ) from exc
+-        finally:
+-            await http_client.close()
++    # Confirmation
++    if not yes:
++        if not sys.stdin.isatty():
++            raise click.UsageError(
++                "Confirmation required for build + deploy. "
++                "Use --yes/-y to skip in non-interactive mode."
++            )
++        click.confirm(
++            f"Download complete. Build and deploy template '{install_name}'?",
++            abort=True,
++        )
+ 
+-    result = run_sync(_submit_and_close())
++    # Run deploy via shared helper
++    out.info(f"Building and deploying template '{install_name}' from {cached_path}")
++    deploy_data = _do_deploy(
++        str(cached_path),
++        acr_namespace=resolved_ns,
++        cpu=cpu,
++        memory=memory,
++        alias=alias,
++        ctx=ctx,
++    )
+ 
+-    data = {
+-        "TemplateID": result.get("templateID", "N/A"),
+-        "BuildID": result.get("buildID", "N/A"),
+-        "Alias": build_alias or "N/A",
+-        "Status": "building",
+-    }
++    build_status = deploy_data.get("Status", "unknown")
++    deploy_data.pop("_build_logs", None)
+     if fmt.use_json:
+-        fmt.print_data(data)
++        fmt.print_data({**cache_data, **deploy_data})
+     else:
+-        fmt.print_dict(data)
+-        fmt.print_success("Template build submitted. Use 'ebx template list' to check status.")
++        fmt.print_dict(deploy_data)
++        if build_status == "ready":
++            fmt.print_success("Template installed, built, and ready!")
++            fmt.print_success(
++                f"Use: ebx create --template {deploy_data.get('TemplateID')}"
++            )
++        elif build_status in ("pushed", "submitted"):
++            fmt.print_success(
++                "Template downloaded and image pushed; registration submitted."
++            )
++        else:
++            fmt.print_error(f"Build status: {build_status}")
+ 
+ 
+ @template.command("list")
++@click.option(
++    "--official-api",
++    is_flag=True,
++    default=False,
++    help="Query templates via the official Alibaba Cloud FCSandbox API (AK/SK).",
++)
+ @click.pass_context
+ @handle_errors
+-def list_templates(ctx: click.Context) -> None:
++def list_templates(ctx: click.Context, official_api: bool) -> None:
+     """List your custom templates on the platform.
+ 
+-    Shows templates you have built or installed on the platform via
++    Shows templates you have built or cached locally via
+     'ebx template build' or 'ebx template install'.  This does NOT
+     query a central registry.  To discover community templates, visit
+     GitHub and install with 'ebx template install <owner/repo>'.
++    Pass ``--official-api`` to list templates registered via the
++    official Alibaba Cloud FCSandbox CreateTemplate API.
+     """
+     from easy_sandbox.transport.config import load_config
++
++    fmt = get_formatter(ctx)
++
++    region = ctx.obj.get("region") if ctx.obj else None
++    config = load_config(region=region)
++
++    if official_api:
++        from easy_sandbox.api.fc_template import list_official_templates
++
++        if not (config.access_key_id and config.access_key_secret):
++            raise click.ClickException(
++                "--official-api requires AccessKey/AccessSecret in the environment."
++            )
++        templates = list_official_templates(
++            access_key_id=config.access_key_id,
++            access_key_secret=config.access_key_secret,
++            region=config.region or "cn-hangzhou",
++        )
++        if not templates:
++            fmt.print_success("No official templates found for this team.")
++            return
++        headers = ["TemplateID", "Name", "Alias", "Status"]
++        rows = [
++            [
++                str(t.get("templateID") or t.get("template_id") or "N/A"),
++                str(t.get("name", "N/A")),
++                str(t.get("alias", "") or ""),
++                str(
++                    (t.get("status") or {}).get("state", "N/A")
++                    if isinstance(t.get("status"), dict)
++                    else t.get("status", "N/A")
++                ),
++            ]
++            for t in templates
++        ]
++        fmt.print_table(headers, rows)
++        return
++
+     from easy_sandbox.transport.auth import create_auth_provider
+     from easy_sandbox.transport.http import HttpClient
+     from easy_sandbox.utils.async_bridge import run_sync
+ 
+-    fmt = get_formatter(ctx)
+-
+-    config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
+     auth = create_auth_provider(
+         api_key=config.api_key,
+         access_key_id=config.access_key_id,
+@@ -244,16 +827,14 @@ def list_templates(ctx: click.Context) -> None:
+     )
+     http_client = HttpClient(config, auth)
+ 
+-    async def _list_and_close():
++    async def _list_and_close() -> Any:
+         import httpx
+ 
+         try:
+             resp = await http_client.platform_request("GET", "/templates")
+             return resp.json()
+         except httpx.HTTPStatusError as exc:
+-            raise _translate_platform_error(
+-                exc, context="Listing templates"
+-            ) from exc
++            raise _translate_platform_error(exc, context="Listing templates") from exc
+         finally:
+             await http_client.close()
+ 
+@@ -261,8 +842,7 @@ def list_templates(ctx: click.Context) -> None:
+ 
+     if not templates:
+         fmt.print_success(
+-            "No custom templates found. "
+-            "Use 'ebx template install <repo>' to install from GitHub."
++            "No custom templates found. Use 'ebx template install <repo>' to install from GitHub."
+         )
+         return
+ 
+@@ -283,18 +863,51 @@ def list_templates(ctx: click.Context) -> None:
+ 
+ @template.command("info")
+ @click.argument("template_id")
++@click.option(
++    "--official-api",
++    is_flag=True,
++    default=False,
++    help="Query the template via the official Alibaba Cloud FCSandbox API (AK/SK).",
++)
+ @click.pass_context
+ @handle_errors
+-def info(ctx: click.Context, template_id: str) -> None:
+-    """查看模板详情。"""
++def info(ctx: click.Context, template_id: str, official_api: bool) -> None:
++    """查看模板详情。
++
++    Pass ``--official-api`` to use the official Alibaba Cloud FCSandbox
++    ``GetTemplate`` API (requires AccessKey/AccessSecret in env).
++    """
+     from easy_sandbox.transport.config import load_config
++
++    fmt = get_formatter(ctx)
++
++    region = ctx.obj.get("region") if ctx.obj else None
++    config = load_config(region=region)
++
++    if official_api:
++        from easy_sandbox.api.fc_template import get_template
++
++        if not (config.access_key_id and config.access_key_secret):
++            raise click.ClickException(
++                "--official-api requires AccessKey/AccessSecret in the environment."
++            )
++        data = get_template(
++            template_id,
++            access_key_id=config.access_key_id,
++            access_key_secret=config.access_key_secret,
++            region=config.region or "cn-hangzhou",
++        )
++        # BUG-09: Format as readable key-value pairs instead of raw dict.
++        if isinstance(data, dict):
++            fmt.print_dict({str(k): str(v) for k, v in data.items()})
++        else:
++            fmt.print_data(data)
++        return
++
+     from easy_sandbox.transport.auth import create_auth_provider
+     from easy_sandbox.transport.http import HttpClient
+     from easy_sandbox.utils.async_bridge import run_sync
+ 
+-    fmt = get_formatter(ctx)
+-
+-    config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
+     auth = create_auth_provider(
+         api_key=config.api_key,
+         access_key_id=config.access_key_id,
+@@ -302,13 +915,11 @@ def info(ctx: click.Context, template_id: str) -> None:
+     )
+     http_client = HttpClient(config, auth)
+ 
+-    async def _info_and_close():
++    async def _info_and_close() -> Any:
+         import httpx
+ 
+         try:
+-            resp = await http_client.platform_request(
+-                "GET", f"/templates/{template_id}"
+-            )
++            resp = await http_client.platform_request("GET", f"/templates/{template_id}")
+             return resp.json()
+         except httpx.HTTPStatusError as exc:
+             raise _translate_platform_error(
+@@ -319,33 +930,54 @@ def info(ctx: click.Context, template_id: str) -> None:
+ 
+     data = run_sync(_info_and_close())
+ 
+-    fmt.print_data(data)
++    # BUG-09: Format as readable key-value pairs instead of raw dict.
++    if isinstance(data, dict):
++        fmt.print_dict({str(k): str(v) for k, v in data.items()})
++    else:
++        fmt.print_data(data)
+ 
+ 
+ @template.command("create")
+ @click.argument("image")
+ @click.option("--name", "-n", required=True, help="Template name")
+-@click.option("--team-id", envvar=["TEAM_ID", "E2B_TEAM_ID"], default=None,
+-              help="Team ID (or env TEAM_ID / E2B_TEAM_ID; auto-resolved if omitted)")
++@click.option(
++    "--team-id",
++    envvar=["TEAM_ID", "E2B_TEAM_ID"],
++    default=None,
++    help="Team ID (or env TEAM_ID / E2B_TEAM_ID; auto-resolved if omitted)",
++)
+ @click.option("--cpu", type=float, default=2, help="CPU cores (default 2)")
+ @click.option("--memory", type=int, default=2048, help="Memory in MB (default 2048)")
+ @click.option("--disk-size", type=int, default=None, help="Disk size in MB")
+-@click.option("--internet-access/--no-internet-access", default=None,
+-              help="Internet access (default: platform decides)")
++@click.option(
++    "--internet-access/--no-internet-access",
++    default=None,
++    help="Internet access (default: platform decides)",
++)
+ @click.option("--start-cmd", default=None, help="Container start command")
+ @click.option("--ready-cmd", default=None, help="Container readiness check command")
+-@click.option("--generation", type=int, default=1,
+-              help="Sandbox generation (default 1)")
+-@click.option("--envd-inject/--no-envd-inject", default=False,
+-              help="Enable envd injection in build")
+-@click.option("--registry-type", type=click.Choice(["acr", "acree"]),
+-              default=None, help="Registry type (auto-detected from --acree-instance-id)")
+-@click.option("--acree-instance-id", envvar="ACREE_INSTANCE_ID", default=None,
+-              help="ACR EE instance ID (cri-...)")
+-@click.option("--registry-username", default=None,
+-              help="Registry login username (for pulling image)")
+-@click.option("--registry-password", default=None,
+-              help="Registry login password (for pulling image)")
++@click.option("--generation", type=int, default=1, help="Sandbox generation (default 1)")
++@click.option(
++    "--envd-inject/--no-envd-inject", default=False, help="Enable envd injection in build"
++)
++@click.option(
++    "--registry-type",
++    type=click.Choice(["acr", "acree"]),
++    default=None,
++    help="Registry type (auto-detected from --acree-instance-id)",
++)
++@click.option(
++    "--acree-instance-id",
++    envvar="ACREE_INSTANCE_ID",
++    default=None,
++    help="ACR EE instance ID (cri-...)",
++)
++@click.option(
++    "--registry-username", default=None, help="Registry login username (for pulling image)"
++)
++@click.option(
++    "--registry-password", default=None, help="Registry login password (for pulling image)"
++)
+ @click.pass_context
+ @handle_errors
+ def create_template(
+@@ -432,126 +1064,230 @@ def create_template(
+         fmt.print_dict(data)
+         template_id = result.get("templateID")
+         if template_id:
+-            fmt.print_success(
+-                f"Template created! Use: ebx create --template {template_id}"
+-            )
++            fmt.print_success(f"Template created! Use: ebx create --template {template_id}")
+ 
+ 
+-@template.command("build")
+-@click.option("--dockerfile", "-f", required=True, type=click.Path(exists=True))
+-@click.option("--alias", "-a", default=None, help="模板别名")
++@template.command("push")
++@click.argument("image")
++@click.option(
++    "--acr-registry",
++    envvar="ACR_REGISTRY",
++    default="registry.cn-hangzhou.aliyuncs.com",
++    help="ACR registry host",
++)
++@click.option(
++    "--acr-namespace",
++    envvar="ACR_NAMESPACE",
++    required=False,
++    default=None,
++    help="ACR namespace (env: ACR_NAMESPACE, or set in .env file)",
++)
++@click.option(
++    "--acr-username",
++    envvar="ACR_USERNAME",
++    default=None,
++    help="ACR login username (defaults to AccessKey from .env)",
++)
++@click.option(
++    "--acr-password",
++    envvar="ACR_PASSWORD",
++    default=None,
++    help="ACR login password (defaults to AccessSecret from .env)",
++)
++@click.option(
++    "--acree-instance-id",
++    envvar="ACREE_INSTANCE_ID",
++    default="",
++    help="ACR EE instance ID (cri-...)",
++)
+ @click.pass_context
+ @handle_errors
+-def build(ctx: click.Context, dockerfile: str, alias: str | None) -> None:
+-    """从 Dockerfile 构建模板（旧 API，已知后端不再支持实际构建）。"""
+-    from easy_sandbox.transport.config import load_config
+-    from easy_sandbox.transport.auth import create_auth_provider
+-    from easy_sandbox.transport.http import HttpClient
+-    from easy_sandbox.utils.async_bridge import run_sync
++def push(
++    ctx: click.Context,
++    image: str,
++    acr_registry: str,
++    acr_namespace: str | None,
++    acr_username: str | None,
++    acr_password: str | None,
++    acree_instance_id: str,
++) -> None:
++    """Push a locally-built image to Alibaba Cloud ACR.
+ 
+-    fmt = get_formatter(ctx)
++    IMAGE is a local image tag (e.g. ``python-hello:latest``) produced by
++    a local ``docker build``.  The repository name and tag are derived from
++    IMAGE.  Prints the full ACR image URL on success.
+ 
+-    with open(dockerfile) as f:
+-        dockerfile_content = f.read()
++    \b
++    Examples:
++      ebx template push python-hello:latest --acr-namespace my-ns
++      ebx template push my-tmpl:v1 --acr-namespace prod \\
++        --acree-instance-id cri-xxx
++    """
++    from easy_sandbox.api.docker_builder import ACRConfig
++    from easy_sandbox.models.errors import ACRLoginError
++    from easy_sandbox.transport.config import load_config
+ 
++    fmt = get_formatter(ctx)
+     config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
+-    auth = create_auth_provider(
+-        api_key=config.api_key,
+-        access_key_id=config.access_key_id,
+-        access_key_secret=config.access_key_secret,
+-    )
+-    http_client = HttpClient(config, auth)
+ 
+-    body: dict[str, str] = {"dockerfile": dockerfile_content}
+-    if alias:
+-        body["alias"] = alias
++    # Parse the local image reference into repo name + tag.
++    if ":" in image:
++        repo_part, image_tag = image.rsplit(":", 1)
++    else:
++        repo_part, image_tag = image, "latest"
++    repo_name = repo_part.rsplit("/", 1)[-1]
+ 
+-    async def _build_and_close():
+-        import httpx
++    # Resolve ACR namespace: CLI > env > .env file (CWD, then ~/.ebx/.env)
++    resolved_namespace = _resolve_acr_namespace(acr_namespace)
+ 
+-        from easy_sandbox.models.errors import TemplateBuildError
++    resolved_username = acr_username or config.access_key_id or ""
++    resolved_password = acr_password or config.access_key_secret or ""
++    if not resolved_username or not resolved_password:
++        raise ACRLoginError(
++            "ACR credentials missing.",
++            suggestion="Set --acr-username/--acr-password or "
++            "ALICLOUD_ACCESS_KEY_ID/ALICLOUD_ACCESS_KEY_SECRET in .env",
++        )
+ 
+-        try:
+-            resp = await http_client.platform_request("POST", "/templates", json=body)
+-            return resp.json()
+-        except httpx.HTTPStatusError as exc:
+-            detail = _extract_platform_error(exc.response)
+-            raise TemplateBuildError(
+-                f"Build submission rejected by platform: {detail}",
+-                suggestion=(
+-                    "The legacy build API no longer performs real builds. "
+-                    "Use 'ebx template install <owner/repo>' or "
+-                    "'ebx template build-local' instead."
+-                ),
+-            ) from exc
+-        finally:
+-            await http_client.close()
++    acr = ACRConfig(
++        registry=acr_registry,
++        namespace=resolved_namespace,
++        repo=repo_name,
++        username=resolved_username,
++        password=resolved_password,
++        acree_instance_id=acree_instance_id,
++    )
+ 
+-    result = run_sync(_build_and_close())
++    # Login/tag/push phases: show a spinner for the slow push (or plain
++    # one-line messages in quiet/JSON/non-TTY sessions).
++    out = get_output(ctx)
++    reporter = _StepReporter(out, verbose=out.verbose)
++
++    acr_ref, _creds = _push_image(
++        image,
++        acr=acr,
++        tag=image_tag,
++        region=config.region or "cn-hangzhou",
++        on_progress=reporter.phase,
++    )
++    reporter.done(f"Image pushed to ACR: {acr_ref}")
+ 
+-    data = {
+-        "TemplateID": result.get("templateID", "N/A"),
+-        "BuildID": result.get("buildID", "N/A"),
+-        "Alias": alias or "N/A",
+-        "Status": "building",
+-    }
++    data = {"ACR Image": acr_ref, "Status": "pushed"}
+     if fmt.use_json:
+         fmt.print_data(data)
+     else:
+         fmt.print_dict(data)
+-        fmt.print_success("Template build submitted.")
+-
+-
+-@template.command("build-local")
+-@click.argument("template_dir", type=click.Path(exists=True))
+-@click.option("--acr-registry", envvar="ACR_REGISTRY",
+-              default="registry.cn-hangzhou.aliyuncs.com",
+-              help="ACR registry host")
+-@click.option("--acr-namespace", envvar="ACR_NAMESPACE", required=True,
+-              help="ACR namespace")
+-@click.option("--acr-repo", envvar="ACR_REPO", default=None,
+-              help="ACR repository name (defaults to template dir name)")
+-@click.option("--acr-username", envvar="ACR_USERNAME", default=None,
+-              help="ACR login username (defaults to AccessKey from .env)")
+-@click.option("--acr-password", envvar="ACR_PASSWORD", default=None,
+-              help="ACR login password (defaults to AccessSecret from .env)")
+-@click.option("--acree-instance-id", envvar="ACREE_INSTANCE_ID", default="",
+-              help="ACR EE instance ID (cri-...)")
+-@click.option("--vpc-id", envvar="ACR_VPC_ID", default="",
+-              help="VPC ID for ACR EE")
+-@click.option("--vswitch-ids", envvar="ACR_VSWITCH_IDS", default="",
+-              help="Comma-separated VSwitch IDs")
+-@click.option("--security-group-id", envvar="ACR_SECURITY_GROUP_ID", default="",
+-              help="Security group ID")
++        fmt.print_success(f"Image pushed to ACR: {acr_ref}")
++
++
++@template.command("build")
++@click.argument("template_dir", type=click.Path(exists=True), envvar="EBX_TEMPLATE_DIR")
++@click.option(
++    "--acr-registry",
++    envvar="ACR_REGISTRY",
++    default="registry.cn-hangzhou.aliyuncs.com",
++    help="ACR registry host",
++)
++@click.option(
++    "--acr-namespace",
++    envvar="ACR_NAMESPACE",
++    required=False,
++    default=None,
++    help="ACR namespace (env: ACR_NAMESPACE, or set in .env file)",
++)
++@click.option(
++    "--acr-repo",
++    envvar="ACR_REPO",
++    default=None,
++    help="ACR repository name (defaults to template.yaml name or dir name)",
++)
++@click.option(
++    "--acr-username",
++    envvar="ACR_USERNAME",
++    default=None,
++    help="ACR login username (defaults to AccessKey from .env)",
++)
++@click.option(
++    "--acr-password",
++    envvar="ACR_PASSWORD",
++    default=None,
++    help="ACR login password (defaults to AccessSecret from .env)",
++)
++@click.option(
++    "--acree-instance-id",
++    envvar="ACREE_INSTANCE_ID",
++    default="",
++    help="ACR EE instance ID (cri-...)",
++)
++@click.option("--vpc-id", envvar="ACR_VPC_ID", default="", help="VPC ID for ACR EE")
++@click.option(
++    "--vswitch-ids", envvar="ACR_VSWITCH_IDS", default="", help="Comma-separated VSwitch IDs"
++)
++@click.option(
++    "--security-group-id", envvar="ACR_SECURITY_GROUP_ID", default="", help="Security group ID"
++)
+ @click.option("--alias", "-a", default=None, help="模板别名")
+ @click.option("--tag", "-t", default="latest", help="Docker image tag")
+ @click.option("--platform", default="linux/amd64", help="Target platform")
+-@click.option("--cpu", type=int, default=2, help="CPU cores for template")
+-@click.option("--memory", type=int, default=2048, help="Memory in MB")
++@click.option(
++    "--cpu",
++    type=int,
++    default=None,
++    help=(
++        "CPU cores (default: from template.yaml resources.cpu, "
++        "fallback 2)"
++    ),
++)
++@click.option(
++    "--memory",
++    type=int,
++    default=None,
++    help=(
++        "Memory in MB (default: from template.yaml resources.memory, "
++        "fallback 2048)"
++    ),
++)
+ @click.option("--start-cmd", default=None, help="Container start command")
+ @click.option("--ready-cmd", default=None, help="Container readiness check command")
+ @click.option("--timeout", type=int, default=600, help="Build timeout in seconds")
+-@click.option("--dockerfile", "-f", default=None, type=click.Path(exists=True),
+-              help="Custom Dockerfile path")
+-@click.option("--disk-size", type=int, default=None,
+-              help="Disk size in MB (official API only)")
+-@click.option("--internet-access/--no-internet-access", default=None,
+-              help="Internet access (default: platform decides; official API only)")
+-@click.option("--official-api/--legacy-api", "use_official", default=True,
+-              help="Use official CreateTemplate API (default) or legacy v3/v2")
+-@click.option("--team-id", envvar=["TEAM_ID", "E2B_TEAM_ID"], default=None,
+-              help="Team ID for official API (or env TEAM_ID / E2B_TEAM_ID)")
+-@click.option("--envd-inject/--no-envd-inject", default=True,
+-              help="Enable envd injection (default True for official API)")
+-@click.option("--generation", type=int, default=1,
+-              help="Sandbox generation (default 1)")
++@click.option(
++    "--dockerfile", "-f", default=None, type=click.Path(exists=True), help="Custom Dockerfile path"
++)
++@click.option("--disk-size", type=int, default=None, help="Disk size in MB (official API only)")
++@click.option(
++    "--internet-access/--no-internet-access",
++    default=None,
++    help="Internet access (default: platform decides; official API only)",
++)
++@click.option(
++    "--official-api/--legacy-api",
++    "use_official",
++    default=True,
++    help="Use official CreateTemplate API (default) or legacy v3/v2",
++)
++@click.option(
++    "--team-id",
++    envvar=["TEAM_ID", "E2B_TEAM_ID"],
++    default=None,
++    help="Team ID for official API (or env TEAM_ID / E2B_TEAM_ID)",
++)
++@click.option(
++    "--envd-inject/--no-envd-inject",
++    default=True,
++    help="Enable envd injection (default True for official API)",
++)
++@click.option("--generation", type=int, default=1, help="Sandbox generation (default 1)")
++@click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompt")
++@click.option(
++    "-v", "--verbose", "verbose_flag", is_flag=True, help="Verbose output (DEBUG level)"
++)
+ @click.pass_context
+ @handle_errors
+-def build_local(
++def build(
+     ctx: click.Context,
+     template_dir: str,
+     acr_registry: str,
+-    acr_namespace: str,
++    acr_namespace: str | None,
+     acr_repo: str | None,
+     acr_username: str | None,
+     acr_password: str | None,
+@@ -562,8 +1298,8 @@ def build_local(
+     alias: str | None,
+     tag: str,
+     platform: str,
+-    cpu: int,
+-    memory: int,
++    cpu: int | None,
++    memory: int | None,
+     start_cmd: str | None,
+     ready_cmd: str | None,
+     timeout: int,
+@@ -574,6 +1310,8 @@ def build_local(
+     team_id: str | None,
+     envd_inject: bool,
+     generation: int,
++    yes: bool,
++    verbose_flag: bool,
+ ) -> None:
+     """Build Docker image locally, push to ACR, and create a sandbox template.
+ 
+@@ -593,29 +1331,43 @@ def build_local(
+ 
+     \b
+     Examples:
+-      ebx template build-local ./examples/templates/python-hello \\
++      ebx template build ./examples/templates/python-hello \\
+         --acr-namespace my-ns --acr-repo python-hello
+-      ebx template build-local ./my-template \\
++      ebx template build ./my-template \\
+         --acr-namespace prod --acree-instance-id cri-xxx
+-      ebx template build-local ./my-template \\
++      ebx template build ./my-template \\
+         --acr-namespace prod --disk-size 10240 --internet-access
+-      ebx template build-local ./my-template \\
++      ebx template build ./my-template \\
+         --acr-namespace prod --legacy-api
+     """
+-    from pathlib import Path
+-    from easy_sandbox.api.docker_builder import ACRConfig, DockerBuilder
+-    from easy_sandbox.transport.config import load_config
+-    from easy_sandbox.utils.async_bridge import run_sync
++    if verbose_flag:
++        from easy_sandbox.cli.output import enable_verbose
++
++        enable_verbose(ctx)
+ 
+     fmt = get_formatter(ctx)
+-    config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
++    out = get_output(ctx)
+ 
+-    # Resolve ACR credentials: CLI explicit values take priority,
+-    # fall back to platform AK/SK from config/.env.
++    # Resolve ACR namespace: CLI > env > .env file
++    resolved_namespace = _resolve_acr_namespace(acr_namespace)
++    yaml_defaults = _read_yaml_defaults(template_dir)
++    resolved_repo = (
++        acr_repo or yaml_defaults.get("name") or Path(template_dir).resolve().name
++    )
++    resolved_cpu: int = cpu if cpu is not None else int(yaml_defaults.get("cpu") or 2)
++    resolved_memory: int = (
++        memory if memory is not None else int(yaml_defaults.get("memory") or 2048)
++    )
++    template_name = alias or resolved_repo
++
++    # Early credential check (before confirmation prompt)
++    from easy_sandbox.transport.config import load_config
++
++    config = load_config(
++        region=(ctx.obj.get("region") if ctx.obj else None),
++    )
+     resolved_acr_username = acr_username or config.access_key_id or ""
+     resolved_acr_password = acr_password or config.access_key_secret or ""
+-    resolved_repo = acr_repo or Path(template_dir).resolve().name
+-
+     if not resolved_acr_username or not resolved_acr_password:
+         fmt.print_error(
+             "ACR credentials missing.",
+@@ -624,128 +1376,106 @@ def build_local(
+         )
+         sys.exit(1)
+ 
+-    # Platform API credentials always come from load_config().
+-    platform_ak = config.access_key_id or ""
+-    platform_sk = config.access_key_secret or ""
++    # Show the resolved configuration so users can see the effective values.
++    click.echo(f"Template: {template_name}")
++    click.echo(f"ACR: {resolved_namespace}/{resolved_repo}:{tag}")
++    click.echo(f"Resources: cpu={resolved_cpu}, memory={resolved_memory}MB")
++
++    # Confirmation before destructive cloud operations.
++    if not yes:
++        if not sys.stdin.isatty():
++            raise click.UsageError(
++                "Confirmation required for deploying to cloud. "
++                "Use --yes/-y to skip in non-interactive mode."
++            )
++        click.confirm(
++            f"\nPush image to {resolved_namespace}/{resolved_repo}:{tag} "
++            f"and register template '{template_name}'?",
++            abort=True,
++        )
+ 
+-    acr = ACRConfig(
+-        registry=acr_registry,
+-        namespace=acr_namespace,
+-        repo=resolved_repo,
+-        username=resolved_acr_username,
+-        password=resolved_acr_password,
++    data = _do_deploy(
++        template_dir,
++        acr_namespace=resolved_namespace,
++        acr_registry=acr_registry,
++        acr_repo=acr_repo,
++        acr_username=acr_username,
++        acr_password=acr_password,
+         acree_instance_id=acree_instance_id,
+         vpc_id=vpc_id,
+         vswitch_ids=vswitch_ids,
+         security_group_id=security_group_id,
++        alias=alias,
++        tag=tag,
++        platform=platform,
++        cpu=cpu,
++        memory=memory,
++        start_cmd=start_cmd,
++        ready_cmd=ready_cmd,
++        timeout=timeout,
++        dockerfile=dockerfile,
++        disk_size=disk_size,
++        internet_access=internet_access,
++        use_official=use_official,
++        team_id=team_id,
++        envd_inject=envd_inject,
++        generation=generation,
++        ctx=ctx,
++        verbose=out.verbose,
+     )
+ 
+-    builder = DockerBuilder()
+-    template_name = alias or resolved_repo
+-
+-    def on_progress(msg: str) -> None:
+-        fmt.print_success(msg)
+-
+-    region = config.region or "cn-hangzhou"
+-
+-    if use_official:
+-        # Official CreateTemplate API path
+-        if disk_size is not None or internet_access is not None:
+-            # These options are only supported by the official API
+-            pass  # will be forwarded below
+-        result = run_sync(
+-            builder.build_and_register_official(
+-                template_dir=template_dir,
+-                acr=acr,
+-                name=template_name,
+-                tag=tag,
+-                platform=platform,
+-                dockerfile=dockerfile,
+-                cpu_count=cpu,
+-                memory_mb=memory,
+-                disk_size=disk_size,
+-                internet_access=internet_access,
+-                start_cmd=start_cmd,
+-                ready_cmd=ready_cmd,
+-                envd_inject=envd_inject,
+-                generation=generation,
+-                team_id=team_id,
+-                region=region,
+-                on_progress=on_progress,
+-                acr_access_key_id=resolved_acr_username,
+-                acr_access_key_secret=resolved_acr_password,
+-                api_access_key_id=platform_ak,
+-                api_access_key_secret=platform_sk,
+-                timeout=timeout,
+-            )
+-        )
+-    else:
+-        # Legacy v3/v2 API path
+-        if disk_size is not None or internet_access is not None:
+-            fmt.print_error(
+-                "--disk-size and --internet-access are only supported with "
+-                "the official API (default). They are ignored with --legacy-api.",
+-            )
+-        result = run_sync(
+-            builder.build_and_register(
+-                template_dir=template_dir,
+-                acr=acr,
+-                name=template_name,
+-                tag=tag,
+-                platform=platform,
+-                dockerfile=dockerfile,
+-                cpu_count=cpu,
+-                memory_mb=memory,
+-                start_cmd=start_cmd,
+-                ready_cmd=ready_cmd,
+-                on_progress=on_progress,
+-                api_key=config.api_key,
+-                api_url=config.api_url,
+-                access_key_id=config.access_key_id,
+-                access_key_secret=config.access_key_secret,
+-                timeout=timeout,
+-            )
+-        )
+-
+-    data = {
+-        "TemplateID": result.template_id or "N/A",
+-        "BuildID": result.build_id or "N/A",
+-        "ACR Image": result.acr_ref or "N/A",
+-        "Status": result.build_status,
+-    }
++    build_status = data.get("Status", "unknown")
++    build_logs: list[str] = data.pop("_build_logs", [])
+     if fmt.use_json:
+         fmt.print_data(data)
+     else:
+         fmt.print_dict(data)
+-        if result.build_status == "ready":
++        if build_status == "ready":
+             fmt.print_success("Template built and ready!")
+-            fmt.print_success(
+-                f"Use: ebx create --template {result.template_id}"
+-            )
+-        elif result.build_status == "pushed":
+-            fmt.print_success("Image pushed to ACR, but template build pending.")
++            fmt.print_success(f"Use: ebx create --template {data.get('TemplateID')}")
++        elif build_status in ("pushed", "submitted"):
++            fmt.print_success("Image pushed to ACR; template registration submitted.")
+         else:
+-            fmt.print_error(f"Build status: {result.build_status}")
+-            if result.logs:
+-                out = get_output(ctx)
+-                for log in result.logs:
++            fmt.print_error(f"Build status: {build_status}")
++            if build_logs:
++                for log in build_logs:
+                     out.info(f"  {log}")
+ 
+ 
++@template.command(
++    "deploy",
++    params=list(build.params),
++    help="Build, push, and create template in one step",
++)
++@click.pass_context
++def deploy(ctx: click.Context, /, **kwargs: Any) -> None:
++    """Build, push, and create template in one step."""
++    ctx.invoke(build, **kwargs)
++
++
+ @template.command("delete")
+ @click.argument("template_id")
+-@click.confirmation_option(prompt="确认删除模板？")
++@click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompt")
+ @click.pass_context
+ @handle_errors
+-def delete(ctx: click.Context, template_id: str) -> None:
++def delete(ctx: click.Context, template_id: str, yes: bool) -> None:
+     """Delete a custom template from the platform.
+ 
+     Removes the template identified by TEMPLATE_ID from the remote
+-    platform.  This does NOT affect the local cache — use
+-    'ebx template cache --clear' to clean local copies.
++    platform.  This does NOT affect the local cache (~/.ebx/templates/).
+     """
+-    from easy_sandbox.transport.config import load_config
++    if not yes:
++        if not sys.stdin.isatty():
++            raise click.UsageError(
++                "Confirmation required for deleting template. "
++                "Use --yes/-y to skip in non-interactive mode."
++            )
++        click.confirm(
++            f"Delete template '{template_id}'? This action cannot be undone.",
++            abort=True,
++        )
+     from easy_sandbox.transport.auth import create_auth_provider
++    from easy_sandbox.transport.config import load_config
+     from easy_sandbox.transport.http import HttpClient
+     from easy_sandbox.utils.async_bridge import run_sync
+ 
+@@ -759,13 +1489,11 @@ def delete(ctx: click.Context, template_id: str) -> None:
+     )
+     http_client = HttpClient(config, auth)
+ 
+-    async def _delete_and_close():
++    async def _delete_and_close() -> None:
+         import httpx
+ 
+         try:
+-            await http_client.platform_request(
+-                "DELETE", f"/templates/{template_id}"
+-            )
++            await http_client.platform_request("DELETE", f"/templates/{template_id}")
+         except httpx.HTTPStatusError as exc:
+             raise _translate_platform_error(
+                 exc, context="Deleting template", template_id=template_id
+@@ -778,53 +1506,17 @@ def delete(ctx: click.Context, template_id: str) -> None:
+     fmt.print_success(f"Template {template_id} deleted.")
+ 
+ 
+-@template.command("cache")
+-@click.option("--clear", is_flag=True, help="Clear local template cache (~/.ebx/templates/)")
+-@click.pass_context
+-def cache(ctx: click.Context, clear: bool) -> None:
+-    """Manage the local template cache (~/.ebx/templates/).
+-
+-    Without flags, lists cached templates.  With --clear, removes all
+-    locally cached copies.  This only affects local files — to delete
+-    a template from the platform, use 'ebx template delete'.
+-    """
+-    from easy_sandbox.utils.registry import RegistryClient, TEMPLATE_CACHE_DIR
+-
+-    out = get_output(ctx)
+-    client = RegistryClient()
+-    if clear:
+-        count = client.clear_cache()
+-        out.success(f"Cleared {count} cached item(s).")
+-    else:
+-        if TEMPLATE_CACHE_DIR.exists():
+-            items = list(TEMPLATE_CACHE_DIR.rglob("template.yaml"))
+-            items.extend(
+-                p for p in TEMPLATE_CACHE_DIR.rglob("sandbox-template.yaml")
+-                if not (p.parent / "template.yaml").exists()
+-            )
+-            items.extend(
+-                p for p in TEMPLATE_CACHE_DIR.rglob("sandbox.yaml")
+-                if not (p.parent / "template.yaml").exists()
+-                and not (p.parent / "sandbox-template.yaml").exists()
+-            )
+-            if items:
+-                out.info(f"Cached templates ({len(items)}):")
+-                for item in items:
+-                    out.info(f"  {item.parent.relative_to(TEMPLATE_CACHE_DIR)}")
+-            else:
+-                out.info("No templates cached.")
+-        else:
+-            out.info("No templates cached.")
+-
+-
+ @template.command("search")
+ @click.argument("query")
+ @click.option(
+-    "--tag", "-t", default=None,
++    "--tag",
++    "-t",
++    default=None,
+     help="Filter by exact tag name",
+ )
+ @click.option(
+-    "--status", "-s",
++    "--status",
++    "-s",
+     type=click.Choice(["official", "community", "experimental"]),
+     default=None,
+     help="Filter by template status",
+@@ -924,9 +1616,185 @@ def search(ctx: click.Context, query: str, tag: str | None, status: str | None)
+ 
+ 
+ # ---------------------------------------------------------------------------
+-# Top-level shortcut: ebx install <ref>
++# template init — scaffold a new template project
++# ---------------------------------------------------------------------------
++
++
++@template.command("init")
++@click.argument("directory", default=".", type=click.Path())
++@click.option(
++    "--template",
++    "-t",
++    "case",
++    default=None,
++    help="Built-in scaffold case (python, node, minimal)",
++)
++@click.option(
++    "--from",
++    "from_ref",
++    default=None,
++    help="Fetch template source from a registry ref (owner/repo, local path)",
++)
++@click.option(
++    "--name",
++    default=None,
++    help='Template name (default: directory basename, or "my-template" for ".")',
++)
++@click.option(
++    "--list", "list_cases", is_flag=True, default=False,
++    help="List available scaffold cases",
++)
++@click.option("--force", is_flag=True, default=False, help="Overwrite existing files")
++@click.pass_context
++@handle_errors
++def init(
++    ctx: click.Context,
++    directory: str,
++    case: str | None,
++    from_ref: str | None,
++    name: str | None,
++    list_cases: bool,
++    force: bool,
++) -> None:
++    """Scaffold a new sandbox template project.
++
++    Creates a ready-to-build template directory with template.yaml,
++    Dockerfile, and (depending on the case) a commands.py file.
++
++    \b
++    Examples:
++      ebx template init --list                     # List built-in cases
++      ebx template init -t python ./my-template    # Python scaffold
++      ebx template init -t node                    # Node.js in current dir
++      ebx template init --from owner/repo ./copy   # Copy from registry
++    """
++    from easy_sandbox.cli.scaffold import available_cases, render_scaffold
++
++    fmt = get_formatter(ctx)
++    out = get_output(ctx)
++
++    # --list: print available cases and exit
++    if list_cases:
++        cases = available_cases()
++        if fmt.use_json:
++            fmt.print_data([{"case": c, "description": d} for c, d in cases])
++        else:
++            for c, desc in cases:
++                click.echo(f"  {c:<12} {desc}")
++        return
++
++    # --template and --from are mutually exclusive
++    if case and from_ref:
++        raise click.UsageError(
++            "--template/-t and --from are mutually exclusive. Use one or the other."
++        )
++
++    # Resolve directory and template name
++    target = Path(directory).resolve()
++    if name is None:
++        name = target.name if directory != "." else "my-template"
++
++    # --from: fetch from registry and copy source files into DIR
++    if from_ref:
++        from easy_sandbox.utils.async_bridge import run_sync
++        from easy_sandbox.utils.registry import RegistryClient
++
++        client = RegistryClient()
++        ref = run_sync(client.resolve(from_ref))
++        if ref.is_builtin:
++            raise click.UsageError(
++                f"'{from_ref}' is a built-in template and cannot be used with --from. "
++                "Use -t/--template for built-in cases."
++            )
++        with out.spinner(f"Fetching template from {from_ref}"):
++            source_path = run_sync(client.fetch(ref))
++
++        source = Path(source_path)
++        target.mkdir(parents=True, exist_ok=True)
++        # Check for conflicts
++        if not force:
++            conflicts = [f.name for f in source.iterdir() if (target / f.name).exists()]
++            if conflicts:
++                raise click.ClickException(
++                    f"Files already exist in {target}: {', '.join(conflicts[:5])}. "
++                    "Use --force to overwrite."
++                )
++        shutil.copytree(source, target, dirs_exist_ok=True)
++        out.info(f"Template files copied from {from_ref} to {target}")
++        created = [f.name for f in target.iterdir() if f.is_file()]
++        _print_init_summary(fmt, out, target, created, name)
++        return
++
++    # Interactive selection when no --template/--from given
++    if case is None:
++        cases = available_cases()
++        if sys.stdin.isatty():
++            click.echo("Available scaffold cases:")
++            for i, (c, desc) in enumerate(cases, 1):
++                click.echo(f"  {i}. {c:<12} {desc}")
++            choice = click.prompt(
++                "Select a case",
++                type=click.IntRange(1, len(cases)),
++                default=1,
++            )
++            case = cases[choice - 1][0]
++        else:
++            case_names = ", ".join(c for c, _ in cases)
++            raise click.UsageError(
++                f"No scaffold case specified. Available cases: {case_names}. "
++                "Use -t/--template <case> or --from <ref>."
++            )
++
++    # Render scaffold files
++    try:
++        files = render_scaffold(case, name)
++    except ValueError as exc:
++        raise click.UsageError(str(exc)) from exc
++
++    # Check for conflicts
++    target.mkdir(parents=True, exist_ok=True)
++    if not force:
++        conflicts = [fn for fn in files if (target / fn).exists()]
++        if conflicts:
++            raise click.ClickException(
++                f"Files already exist in {target}: {', '.join(conflicts)}. "
++                "Use --force to overwrite."
++            )
++
++    # Write files
++    for filename, content in files.items():
++        filepath = target / filename
++        filepath.write_text(content, encoding="utf-8")
++
++    _print_init_summary(fmt, out, target, list(files.keys()), name)
++
++
++def _print_init_summary(
++    fmt: Any,
++    out: Any,
++    target: Path,
++    created: list[str],
++    name: str,
++) -> None:
++    """Print a friendly summary after scaffold init."""
++    if fmt.use_json:
++        fmt.print_data({"name": name, "directory": str(target), "files": created})
++        return
++    out.info(f"\n✅ Template '{name}' created in {target}")
++    out.info("Created files:")
++    for f in sorted(created):
++        out.info(f"  {f}")
++    out.info("\nNext steps:")
++    dir_arg = str(target) if str(target) != str(Path.cwd()) else "."
++    out.info(f"  ebx template deploy {dir_arg} --acr-namespace <ns>")
++    out.info(f"  ebx install {dir_arg} --acr-namespace <ns>")
++
++
++# ---------------------------------------------------------------------------
++# Top-level shortcuts: ebx install / ebx init
+ # ---------------------------------------------------------------------------
+ 
++
+ @click.command("install")
+ @click.argument("template_ref")
+ @click.option(
+@@ -942,6 +1810,21 @@ def search(ctx: click.Context, query: str, tag: str | None, status: str | None)
+ )
+ @click.option("--token", default=None, help="访问令牌（私有仓库需要）")
+ @click.option("--alias", "-a", default=None, help="模板别名")
++@click.option(
++    "--download-only",
++    is_flag=True,
++    default=False,
++    help="Only download to local cache (skip build and deploy)",
++)
++@click.option(
++    "--acr-namespace",
++    envvar="ACR_NAMESPACE",
++    default=None,
++    help="ACR namespace for deploy",
++)
++@click.option("--cpu", type=int, default=None, help="CPU cores")
++@click.option("--memory", type=int, default=None, help="Memory in MB")
++@click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompt")
+ @click.pass_context
+ @handle_errors
+ def install_shortcut(
+@@ -951,12 +1834,16 @@ def install_shortcut(
+     registry_type: str | None,
+     token: str | None,
+     alias: str | None,
++    download_only: bool,
++    acr_namespace: str | None,
++    cpu: int | None,
++    memory: int | None,
++    yes: bool,
+ ) -> None:
+     """Install a template (shortcut for 'ebx template install').
+ 
+-    Templates are fetched from GitHub repos — there is no central registry.
+-    Use TEMPLATE_REF in the form owner/repo, owner/repo//subdir, or a
+-    local directory path.
++    Downloads and (by default) builds + deploys a template.
++    Use --download-only to skip the build/deploy step.
+     """
+     ctx.invoke(
+         install,
+@@ -965,4 +1852,53 @@ def install_shortcut(
+         registry_type=registry_type,
+         token=token,
+         alias=alias,
++        download_only=download_only,
++        acr_namespace=acr_namespace,
++        cpu=cpu,
++        memory=memory,
++        yes=yes,
++    )
++
++
++@click.command("init")
++@click.argument("directory", default=".", type=click.Path())
++@click.option(
++    "--template",
++    "-t",
++    "case",
++    default=None,
++    help="Built-in scaffold case (python, node, minimal)",
++)
++@click.option(
++    "--from",
++    "from_ref",
++    default=None,
++    help="Fetch template source from a registry ref",
++)
++@click.option("--name", default=None, help="Template name")
++@click.option(
++    "--list", "list_cases", is_flag=True, default=False,
++    help="List available scaffold cases",
++)
++@click.option("--force", is_flag=True, default=False, help="Overwrite existing files")
++@click.pass_context
++@handle_errors
++def init_shortcut(
++    ctx: click.Context,
++    directory: str,
++    case: str | None,
++    from_ref: str | None,
++    name: str | None,
++    list_cases: bool,
++    force: bool,
++) -> None:
++    """Scaffold a new template (shortcut for 'ebx template init')."""
++    ctx.invoke(
++        init,
++        directory=directory,
++        case=case,
++        from_ref=from_ref,
++        name=name,
++        list_cases=list_cases,
++        force=force,
+     )
+diff --git a/src/easy_sandbox/cli/main.py b/src/easy_sandbox/cli/main.py
+index bf6d765..6473f07 100644
+--- a/src/easy_sandbox/cli/main.py
++++ b/src/easy_sandbox/cli/main.py
+@@ -3,10 +3,12 @@
+ Uses lazy loading to keep ``ebx --help`` fast (< 200 ms).
+ Heavy imports only happen when a command actually executes.
+ """
++
+ from __future__ import annotations
+ 
+ import functools
+-from typing import Any
++from collections.abc import Callable
++from typing import Any, TypeVar
+ 
+ import click
+ 
+@@ -14,6 +16,7 @@ import click
+ # Lazy Group
+ # ---------------------------------------------------------------------------
+ 
++
+ class LazyGroup(click.Group):
+     """Click group that lazily loads subcommands.
+ 
+@@ -47,7 +50,7 @@ class LazyGroup(click.Group):
+         # format: "easy_sandbox.cli.commands.sandbox:create"
+         mod_path, attr_name = module_path.rsplit(":", 1)
+         mod = importlib.import_module(mod_path)
+-        return getattr(mod, attr_name)
++        return getattr(mod, attr_name)  # type: ignore[no-any-return]
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -62,8 +65,11 @@ EXIT_TIMEOUT = 5
+ EXIT_QUOTA = 6
+ 
+ 
+-def handle_errors(func):  # noqa: ANN001,ANN201
+-    """Decorator that catches SandboxError and maps to exit codes."""
++F = TypeVar("F", bound=Callable[..., Any])
++
++
++def handle_errors(func: F) -> F:
++    """Decorator that catches SandboxError and remote exceptions, mapping to exit codes."""
+ 
+     @functools.wraps(func)
+     def wrapper(*args: Any, **kwargs: Any) -> Any:
+@@ -77,7 +83,6 @@ def handle_errors(func):  # noqa: ANN001,ANN201
+             raise
+         except Exception:
+             # Lazy import so that --help is still fast
+-            # Re-import the original exception to test against
+             import sys as _sys
+ 
+             from easy_sandbox.models.errors import (
+@@ -104,40 +109,197 @@ def handle_errors(func):  # noqa: ANN001,ANN201
+ 
+             if isinstance(exc_val, AuthenticationError):
+                 fmt.print_error(
+-                    exc_val.message, code=exc_val.code, suggestion=exc_val.suggestion,
++                    exc_val.message,
++                    code=exc_val.code,
++                    suggestion=exc_val.suggestion,
+                 )
+                 _sys.exit(EXIT_AUTH)
+             elif isinstance(exc_val, (TemplateNotFoundError, FileNotFoundError_)):
+                 fmt.print_error(
+-                    exc_val.message, code=exc_val.code, suggestion=exc_val.suggestion,
++                    exc_val.message,
++                    code=exc_val.code,
++                    suggestion=exc_val.suggestion,
+                 )
+                 _sys.exit(EXIT_NOT_FOUND)
+             elif isinstance(exc_val, CommandTimeoutError):
+                 fmt.print_error(
+-                    exc_val.message, code=exc_val.code, suggestion=exc_val.suggestion,
++                    exc_val.message,
++                    code=exc_val.code,
++                    suggestion=exc_val.suggestion,
+                 )
+                 _sys.exit(EXIT_TIMEOUT)
+             elif isinstance(exc_val, QuotaExceededError):
+                 fmt.print_error(
+-                    exc_val.message, code=exc_val.code, suggestion=exc_val.suggestion,
++                    exc_val.message,
++                    code=exc_val.code,
++                    suggestion=exc_val.suggestion,
+                 )
+                 _sys.exit(EXIT_QUOTA)
+             elif isinstance(exc_val, SandboxError):
+                 fmt.print_error(
+-                    exc_val.message, code=exc_val.code, suggestion=exc_val.suggestion,
++                    exc_val.message,
++                    code=exc_val.code,
++                    suggestion=exc_val.suggestion,
+                 )
+                 _sys.exit(EXIT_GENERAL)
+             else:
+-                # Not a SandboxError — let it propagate
+-                raise
++                # --- Remote / network exceptions (BUG-04) ---
++                _handle_remote_exception(exc_val, fmt)
++
++    return wrapper  # type: ignore[return-value]
++
++
++def _handle_remote_exception(
++    exc_val: BaseException | None,
++    fmt: Any,
++) -> None:
++    """Map non-SandboxError remote exceptions to friendly CLI messages.
+ 
+-    return wrapper
++    Catches httpx HTTP status errors, timeouts, connection errors,
++    built-in FileNotFoundError / OSError, and asyncio timeouts so the
++    user never sees a raw traceback.
++    """
++    import sys as _sys
++
++    # httpx errors (optional import — only present when httpx is installed)
++    try:
++        import httpx
++    except ImportError:  # pragma: no cover
++        httpx = None  # type: ignore[assignment]
++
++    if httpx is not None and isinstance(exc_val, httpx.HTTPStatusError):
++        status = exc_val.response.status_code
++        if status == 401:
++            fmt.print_error(
++                f"Authentication failed (HTTP {status}).",
++                code="E1000",
++                suggestion="Check your API key or AK/SK credentials "
++                "(ebx config set api_key <KEY>).",
++            )
++            _sys.exit(EXIT_AUTH)
++        elif status == 404:
++            fmt.print_error(
++                f"Resource not found (HTTP {status}).",
++                code="E5000",
++                suggestion="Verify the sandbox ID, template ID, or endpoint URL.",
++            )
++            _sys.exit(EXIT_NOT_FOUND)
++        elif status == 403:
++            fmt.print_error(
++                f"Access denied (HTTP {status}).",
++                code="E1000",
++                suggestion="Check your credentials and permissions.",
++            )
++            _sys.exit(EXIT_AUTH)
++        elif status == 429:
++            fmt.print_error(
++                f"Rate limit exceeded (HTTP {status}).",
++                code="E2002",
++                suggestion="Wait a moment and retry, or request a quota increase.",
++            )
++            _sys.exit(EXIT_QUOTA)
++        else:
++            fmt.print_error(
++                f"Remote request failed (HTTP {status}): {exc_val}",
++                code="E5000",
++                suggestion="Check the platform status and retry. "
++                "Use 'ebx -v <command>' for details.",
++            )
++            _sys.exit(EXIT_GENERAL)
++
++    if httpx is not None and isinstance(
++        exc_val, (httpx.TimeoutException, httpx.ConnectTimeout, httpx.ReadTimeout)
++    ):
++        fmt.print_error(
++            f"Request timed out: {exc_val}",
++            code="E3001",
++            suggestion=(
++                "The HTTP request timed out. Try:\n"
++                "  1. Increase HTTP timeout: ebx config set http_timeout 120\n"
++                "  2. Or set env: export SANDBOX_HTTP_TIMEOUT=120\n"
++                "  3. Check network connectivity"
++            ),
++        )
++        _sys.exit(EXIT_TIMEOUT)
++
++    if httpx is not None and isinstance(
++        exc_val, (httpx.ConnectError, httpx.NetworkError)
++    ):
++        fmt.print_error(
++            f"Connection error: {exc_val}",
++            code="E5001",
++            suggestion="Check network connectivity and firewall rules. "
++            "Verify the platform URL is correct.",
++        )
++        _sys.exit(EXIT_GENERAL)
++
++    if httpx is not None and isinstance(exc_val, httpx.ProtocolError):
++        # HTTP/2 StreamReset, peer closing the connection mid-response, etc.
++        # (httpx.RemoteProtocolError is a subclass of ProtocolError.)
++        fmt.print_error(
++            f"Connection reset by remote: {exc_val}",
++            code="E5003",
++            suggestion=(
++                "The platform closed the connection before responding. This usually "
++                "means the operation took too long (e.g., sandbox cold start). Try:\n"
++                "  1. Increase HTTP timeout: ebx config set http_timeout 120\n"
++                "  2. Retry the command\n"
++                "  3. Disable HTTP/2: ebx config set http2 false"
++            ),
++        )
++        _sys.exit(EXIT_GENERAL)
++
++    # asyncio.TimeoutError (e.g. from create -T timeout)
++    import asyncio
++
++    if isinstance(exc_val, (asyncio.TimeoutError, TimeoutError)):
++        fmt.print_error(
++            "Operation timed out.",
++            code="E3001",
++            suggestion=(
++                "The operation exceeded its time limit. Try:\n"
++                "  1. Increase HTTP timeout: ebx config set http_timeout 120\n"
++                "  2. Or set env: export SANDBOX_HTTP_TIMEOUT=120\n"
++                "  3. Check if the service is responding"
++            ),
++        )
++        _sys.exit(EXIT_TIMEOUT)
++
++    # Built-in FileNotFoundError (e.g. install with bad path)
++    if isinstance(exc_val, FileNotFoundError):
++        fmt.print_error(
++            f"File or directory not found: {exc_val}",
++            code="E4001",
++            suggestion="Verify the path exists and is accessible.",
++        )
++        _sys.exit(EXIT_NOT_FOUND)
++
++    # Built-in OSError (e.g. permission issues)
++    if isinstance(exc_val, OSError):
++        fmt.print_error(
++            f"OS error: {exc_val}",
++            suggestion="Check file permissions and disk space.",
++        )
++        _sys.exit(EXIT_GENERAL)
++
++    # click.ClickException (pass through message cleanly)
++    if isinstance(exc_val, click.ClickException):
++        fmt.print_error(exc_val.format_message())
++        _sys.exit(EXIT_GENERAL)
++
++    # Last resort: unknown exception → friendly message
++    fmt.print_error(
++        f"Unexpected error: {exc_val}",
++        suggestion="Use 'ebx -v <command>' for more details, or report this issue.",
++    )
++    _sys.exit(EXIT_GENERAL)
+ 
+ 
+ # ---------------------------------------------------------------------------
+ # CLI root
+ # ---------------------------------------------------------------------------
+ 
++
+ @click.group(
+     cls=LazyGroup,
+     invoke_without_command=True,
+@@ -153,14 +315,11 @@ def handle_errors(func):  # noqa: ANN001,ANN201
+         "mcp": "easy_sandbox.cli.commands.mcp:mcp",
+         "template": "easy_sandbox.cli.commands.template:template",
+         "install": "easy_sandbox.cli.commands.template:install_shortcut",
++        "init": "easy_sandbox.cli.commands.template:init_shortcut",
+         "upload": "easy_sandbox.cli.commands.sandbox:upload",
+         "download": "easy_sandbox.cli.commands.sandbox:download",
+         "run": "easy_sandbox.cli.commands.sandbox:run_cmd",
+         "deploy": "easy_sandbox.cli.commands.deploy:deploy_shortcut",
+-        "session": "easy_sandbox.cli.commands.session:session",
+-        "secret": "easy_sandbox.cli.commands.secret:secret",
+-        "skill": "easy_sandbox.cli.commands.skill:skill",
+-        "auth": "easy_sandbox.cli.commands.auth:auth",
+     },
+ )
+ @click.option("--json", "-j", "output_json", is_flag=True, help="Output as JSON")
+diff --git a/tests/test_cli/test_template_commands.py b/tests/test_cli/test_template_commands.py
+index 94420a7..eb2f253 100644
+--- a/tests/test_cli/test_template_commands.py
++++ b/tests/test_cli/test_template_commands.py
+@@ -1,9 +1,11 @@
+ """Tests for template CLI commands."""
++
+ from __future__ import annotations
+ 
+ from typing import TYPE_CHECKING
+ from unittest.mock import AsyncMock, MagicMock, patch
+ 
++import click
+ import pytest
+ from click.testing import CliRunner
+ 
+@@ -34,7 +36,6 @@ class TestTemplateGroup:
+         assert "list" in result.output
+         assert "build" in result.output
+         assert "delete" in result.output
+-        assert "cache" in result.output
+         assert "info" in result.output
+         assert "create" in result.output
+ 
+@@ -108,9 +109,7 @@ class TestInstallRegistryType:
+     def test_install_local_template(self, runner: CliRunner, tmp_path) -> None:
+         """使用 --registry-type local 安装本地模板。"""
+         # 创建本地模板目录
+-        (tmp_path / "template.yaml").write_text(
+-            "name: test-local\nversion: '1.0.0'\n"
+-        )
++        (tmp_path / "template.yaml").write_text("name: test-local\nversion: '1.0.0'\n")
+         (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+ 
+         # mock 掉后续的 platform API 调用
+@@ -120,13 +119,17 @@ class TestInstallRegistryType:
+             "buildID": "bld-456",
+         }
+ 
+-        with patch(
+-            "easy_sandbox.transport.config.load_config",
+-        ), patch(
+-            "easy_sandbox.transport.auth.create_auth_provider",
+-        ), patch(
+-            "easy_sandbox.transport.http.HttpClient",
+-        ) as mock_http_cls:
++        with (
++            patch(
++                "easy_sandbox.transport.config.load_config",
++            ),
++            patch(
++                "easy_sandbox.transport.auth.create_auth_provider",
++            ),
++            patch(
++                "easy_sandbox.transport.http.HttpClient",
++            ) as mock_http_cls,
++        ):
+             mock_http = MagicMock()
+             mock_http.platform_request = AsyncMock(return_value=mock_resp)
+             mock_http.close = AsyncMock()
+@@ -160,53 +163,26 @@ class TestInstallRegistryType:
+         assert "./my-template" in result.output or "local" in result.output.lower()
+ 
+     def test_install_platform_400_friendly(self, runner: CliRunner, tmp_path) -> None:
+-        """POST /templates 返回 400 时展示后端错误，而非裸 traceback。"""
+-        import httpx
+-
+-        (tmp_path / "template.yaml").write_text(
+-            "name: test-local\nversion: '1.0.0'\n"
+-        )
++        """install --download-only skips platform API with deprecation warning."""
++        (tmp_path / "template.yaml").write_text("name: test-local\nversion: '1.0.0'\n")
+         (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+ 
+-        error_resp = httpx.Response(
+-            status_code=400,
+-            json={"error": "Dockerfile validation failed: FROM missing"},
+-            request=httpx.Request("POST", "https://platform/templates"),
+-        )
+-        http_error = httpx.HTTPStatusError(
+-            "400 Bad Request", request=error_resp.request, response=error_resp
++        result = runner.invoke(
++            cli,
++            [
++                "template",
++                "install",
++                str(tmp_path),
++                "--registry-type",
++                "local",
++                "--download-only",
++            ],
+         )
+ 
+-        with patch(
+-            "easy_sandbox.transport.config.load_config",
+-        ), patch(
+-            "easy_sandbox.transport.auth.create_auth_provider",
+-        ), patch(
+-            "easy_sandbox.transport.http.HttpClient",
+-        ) as mock_http_cls:
+-            mock_http = MagicMock()
+-            mock_http.platform_request = AsyncMock(side_effect=http_error)
+-            mock_http.close = AsyncMock()
+-            mock_http_cls.return_value = mock_http
+-
+-            result = runner.invoke(
+-                cli,
+-                [
+-                    "template",
+-                    "install",
+-                    str(tmp_path),
+-                    "--registry-type",
+-                    "local",
+-                ],
+-            )
+-
+-        # 不应是裸 traceback，而是友好错误信息
+-        assert result.exit_code != 0
+-        assert "Traceback" not in result.output
+-        assert "Build submission rejected by platform" in result.output
+-        assert "Dockerfile validation failed" in result.output
+-        # close() 仍应被调用（finally 块）
+-        mock_http.close.assert_awaited()
++        # Should succeed locally with no platform API call
++        assert result.exit_code == 0
++        assert "ebx template build" in result.output
++        assert "installed-locally" in result.output or "installed locally" in result.output
+ 
+ 
+ class TestTemplateListCommand:
+@@ -225,16 +201,21 @@ class TestTemplateListCommand:
+         mock_resp = MagicMock()
+         mock_resp.json.return_value = []
+ 
+-        with patch(
+-            "easy_sandbox.utils.async_bridge.run_sync",
+-            side_effect=[mock_resp, None],  # platform_request + close
+-        ), patch(
+-            "easy_sandbox.transport.config.load_config",
+-        ), patch(
+-            "easy_sandbox.transport.auth.create_auth_provider",
+-        ), patch(
+-            "easy_sandbox.transport.http.HttpClient",
+-        ) as mock_http_cls:
++        with (
++            patch(
++                "easy_sandbox.utils.async_bridge.run_sync",
++                side_effect=[mock_resp, None],  # platform_request + close
++            ),
++            patch(
++                "easy_sandbox.transport.config.load_config",
++            ),
++            patch(
++                "easy_sandbox.transport.auth.create_auth_provider",
++            ),
++            patch(
++                "easy_sandbox.transport.http.HttpClient",
++            ) as mock_http_cls,
++        ):
+             mock_http = MagicMock()
+             mock_http.platform_request = AsyncMock(return_value=mock_resp)
+             mock_http.close = AsyncMock()
+@@ -245,41 +226,70 @@ class TestTemplateListCommand:
+             # We just check it doesn't fail with a click usage error
+             assert result.exit_code in (0, 1, 3)
+ 
+-
+-class TestTemplateCacheCommand:
+-    """Tests for 'ebx template cache'."""
+-
+-    def test_cache_help_distinguishes_from_delete(self, runner: CliRunner) -> None:
+-        """cache help should mention local files and distinguish from platform delete."""
+-        result = runner.invoke(cli, ["template", "cache", "--help"])
+-        assert result.exit_code == 0
+-        assert "local" in result.output.lower()
+-        assert "ebx/templates" in result.output or "~/.ebx" in result.output
+-
+-    def test_cache_no_flag(self, runner: CliRunner) -> None:
+-        with patch(
+-            "easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR",
++    def test_list_official_templates(self, runner: CliRunner) -> None:
++        """--official-api should render official template status state."""
++        fake_config = MagicMock()
++        fake_config.access_key_id = "AK"
++        fake_config.access_key_secret = "SK"
++        fake_config.region = "cn-hangzhou"
++        templates = [
++            {
++                "templateID": "tpl-ready",
++                "name": "demo",
++                "status": {"state": "ready"},
++            }
++        ]
++
++        with (
++            patch(
++                "easy_sandbox.transport.config.load_config",
++                return_value=fake_config,
++            ),
++            patch(
++                "easy_sandbox.api.fc_template.list_official_templates",
++                return_value=templates,
++            ) as mock_list,
+         ):
+-            result = runner.invoke(cli, ["template", "cache"])
+-            assert result.exit_code == 0
++            result = runner.invoke(cli, ["template", "list", "--official-api"])
+ 
+-    def test_cache_clear(self, runner: CliRunner, tmp_path) -> None:
+-        with patch(
+-            "easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR",
+-            tmp_path,
+-        ):
+-            result = runner.invoke(cli, ["template", "cache", "--clear"])
+-            assert result.exit_code == 0
+-            assert "Cleared" in result.output
++        assert result.exit_code == 0, result.output
++        assert "tpl-ready" in result.output
++        assert "ready" in result.output
++        mock_list.assert_called_once()
+ 
+ 
+ class TestTemplateBuildHelp:
+-    """Tests for 'ebx template build --help'."""
++    """Tests for 'ebx template build --help' (full build pipeline)."""
+ 
+     def test_build_help(self, runner: CliRunner) -> None:
+         result = runner.invoke(cli, ["template", "build", "--help"])
+         assert result.exit_code == 0
+         assert "--dockerfile" in result.output or "-f" in result.output
++        # build now runs the full pipeline (local build + ACR push + create).
++        assert "--official-api" in result.output
++        assert "--acr-namespace" in result.output
++
++    def test_deploy_help(self, runner: CliRunner) -> None:
++        """deploy exposes the full build, push, and create pipeline."""
++        result = runner.invoke(cli, ["template", "deploy", "--help"])
++        assert result.exit_code == 0
++        assert "Build, push, and create template in one step" in result.output
++        assert "--official-api" in result.output
++        assert "--acr-namespace" in result.output
++
++    def test_deploy_preserves_all_build_parameters(self) -> None:
++        from easy_sandbox.cli.commands.template import template
++
++        build_params = template.commands["build"].params
++        deploy_params = template.commands["deploy"].params
++        assert [param.to_info_dict() for param in deploy_params] == [
++            param.to_info_dict() for param in build_params
++        ]
++
++    def test_build_local_removed(self, runner: CliRunner) -> None:
++        result = runner.invoke(cli, ["template", "build-local", "--help"])
++        assert result.exit_code != 0
++        assert "No such command 'build-local'" in result.output
+ 
+ 
+ class TestTemplateDeleteHelp:
+@@ -305,15 +315,40 @@ class TestTemplateInfoHelp:
+         assert result.exit_code == 0
+         assert "TEMPLATE_ID" in result.output or "template_id" in result.output.lower()
+ 
++    def test_info_official_template(self, runner: CliRunner) -> None:
++        """--official-api should invoke the official GetTemplate adapter."""
++        fake_config = MagicMock()
++        fake_config.access_key_id = "AK"
++        fake_config.access_key_secret = "SK"
++        fake_config.region = "cn-hangzhou"
++
++        with (
++            patch(
++                "easy_sandbox.transport.config.load_config",
++                return_value=fake_config,
++            ),
++            patch(
++                "easy_sandbox.api.fc_template.get_template",
++                return_value={"templateID": "tpl-ready", "status": {"state": "ready"}},
++            ) as mock_get,
++        ):
++            result = runner.invoke(
++                cli,
++                ["template", "info", "tpl-ready", "--official-api"],
++            )
++
++        assert result.exit_code == 0, result.output
++        assert "tpl-ready" in result.output
++        assert "ready" in result.output
++        mock_get.assert_called_once()
++
+ 
+ class TestSandboxYamlAlias:
+     """Tests for sandbox.yaml alias support in install."""
+ 
+     def test_install_sandbox_yaml_only(self, runner: CliRunner, tmp_path) -> None:
+         """A template with only sandbox.yaml (no template.yaml) should install."""
+-        (tmp_path / "sandbox.yaml").write_text(
+-            "name: test-alias\nversion: '1.0.0'\n"
+-        )
++        (tmp_path / "sandbox.yaml").write_text("name: test-alias\nversion: '1.0.0'\n")
+         (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+ 
+         mock_resp = MagicMock()
+@@ -322,13 +357,17 @@ class TestSandboxYamlAlias:
+             "buildID": "bld-alias-1",
+         }
+ 
+-        with patch(
+-            "easy_sandbox.transport.config.load_config",
+-        ), patch(
+-            "easy_sandbox.transport.auth.create_auth_provider",
+-        ), patch(
+-            "easy_sandbox.transport.http.HttpClient",
+-        ) as mock_http_cls:
++        with (
++            patch(
++                "easy_sandbox.transport.config.load_config",
++            ),
++            patch(
++                "easy_sandbox.transport.auth.create_auth_provider",
++            ),
++            patch(
++                "easy_sandbox.transport.http.HttpClient",
++            ) as mock_http_cls,
++        ):
+             mock_http = MagicMock()
+             mock_http.platform_request = AsyncMock(return_value=mock_resp)
+             mock_http.close = AsyncMock()
+@@ -348,12 +387,8 @@ class TestSandboxYamlAlias:
+ 
+     def test_install_prefers_template_yaml(self, runner: CliRunner, tmp_path) -> None:
+         """When both template.yaml and sandbox.yaml exist, prefer the canonical name."""
+-        (tmp_path / "template.yaml").write_text(
+-            "name: canonical\nversion: '1.0.0'\n"
+-        )
+-        (tmp_path / "sandbox.yaml").write_text(
+-            "name: alias-version\nversion: '2.0.0'\n"
+-        )
++        (tmp_path / "template.yaml").write_text("name: canonical\nversion: '1.0.0'\n")
++        (tmp_path / "sandbox.yaml").write_text("name: alias-version\nversion: '2.0.0'\n")
+         (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+ 
+         mock_resp = MagicMock()
+@@ -362,13 +397,17 @@ class TestSandboxYamlAlias:
+             "buildID": "bld-pref-1",
+         }
+ 
+-        with patch(
+-            "easy_sandbox.transport.config.load_config",
+-        ), patch(
+-            "easy_sandbox.transport.auth.create_auth_provider",
+-        ), patch(
+-            "easy_sandbox.transport.http.HttpClient",
+-        ) as mock_http_cls:
++        with (
++            patch(
++                "easy_sandbox.transport.config.load_config",
++            ),
++            patch(
++                "easy_sandbox.transport.auth.create_auth_provider",
++            ),
++            patch(
++                "easy_sandbox.transport.http.HttpClient",
++            ) as mock_http_cls,
++        ):
+             mock_http = MagicMock()
+             mock_http.platform_request = AsyncMock(return_value=mock_resp)
+             mock_http.close = AsyncMock()
+@@ -392,13 +431,17 @@ class TestSandboxYamlAlias:
+         empty.mkdir()
+         (empty / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+ 
+-        with patch(
+-            "easy_sandbox.transport.config.load_config",
+-        ), patch(
+-            "easy_sandbox.transport.auth.create_auth_provider",
+-        ), patch(
+-            "easy_sandbox.transport.http.HttpClient",
+-        ) as mock_http_cls:
++        with (
++            patch(
++                "easy_sandbox.transport.config.load_config",
++            ),
++            patch(
++                "easy_sandbox.transport.auth.create_auth_provider",
++            ),
++            patch(
++                "easy_sandbox.transport.http.HttpClient",
++            ) as mock_http_cls,
++        ):
+             mock_http = MagicMock()
+             mock_http.platform_request = AsyncMock()
+             mock_http.close = AsyncMock()
+@@ -433,9 +476,7 @@ class TestTemplateCommandErrorHandling:
+ 
+         req = httpx.Request("POST", "https://platform/templates")
+         resp = httpx.Response(status_code=status, json=body, request=req)
+-        return httpx.HTTPStatusError(
+-            f"{status}", request=req, response=resp
+-        )
++        return httpx.HTTPStatusError(f"{status}", request=req, response=resp)
+ 
+     @staticmethod
+     def _patched_http(side_effect: Exception):
+@@ -445,38 +486,23 @@ class TestTemplateCommandErrorHandling:
+         return mock_http
+ 
+     def _run(self, runner: CliRunner, args: list[str], mock_http, **kwargs):
+-        with patch(
+-            "easy_sandbox.transport.config.load_config",
+-        ), patch(
+-            "easy_sandbox.transport.auth.create_auth_provider",
+-        ), patch(
+-            "easy_sandbox.transport.http.HttpClient",
+-        ) as mock_http_cls:
++        with (
++            patch(
++                "easy_sandbox.transport.config.load_config",
++            ),
++            patch(
++                "easy_sandbox.transport.auth.create_auth_provider",
++            ),
++            patch(
++                "easy_sandbox.transport.http.HttpClient",
++            ) as mock_http_cls,
++        ):
+             mock_http_cls.return_value = mock_http
+             return runner.invoke(cli, args, **kwargs)
+ 
+-    def test_build_400_friendly(self, runner: CliRunner, tmp_path) -> None:
+-        """build POST 400 → TemplateBuildError 提示旧 API 与替代方案。"""
+-        dockerfile = tmp_path / "Dockerfile"
+-        dockerfile.write_text("FROM ubuntu:22.04\n")
+-        mock_http = self._patched_http(
+-            self._http_error(400, {"error": "invalid dockerfile"})
+-        )
+-        result = self._run(
+-            runner, ["template", "build", "-f", str(dockerfile)], mock_http
+-        )
+-        assert result.exit_code != 0
+-        assert "Traceback" not in result.output
+-        assert "Build submission rejected by platform" in result.output
+-        assert "invalid dockerfile" in result.output
+-        assert "build-local" in result.output
+-        mock_http.close.assert_awaited()
+-
+     def test_list_server_error_friendly(self, runner: CliRunner) -> None:
+         """list GET 5xx → NetworkError，退出码 1，无 Traceback。"""
+-        mock_http = self._patched_http(
+-            self._http_error(500, {"message": "internal error"})
+-        )
++        mock_http = self._patched_http(self._http_error(500, {"message": "internal error"}))
+         result = self._run(runner, ["template", "list"], mock_http)
+         assert result.exit_code == 1
+         assert "Traceback" not in result.output
+@@ -485,9 +511,7 @@ class TestTemplateCommandErrorHandling:
+ 
+     def test_info_404_friendly(self, runner: CliRunner) -> None:
+         """info GET 404 → TemplateNotFoundError，退出码 4，提示 TEMPLATE_ID。"""
+-        mock_http = self._patched_http(
+-            self._http_error(404, {"message": "not found"})
+-        )
++        mock_http = self._patched_http(self._http_error(404, {"message": "not found"}))
+         result = self._run(runner, ["template", "info", "tpl-missing"], mock_http)
+         assert result.exit_code == 4
+         assert "Traceback" not in result.output
+@@ -497,14 +521,11 @@ class TestTemplateCommandErrorHandling:
+ 
+     def test_delete_404_friendly(self, runner: CliRunner) -> None:
+         """delete DELETE 404 → TemplateNotFoundError，退出码 4。"""
+-        mock_http = self._patched_http(
+-            self._http_error(404, {"message": "not found"})
+-        )
++        mock_http = self._patched_http(self._http_error(404, {"message": "not found"}))
+         result = self._run(
+             runner,
+-            ["template", "delete", "tpl-missing"],
++            ["template", "delete", "tpl-missing", "--yes"],
+             mock_http,
+-            input="y\n",
+         )
+         assert result.exit_code == 4
+         assert "Traceback" not in result.output
+@@ -554,11 +575,18 @@ class TestTemplateCreateCommand:
+ 
+     def test_create_success_mock(self, runner: CliRunner) -> None:
+         """Successful create with mocked API."""
+-        with patch(
+-            "easy_sandbox.transport.config.load_config",
+-        ) as mock_load, patch(
+-            "easy_sandbox.api.fc_template.create_official_template",
+-        ) as mock_create:
++        with (
++            patch(
++                "easy_sandbox.transport.config.load_config",
++            ) as mock_load,
++            patch(
++                "easy_sandbox.api.fc_template.create_official_template",
++            ) as mock_create,
++            patch(
++                "easy_sandbox.api.fc_template.wait_for_template_ready",
++                return_value={"status": {"state": "ready"}},
++            ),
++        ):
+             mock_cfg = MagicMock()
+             mock_cfg.access_key_id = "AK"
+             mock_cfg.access_key_secret = "SK"
+@@ -584,11 +612,18 @@ class TestTemplateCreateCommand:
+ 
+     def test_create_json_output(self, runner: CliRunner) -> None:
+         """JSON output mode for create command."""
+-        with patch(
+-            "easy_sandbox.transport.config.load_config",
+-        ) as mock_load, patch(
+-            "easy_sandbox.api.fc_template.create_official_template",
+-        ) as mock_create:
++        with (
++            patch(
++                "easy_sandbox.transport.config.load_config",
++            ) as mock_load,
++            patch(
++                "easy_sandbox.api.fc_template.create_official_template",
++            ) as mock_create,
++            patch(
++                "easy_sandbox.api.fc_template.wait_for_template_ready",
++                return_value={"status": {"state": "ready"}},
++            ),
++        ):
+             mock_cfg = MagicMock()
+             mock_cfg.access_key_id = "AK"
+             mock_cfg.access_key_secret = "SK"
+@@ -612,12 +647,12 @@ class TestTemplateCreateCommand:
+             assert "tpl-json-001" in result.output
+ 
+ 
+-class TestBuildLocalOfficialAPI:
+-    """Tests for build-local with --official-api / --legacy-api."""
++class TestTemplateDeployOfficialAPI:
++    """Tests for deploy with --official-api / --legacy-api."""
+ 
+-    def test_build_local_help_shows_official_api(self, runner: CliRunner) -> None:
+-        """build-local --help should show the new options."""
+-        result = runner.invoke(cli, ["template", "build-local", "--help"])
++    def test_deploy_help_shows_official_api(self, runner: CliRunner) -> None:
++        """deploy --help should show the new options."""
++        result = runner.invoke(cli, ["template", "deploy", "--help"])
+         assert result.exit_code == 0
+         assert "--official-api" in result.output
+         assert "--legacy-api" in result.output
+@@ -626,23 +661,65 @@ class TestBuildLocalOfficialAPI:
+         assert "--generation" in result.output
+         assert "--ready-cmd" in result.output
+ 
+-    def test_build_local_default_is_official(self, runner: CliRunner) -> None:
+-        """build-local without flag should default to official API."""
+-        result = runner.invoke(cli, ["template", "build-local", "--help"])
++    def test_deploy_template_dir_from_env(
++        self,
++        runner: CliRunner,
++        tmp_path: Path,
++    ) -> None:
++        """EBX_TEMPLATE_DIR supplies the required template directory argument."""
++        (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
++        fake_config = MagicMock()
++        fake_config.access_key_id = None
++        fake_config.access_key_secret = None
++        fake_config.region = "cn-hangzhou"
++        with patch(
++            "easy_sandbox.transport.config.load_config",
++            return_value=fake_config,
++        ):
++            result = runner.invoke(
++                cli,
++                ["template", "deploy", "--acr-namespace", "test-ns"],
++                env={"EBX_TEMPLATE_DIR": str(tmp_path)},
++            )
++        assert result.exit_code == 1
++        assert "Missing argument" not in result.output
++        assert "credentials missing" in result.output.lower()
++
++    def test_deploy_default_is_official(self, runner: CliRunner) -> None:
++        """deploy without flag should default to official API."""
++        result = runner.invoke(cli, ["template", "deploy", "--help"])
+         assert result.exit_code == 0
+         # The help should mention official API as default
+         assert "official" in result.output.lower() or "CreateTemplate" in result.output
+ 
+ 
+-class TestBuildLocalCredentialSeparation:
+-    """Verify that build-local passes ACR and platform API creds independently.
++class TestTemplateDeployCredentialSeparation:
++    """Verify that deploy passes ACR and platform API creds independently.
+ 
+-    Task #68: CLI --acr-username/--acr-password must reach ACR login,
+-    while platform AK/SK from load_config always feeds CreateTemplate API.
++    deploy composes _build_image -> _push_image -> create_official_template.
++    CLI --acr-username/--acr-password must reach ACR login, while platform
++    AK/SK from load_config always feeds the CreateTemplate API.
+     """
+ 
++    @staticmethod
++    def _mock_builder(mock_builder_cls: MagicMock) -> MagicMock:
++        """Configure a mocked DockerBuilder so build/push are no-ops."""
++        builder = mock_builder_cls.return_value
++        builder.check_docker.return_value = True
++        builder.inject_sdk_wheel.return_value = []
++        builder.build.return_value = "local:latest"
++        builder.login_acr_with_aksk.return_value = {
++            "tempUserName": "temp-user",
++            "authorizationToken": "temp-token",
++        }
++        builder.tag.return_value = None
++        builder.push.return_value = None
++        return builder
++
+     def test_explicit_acr_creds_not_overridden(
+-        self, runner: CliRunner, tmp_path: Path,
++        self,
++        runner: CliRunner,
++        tmp_path: Path,
+     ) -> None:
+         """Explicit --acr-username/--acr-password must be used for ACR login."""
+         (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+@@ -654,50 +731,59 @@ class TestBuildLocalCredentialSeparation:
+         fake_config.api_key = ""
+         fake_config.api_url = ""
+ 
+-        fake_result = MagicMock()
+-        fake_result.template_id = "tpl-001"
+-        fake_result.build_status = "ready"
+-        fake_result.acr_ref = "reg/ns/repo:latest"
+-        fake_result.local_tag = "repo:latest"
+-        fake_result.success = True
+-
+-        with patch(
+-            "easy_sandbox.transport.config.load_config",
+-            return_value=fake_config,
+-        ), patch(
+-            "easy_sandbox.api.docker_builder.DockerBuilder",
+-        ) as mock_builder, patch(
+-            "easy_sandbox.utils.async_bridge.run_sync",
+-            return_value=fake_result,
+-        ) as mock_run_sync:
++        with (
++            patch(
++                "easy_sandbox.transport.config.load_config",
++                return_value=fake_config,
++            ),
++            patch(
++                "easy_sandbox.api.docker_builder.DockerBuilder",
++            ) as mock_builder_cls,
++            patch(
++                "easy_sandbox.api.fc_template.create_official_template",
++            ) as mock_create,
++            patch(
++                "easy_sandbox.api.fc_template.wait_for_template_ready",
++                return_value={"status": {"state": "ready"}},
++            ),
++        ):
++            builder = self._mock_builder(mock_builder_cls)
++            mock_create.return_value = {
++                "templateID": "tpl-001",
++                "statusCode": 200,
++            }
+             result = runner.invoke(
+                 cli,
+                 [
+-                    "template", "build-local", str(tmp_path),
+-                    "--acr-namespace", "test-ns",
+-                    "--acr-username", "my-acr-user",
+-                    "--acr-password", "my-acr-pass",
++                    "template",
++                    "deploy",
++                    str(tmp_path),
++                    "--acr-namespace",
++                    "test-ns",
++                    "--acr-username",
++                    "my-acr-user",
++                    "--acr-password",
++                    "my-acr-pass",
++                    "--yes",
+                 ],
+             )
+ 
+         assert result.exit_code == 0, result.output
+ 
+-        # Verify run_sync was called with the coroutine from
+-        # build_and_register_official
+-        mock_run_sync.assert_called_once()
+-        builder_instance = mock_builder.return_value
+-        builder_instance.build_and_register_official.assert_called_once()
+-        call_kwargs = builder_instance.build_and_register_official.call_args.kwargs
++        # ACR login uses the explicit CLI creds (registry, username, password).
++        login_args = builder.login_acr_with_aksk.call_args.args
++        assert login_args[1] == "my-acr-user"
++        assert login_args[2] == "my-acr-pass"
+ 
+-        # ACR credentials: should be the explicit CLI values
+-        assert call_kwargs["acr_access_key_id"] == "my-acr-user"
+-        assert call_kwargs["acr_access_key_secret"] == "my-acr-pass"
+-        # Platform API credentials: always from load_config
+-        assert call_kwargs["api_access_key_id"] == "platform-ak"
+-        assert call_kwargs["api_access_key_secret"] == "platform-sk"
++        # CreateTemplate always uses the platform AK/SK from load_config.
++        create_kwargs = mock_create.call_args.kwargs
++        assert create_kwargs["access_key_id"] == "platform-ak"
++        assert create_kwargs["access_key_secret"] == "platform-sk"
+ 
+     def test_acr_creds_fallback_to_platform(
+-        self, runner: CliRunner, tmp_path: Path,
++        self,
++        runner: CliRunner,
++        tmp_path: Path,
+     ) -> None:
+         """When --acr-username is omitted, ACR creds fall back to platform AK/SK."""
+         (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+@@ -709,39 +795,375 @@ class TestBuildLocalCredentialSeparation:
+         fake_config.api_key = ""
+         fake_config.api_url = ""
+ 
+-        fake_result = MagicMock()
+-        fake_result.template_id = "tpl-002"
+-        fake_result.build_status = "ready"
+-        fake_result.acr_ref = "reg/ns/repo:latest"
+-        fake_result.local_tag = "repo:latest"
+-        fake_result.success = True
++        with (
++            patch(
++                "easy_sandbox.transport.config.load_config",
++                return_value=fake_config,
++            ),
++            patch(
++                "easy_sandbox.api.docker_builder.DockerBuilder",
++            ) as mock_builder_cls,
++            patch(
++                "easy_sandbox.api.fc_template.create_official_template",
++            ) as mock_create,
++            patch(
++                "easy_sandbox.api.fc_template.wait_for_template_ready",
++                return_value={"status": {"state": "ready"}},
++            ),
++        ):
++            builder = self._mock_builder(mock_builder_cls)
++            mock_create.return_value = {
++                "templateID": "tpl-002",
++                "statusCode": 200,
++            }
++            result = runner.invoke(
++                cli,
++                [
++                    "template",
++                    "deploy",
++                    str(tmp_path),
++                    "--acr-namespace",
++                    "test-ns",
++                    # No --acr-username/--acr-password
++                    "--yes",
++                ],
++            )
++
++        assert result.exit_code == 0, result.output
++
++        # ACR login credentials fall back to the platform AK/SK.
++        login_args = builder.login_acr_with_aksk.call_args.args
++        assert login_args[1] == "platform-ak"
++        assert login_args[2] == "platform-sk"
++
++        # CreateTemplate still uses the platform AK/SK.
++        create_kwargs = mock_create.call_args.kwargs
++        assert create_kwargs["access_key_id"] == "platform-ak"
++        assert create_kwargs["access_key_secret"] == "platform-sk"
++
++
++class TestTemplatePushCommand:
++    """Tests for the new 'ebx template push' command."""
++
++    def test_push_help(self, runner: CliRunner) -> None:
++        result = runner.invoke(cli, ["template", "push", "--help"])
++        assert result.exit_code == 0
++        assert "IMAGE" in result.output
++        assert "--acr-namespace" in result.output
++
++    def test_push_missing_creds(self, runner: CliRunner) -> None:
++        """Without ACR creds, push should raise a friendly error (exit != 0)."""
++        fake_config = MagicMock()
++        fake_config.access_key_id = None
++        fake_config.access_key_secret = None
++        fake_config.region = "cn-hangzhou"
+ 
+         with patch(
+             "easy_sandbox.transport.config.load_config",
+             return_value=fake_config,
+-        ), patch(
+-            "easy_sandbox.api.docker_builder.DockerBuilder",
+-        ) as mock_builder, patch(
+-            "easy_sandbox.utils.async_bridge.run_sync",
+-            return_value=fake_result,
+         ):
+             result = runner.invoke(
+                 cli,
+                 [
+-                    "template", "build-local", str(tmp_path),
+-                    "--acr-namespace", "test-ns",
+-                    # No --acr-username/--acr-password
++                    "template",
++                    "push",
++                    "my-img:latest",
++                    "--acr-namespace",
++                    "test-ns",
++                ],
++            )
++        assert result.exit_code != 0
++        assert "Traceback" not in result.output
++        assert "credentials" in result.output.lower()
++
++    def test_push_success(self, runner: CliRunner) -> None:
++        """push tags and pushes the image, printing the ACR URL."""
++        fake_config = MagicMock()
++        fake_config.access_key_id = "platform-ak"
++        fake_config.access_key_secret = "platform-sk"
++        fake_config.region = "cn-hangzhou"
++
++        with (
++            patch(
++                "easy_sandbox.transport.config.load_config",
++                return_value=fake_config,
++            ),
++            patch(
++                "easy_sandbox.api.docker_builder.DockerBuilder",
++            ) as mock_builder_cls,
++        ):
++            builder = mock_builder_cls.return_value
++            builder.login_acr_with_aksk.return_value = {
++                "tempUserName": "u",
++                "authorizationToken": "t",
++            }
++            builder.tag.return_value = None
++            builder.push.return_value = None
++            result = runner.invoke(
++                cli,
++                [
++                    "template",
++                    "push",
++                    "my-img:v1",
++                    "--acr-namespace",
++                    "test-ns",
+                 ],
+             )
+ 
+         assert result.exit_code == 0, result.output
++        assert "test-ns/my-img:v1" in result.output
++        # Local image is tagged to the full ACR reference.
++        tag_args = builder.tag.call_args.args
++        assert tag_args[0] == "my-img:v1"
++        assert tag_args[1].endswith("test-ns/my-img:v1")
++
++
++class TestTemplateBuildCommand:
++    """'ebx template build' now runs the full build+push+create pipeline."""
++
++    def test_build_runs_full_pipeline(
++        self,
++        runner: CliRunner,
++        tmp_path: Path,
++    ) -> None:
++        """build composes local build -> ACR push -> official CreateTemplate."""
++        (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
++
++        fake_config = MagicMock()
++        fake_config.access_key_id = "platform-ak"
++        fake_config.access_key_secret = "platform-sk"
++        fake_config.region = "cn-hangzhou"
++        fake_config.api_key = ""
++        fake_config.api_url = ""
++
++        with (
++            patch(
++                "easy_sandbox.transport.config.load_config",
++                return_value=fake_config,
++            ),
++            patch(
++                "easy_sandbox.api.docker_builder.DockerBuilder",
++            ) as mock_builder_cls,
++            patch(
++                "easy_sandbox.api.fc_template.create_official_template",
++            ) as mock_create,
++            patch(
++                "easy_sandbox.api.fc_template.wait_for_template_ready",
++                return_value={"status": {"state": "ready"}},
++            ),
++        ):
++            builder = mock_builder_cls.return_value
++            builder.check_docker.return_value = True
++            builder.inject_sdk_wheel.return_value = []
++            builder.build.return_value = "my-repo:v1"
++            builder.login_acr_with_aksk.return_value = {
++                "tempUserName": "u",
++                "authorizationToken": "t",
++            }
++            builder.tag.return_value = None
++            builder.push.return_value = None
++            mock_create.return_value = {"templateID": "tpl-b1", "statusCode": 200}
++            result = runner.invoke(
++                cli,
++                [
++                    "template",
++                    "build",
++                    str(tmp_path),
++                    "--acr-namespace",
++                    "test-ns",
++                    "--acr-repo",
++                    "my-repo",
++                    "--tag",
++                    "v1",
++                    "--yes",
++                ],
++            )
++
++        assert result.exit_code == 0, result.output
++        assert "tpl-b1" in result.output
++        # build pushes to ACR as part of the pipeline.
++        builder.push.assert_called_once()
++        mock_create.assert_called_once()
++
++    def test_build_uses_yaml_defaults(
++        self,
++        runner: CliRunner,
++        tmp_path: Path,
++        monkeypatch: pytest.MonkeyPatch,
++    ) -> None:
++        """template.yaml name + resources.cpu/memory feed the build defaults."""
++        (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
++        (tmp_path / "template.yaml").write_text(
++            "name: my-template\n"
++            "resources:\n"
++            "  cpu: 4\n"
++            "  memory: 4096\n"
++        )
++        monkeypatch.delenv("ACR_NAMESPACE", raising=False)
++
++        fake_config = MagicMock()
++        fake_config.access_key_id = "platform-ak"
++        fake_config.access_key_secret = "platform-sk"
++        fake_config.region = "cn-hangzhou"
++        fake_config.api_key = ""
++        fake_config.api_url = ""
++
++        with (
++            patch(
++                "easy_sandbox.transport.config.load_config",
++                return_value=fake_config,
++            ),
++            patch(
++                "easy_sandbox.api.docker_builder.DockerBuilder",
++            ) as mock_builder_cls,
++            patch(
++                "easy_sandbox.api.fc_template.create_official_template",
++            ) as mock_create,
++            patch(
++                "easy_sandbox.api.fc_template.wait_for_template_ready",
++                return_value={"status": {"state": "ready"}},
++            ),
++        ):
++            builder = mock_builder_cls.return_value
++            builder.check_docker.return_value = True
++            builder.inject_sdk_wheel.return_value = []
++            builder.build.return_value = "my-template:latest"
++            builder.login_acr_with_aksk.return_value = {
++                "tempUserName": "u",
++                "authorizationToken": "t",
++            }
++            builder.tag.return_value = None
++            builder.push.return_value = None
++            mock_create.return_value = {"templateID": "tpl-yaml", "statusCode": 200}
++            result = runner.invoke(
++                cli,
++                ["template", "build", str(tmp_path), "--acr-namespace", "test-ns", "--yes"],
++            )
++
++        assert result.exit_code == 0, result.output
++        # yaml resources.cpu/memory become the CreateTemplate values (as ints),
++        # and the yaml name becomes the repo/template name.
++        create_kwargs = mock_create.call_args.kwargs
++        assert create_kwargs["name"] == "my-template"
++        assert create_kwargs["cpu"] == 4
++        assert create_kwargs["memory_size"] == 4096
++        # The resolved-configuration banner reflects the yaml defaults.
++        assert "Template: my-template" in result.output
++        assert "cpu=4" in result.output
++        assert "memory=4096MB" in result.output
++
++    def test_build_acr_namespace_from_dotenv(
++        self,
++        runner: CliRunner,
++        tmp_path: Path,
++        monkeypatch: pytest.MonkeyPatch,
++    ) -> None:
++        """ACR_NAMESPACE in a CWD .env is picked up when no flag/env is set."""
++        (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
++        (tmp_path / ".env").write_text("ACR_NAMESPACE=ns-from-dotenv\n")
++        monkeypatch.delenv("ACR_NAMESPACE", raising=False)
++        monkeypatch.chdir(tmp_path)
++
++        fake_config = MagicMock()
++        fake_config.access_key_id = "platform-ak"
++        fake_config.access_key_secret = "platform-sk"
++        fake_config.region = "cn-hangzhou"
++        fake_config.api_key = ""
++        fake_config.api_url = ""
++
++        with (
++            patch(
++                "easy_sandbox.transport.config.load_config",
++                return_value=fake_config,
++            ),
++            patch(
++                "easy_sandbox.api.docker_builder.DockerBuilder",
++            ) as mock_builder_cls,
++            patch(
++                "easy_sandbox.api.fc_template.create_official_template",
++            ) as mock_create,
++            patch(
++                "easy_sandbox.api.fc_template.wait_for_template_ready",
++                return_value={"status": {"state": "ready"}},
++            ),
++        ):
++            builder = mock_builder_cls.return_value
++            builder.check_docker.return_value = True
++            builder.inject_sdk_wheel.return_value = []
++            builder.build.return_value = "img:latest"
++            builder.login_acr_with_aksk.return_value = {
++                "tempUserName": "u",
++                "authorizationToken": "t",
++            }
++            builder.tag.return_value = None
++            builder.push.return_value = None
++            mock_create.return_value = {"templateID": "tpl-ns", "statusCode": 200}
++            result = runner.invoke(cli, ["template", "build", str(tmp_path), "--yes"])
++
++        assert result.exit_code == 0, result.output
++        # Namespace resolved from the CWD .env appears in the ACR banner...
++        assert "ACR: ns-from-dotenv/" in result.output
++        # ...and flows into the ACR image reference passed to CreateTemplate.
++        assert "ns-from-dotenv" in mock_create.call_args.kwargs["image"]
++
++
++class TestResolveAcrNamespace:
++    """Unit tests for the ``_resolve_acr_namespace`` resolution order."""
++
++    def test_from_ebx_home_dotenv(
++        self,
++        tmp_path: Path,
++        monkeypatch: pytest.MonkeyPatch,
++    ) -> None:
++        """ACR_NAMESPACE in ~/.ebx/.env is used when CWD .env and env are absent."""
++        from easy_sandbox.cli.commands.template import _resolve_acr_namespace
++
++        ebx_dir = tmp_path / ".ebx"
++        ebx_dir.mkdir()
++        (ebx_dir / ".env").write_text("ACR_NAMESPACE=ns-from-home\n")
++
++        workdir = tmp_path / "work"
++        workdir.mkdir()
++        monkeypatch.chdir(workdir)
++        monkeypatch.setenv("HOME", str(tmp_path))
++        monkeypatch.delenv("ACR_NAMESPACE", raising=False)
++
++        assert _resolve_acr_namespace(None) == "ns-from-home"
++
++    def test_cwd_dotenv_wins_over_home(
++        self,
++        tmp_path: Path,
++        monkeypatch: pytest.MonkeyPatch,
++    ) -> None:
++        """CWD .env takes precedence over ~/.ebx/.env."""
++        from easy_sandbox.cli.commands.template import _resolve_acr_namespace
++
++        ebx_dir = tmp_path / ".ebx"
++        ebx_dir.mkdir()
++        (ebx_dir / ".env").write_text("ACR_NAMESPACE=ns-from-home\n")
++
++        workdir = tmp_path / "work"
++        workdir.mkdir()
++        (workdir / ".env").write_text("ACR_NAMESPACE=ns-from-cwd\n")
++        monkeypatch.chdir(workdir)
++        monkeypatch.setenv("HOME", str(tmp_path))
++        monkeypatch.delenv("ACR_NAMESPACE", raising=False)
++
++        assert _resolve_acr_namespace(None) == "ns-from-cwd"
++
++    def test_missing_raises_usage_error(
++        self,
++        tmp_path: Path,
++        monkeypatch: pytest.MonkeyPatch,
++    ) -> None:
++        """No flag/env/.env anywhere raises click.UsageError."""
++        from easy_sandbox.cli.commands.template import _resolve_acr_namespace
+ 
+-        builder_instance = mock_builder.return_value
+-        call_kwargs = builder_instance.build_and_register_official.call_args.kwargs
++        workdir = tmp_path / "work"
++        workdir.mkdir()
++        monkeypatch.chdir(workdir)
++        monkeypatch.setenv("HOME", str(tmp_path))
++        monkeypatch.delenv("ACR_NAMESPACE", raising=False)
+ 
+-        # ACR credentials fall back to platform AK/SK
+-        assert call_kwargs["acr_access_key_id"] == "platform-ak"
+-        assert call_kwargs["acr_access_key_secret"] == "platform-sk"
+-        # Platform API credentials still from load_config
+-        assert call_kwargs["api_access_key_id"] == "platform-ak"
+-        assert call_kwargs["api_access_key_secret"] == "platform-sk"
++        with pytest.raises(click.UsageError):
++            _resolve_acr_namespace(None)

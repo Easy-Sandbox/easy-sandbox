@@ -1,15 +1,14 @@
 """Async retry decorator with exponential backoff."""
+
 from __future__ import annotations
 
 import asyncio
 import functools
 import random
-from typing import Any, Callable, TypeVar, TYPE_CHECKING
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from easy_sandbox.utils.logging import get_logger
-
-if TYPE_CHECKING:
-    from collections.abc import Awaitable
 
 logger = get_logger("utils.retry")
 
@@ -58,9 +57,7 @@ def retry(
 
                     # Check for Retry-After header
                     retry_after = getattr(exc, "retry_after", None)
-                    if retry_after is not None and isinstance(
-                        retry_after, (int, float)
-                    ):
+                    if retry_after is not None and isinstance(retry_after, (int, float)):
                         delay = float(retry_after)
                     else:
                         delay = min(base_delay * (2**attempt), max_delay)

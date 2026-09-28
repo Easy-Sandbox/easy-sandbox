@@ -1,4 +1,5 @@
 """Tests for transport.ws module."""
+
 from __future__ import annotations
 
 import pytest
@@ -44,4 +45,3 @@ class TestWebSocketClient:
         await ws.close()
         await ws.close()  # Should not raise
         assert ws._closed is True
-

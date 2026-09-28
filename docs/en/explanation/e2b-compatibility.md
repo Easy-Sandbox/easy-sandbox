@@ -118,8 +118,8 @@ Easy Sandbox adds the following features on top of E2B compatibility:
 | MCP Server | AI IDE integration (Cursor/Claude/VS Code) |
 | Session Management | Named session persistence |
 | NL Deployment | Natural language-driven project deployment |
-| Secret Management | `ebx secret` secure storage |
-| Skill System | `ebx skill` search and install |
+| Secret Management | Environment variables and `.env` file secure storage |
+| Skill System | CLI entry point to be re-opened after stabilization |
 
 ---
 

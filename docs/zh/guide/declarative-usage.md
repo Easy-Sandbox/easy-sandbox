@@ -52,9 +52,9 @@ def my_func():
 |------|------|--------|------|
 | `template` | `str` | `"code-interpreter-v1"` | 沙箱模板名称 |
 | `timeout` | `int` | `300` | 沙箱超时秒数 |
-| `envs` | `dict` | `None` | 注入的环境变量 |
+| `envs` | `dict` | `None` | 注入的环境变量（envd 作用域；详见[环境变量指南](environment-variables.md)） |
 | `packages` | `list[str]` | `None` | 远程预安装的 pip 包 |
-| `serializer` | `str` | `"json"` | 序列化模式（`json`/`pickle`/`msgpack`） |
+| `serializer` | `str` | `"json"` | 序列化模式（仅支持 `json`） |
 | `sandbox_id` | `str` | `None` | 复用已有沙箱 ID |
 | `keep_alive` | `bool` | `False` | 执行后不销毁沙箱 |
 | `api_key` | `str` | `None` | API Key 覆盖 |
@@ -68,19 +68,13 @@ def my_func():
 
 ## 序列化规则
 
-`serializer` 参数控制函数参数和返回值的序列化方式：
+`serializer` 参数控制函数参数和返回值的序列化方式。当前仅支持 JSON 模式。
 
 | 模式 | 额外依赖 | 支持类型 | 说明 |
 |------|----------|----------|------|
 | `json`（默认） | 无 | JSON 可序列化类型 | 最安全，跨语言兼容 |
-| `pickle` | `cloudpickle` | 任意 Python 对象 | 支持复杂对象，但有安全风险 |
-| `msgpack` | `msgpack` | msgpack 兼容类型 | 二进制格式，更紧凑 |
 
 **JSON 模式**：参数通过 `json.dumps` 序列化，结果通过 `json.loads` 反序列化。不支持的类型会使用 `default=str` 回退。
-
-**Pickle 模式**：使用 `cloudpickle` 进行序列化和 base64 编码传输。支持 lambda、闭包等复杂对象。需要远程沙箱中安装 `cloudpickle`（通过 `packages` 参数）。
-
-**Msgpack 模式**：使用 `msgpack` 进行序列化和 base64 编码传输。需要远程沙箱中安装 `msgpack`。
 
 ---
 
@@ -188,11 +182,11 @@ sandbox.server.start(port=9000, host="0.0.0.0")
 
 ## 限制
 
-1. **参数序列化**：函数参数和返回值必须能被选定的序列化器处理
+1. **参数序列化**：函数参数和返回值必须是 JSON 可序列化的（不支持的类型会回退为 `str`）
 2. **函数源码**：装饰器通过 `inspect.getsource()` 获取函数源码，Lambda 和动态生成的函数不支持
 3. **导入**：远程沙箱中需要的库必须通过 `packages` 参数预安装，或已包含在模板中
 4. **注册命令参数类型**：`@sandbox.register` 仅支持标量类型（`str`/`int`/`float`/`bool`），不支持复杂类型
-5. **闭包变量**：函数中引用的外部变量不会被自动序列化（除非使用 `pickle` 序列化器且变量可序列化）
+5. **闭包变量**：函数中引用的外部变量不会被自动序列化，请使用显式参数传递
 6. **执行环境隔离**：被装饰的函数在独立的远程 Python 进程中执行，不共享本地进程的状态
 
 ---

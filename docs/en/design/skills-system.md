@@ -1,5 +1,7 @@
 # Skills System Design
 
+> **⚠️ Status Notice (ADR 2026-09-23)**: The `ebx skill` CLI command group has been removed as part of the overdesign cleanup. The Skills system described below is a **future planned feature**. CLI commands shown in this document are design proposals and are not currently available. Templates serve as the current capability distribution mechanism.
+
 > Skills are reusable capability packages for Easy Sandbox that bundle "sandbox environment configuration + Agent usage instructions + MCP Tools extensions" into a distributable unit. Developers can install Skills like npm packages, and AI Agents can automatically discover and use capabilities provided by Skills.
 
 ---

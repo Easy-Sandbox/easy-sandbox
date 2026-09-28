@@ -9,8 +9,6 @@ from __future__ import annotations
 import asyncio
 import http.client
 import json
-import os
-import platform
 import sys
 import threading
 import time
@@ -20,23 +18,19 @@ from typing import Any
 import pytest
 
 # PTY is Unix-only.
-pytestmark = pytest.mark.skipif(
-    sys.platform == "win32", reason="PTY not supported on Windows"
-)
+pytestmark = pytest.mark.skipif(sys.platform == "win32", reason="PTY not supported on Windows")
 
 # Import triggers route registration side-effect.
-import easy_sandbox.server.routes_pty  # noqa: F401
-
-from easy_sandbox.server.app import SandboxRequestHandler
-from easy_sandbox.server.registry import CommandRegistry
-from easy_sandbox.server.router import CapabilityGroup, RouteTable, default_table
-from easy_sandbox.server.routes_pty import (
+import easy_sandbox.server.routes_pty  # noqa: F401, E402
+from easy_sandbox.server.app import SandboxRequestHandler  # noqa: E402
+from easy_sandbox.server.registry import CommandRegistry  # noqa: E402
+from easy_sandbox.server.router import CapabilityGroup, default_table  # noqa: E402
+from easy_sandbox.server.routes_pty import (  # noqa: E402
     PtySession,
     PtySessionManager,
     pty_session_manager,
     start_pty_server,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers (same pattern as test_app.py)
@@ -168,7 +162,6 @@ class TestPtySession:
 
     def test_close_terminates_process(self) -> None:
         session = PtySession()
-        pid = session.pid
         assert session.is_alive
         session.close()
         assert not session.is_alive
@@ -294,9 +287,7 @@ class TestPtyRestApi:
         assert body["pid"] > 0
 
     def test_create_session_defaults(self, server_port: int) -> None:
-        status, body = _request(
-            server_port, "POST", "/pty/sessions", body={}
-        )
+        status, body = _request(server_port, "POST", "/pty/sessions", body={})
         assert status == 200
         assert "session_id" in body
 
@@ -310,14 +301,10 @@ class TestPtyRestApi:
         assert len(body["sessions"]) == 2
 
     def test_delete_session(self, server_port: int) -> None:
-        _, create_body = _request(
-            server_port, "POST", "/pty/sessions", body={"shell": "/bin/sh"}
-        )
+        _, create_body = _request(server_port, "POST", "/pty/sessions", body={"shell": "/bin/sh"})
         sid = create_body["session_id"]
 
-        status, body = _request(
-            server_port, "DELETE", f"/pty/sessions/{sid}"
-        )
+        status, body = _request(server_port, "DELETE", f"/pty/sessions/{sid}")
         assert status == 200
         assert body["status"] == "closed"
 
@@ -327,9 +314,7 @@ class TestPtyRestApi:
         assert all(s["id"] != sid for s in body["sessions"])
 
     def test_delete_nonexistent_session(self, server_port: int) -> None:
-        status, body = _request(
-            server_port, "DELETE", "/pty/sessions/nonexistent"
-        )
+        status, body = _request(server_port, "DELETE", "/pty/sessions/nonexistent")
         assert status == 404
 
     def test_session_limit_429(self, server_port: int) -> None:
@@ -339,9 +324,7 @@ class TestPtyRestApi:
         try:
             _request(server_port, "POST", "/pty/sessions", body={"shell": "/bin/sh"})
             _request(server_port, "POST", "/pty/sessions", body={"shell": "/bin/sh"})
-            status, body = _request(
-                server_port, "POST", "/pty/sessions", body={"shell": "/bin/sh"}
-            )
+            status, body = _request(server_port, "POST", "/pty/sessions", body={"shell": "/bin/sh"})
             assert status == 429
             assert "Session limit" in body["error"]
         finally:
@@ -352,9 +335,7 @@ class TestPtyRestApi:
         table = default_table()
         table.disable_group(CapabilityGroup.TERMINAL)
         try:
-            status, body = _request(
-                server_port, "POST", "/pty/sessions", body={}
-            )
+            status, body = _request(server_port, "POST", "/pty/sessions", body={})
             assert status == 404
         finally:
             table.enable_group(CapabilityGroup.TERMINAL)
@@ -435,10 +416,14 @@ class TestPtyWebSocket:
                     pass
 
                 # Send a command.
-                await ws.send(json.dumps({
-                    "type": "input",
-                    "data": "echo WS_PTY_MARKER\n",
-                }))
+                await ws.send(
+                    json.dumps(
+                        {
+                            "type": "input",
+                            "data": "echo WS_PTY_MARKER\n",
+                        }
+                    )
+                )
 
                 # Collect output until we see the marker.
                 collected = ""
@@ -469,11 +454,15 @@ class TestPtyWebSocket:
             ) as ws:
                 await asyncio.wait_for(ws.recv(), timeout=5)
 
-                await ws.send(json.dumps({
-                    "type": "resize",
-                    "cols": 200,
-                    "rows": 50,
-                }))
+                await ws.send(
+                    json.dumps(
+                        {
+                            "type": "resize",
+                            "cols": 200,
+                            "rows": 50,
+                        }
+                    )
+                )
                 # Give it a moment to process.
                 await asyncio.sleep(0.2)
 

@@ -69,7 +69,9 @@ def _get_playwright() -> Any:
         return _page
 
     try:
-        from playwright.sync_api import sync_playwright  # noqa: PLC0415
+        from playwright.sync_api import (  # type: ignore[import-not-found]
+            sync_playwright,  # noqa: PLC0415
+        )
     except ImportError:
         raise RuntimeError(  # noqa: B904
             "Playwright is not installed. "
@@ -168,11 +170,13 @@ def handle_browser_navigate(request: ServerRequest) -> ServerResponse:
             return ServerResponse.error(500, str(exc), error_type=type(exc).__name__)
 
     nav_status = resp.status if resp else 0
-    return ServerResponse.ok({
-        "url": page.url,
-        "title": page.title(),
-        "status": nav_status,
-    })
+    return ServerResponse.ok(
+        {
+            "url": page.url,
+            "title": page.title(),
+            "status": nav_status,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -213,7 +217,9 @@ def handle_browser_screenshot(request: ServerRequest) -> ServerResponse:
                 element = page.query_selector(selector)
                 if element is None:
                     return ServerResponse.error(
-                        404, f"Selector not found: {selector}", error_type="ValueError",
+                        404,
+                        f"Selector not found: {selector}",
+                        error_type="ValueError",
                     )
                 raw = element.screenshot(type=fmt)
                 box = element.bounding_box() or {}
@@ -228,11 +234,13 @@ def handle_browser_screenshot(request: ServerRequest) -> ServerResponse:
             return ServerResponse.error(500, str(exc), error_type=type(exc).__name__)
 
     encoded = base64.b64encode(raw).decode("ascii")
-    return ServerResponse.ok({
-        "image_base64": encoded,
-        "width": width,
-        "height": height,
-    })
+    return ServerResponse.ok(
+        {
+            "image_base64": encoded,
+            "width": width,
+            "height": height,
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -483,34 +491,58 @@ def handle_browser_console(request: ServerRequest) -> ServerResponse:
 
 _table = default_table()
 _table.register(
-    "POST", "/browser/navigate", handle_browser_navigate,
-    group=CapabilityGroup.BROWSER, name="browser_navigate",
+    "POST",
+    "/browser/navigate",
+    handle_browser_navigate,
+    group=CapabilityGroup.BROWSER,
+    name="browser_navigate",
 )
 _table.register(
-    "POST", "/browser/screenshot", handle_browser_screenshot,
-    group=CapabilityGroup.BROWSER, name="browser_screenshot",
+    "POST",
+    "/browser/screenshot",
+    handle_browser_screenshot,
+    group=CapabilityGroup.BROWSER,
+    name="browser_screenshot",
 )
 _table.register(
-    "GET", "/browser/content", handle_browser_content,
-    group=CapabilityGroup.BROWSER, name="browser_content",
+    "GET",
+    "/browser/content",
+    handle_browser_content,
+    group=CapabilityGroup.BROWSER,
+    name="browser_content",
 )
 _table.register(
-    "POST", "/browser/click", handle_browser_click,
-    group=CapabilityGroup.BROWSER, name="browser_click",
+    "POST",
+    "/browser/click",
+    handle_browser_click,
+    group=CapabilityGroup.BROWSER,
+    name="browser_click",
 )
 _table.register(
-    "POST", "/browser/type", handle_browser_type,
-    group=CapabilityGroup.BROWSER, name="browser_type",
+    "POST",
+    "/browser/type",
+    handle_browser_type,
+    group=CapabilityGroup.BROWSER,
+    name="browser_type",
 )
 _table.register(
-    "POST", "/browser/evaluate", handle_browser_evaluate,
-    group=CapabilityGroup.BROWSER, name="browser_evaluate",
+    "POST",
+    "/browser/evaluate",
+    handle_browser_evaluate,
+    group=CapabilityGroup.BROWSER,
+    name="browser_evaluate",
 )
 _table.register(
-    "POST", "/browser/pdf", handle_browser_pdf,
-    group=CapabilityGroup.BROWSER, name="browser_pdf",
+    "POST",
+    "/browser/pdf",
+    handle_browser_pdf,
+    group=CapabilityGroup.BROWSER,
+    name="browser_pdf",
 )
 _table.register(
-    "GET", "/browser/console", handle_browser_console,
-    group=CapabilityGroup.BROWSER, name="browser_console",
+    "GET",
+    "/browser/console",
+    handle_browser_console,
+    group=CapabilityGroup.BROWSER,
+    name="browser_console",
 )

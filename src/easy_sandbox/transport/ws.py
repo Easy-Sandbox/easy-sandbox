@@ -7,14 +7,20 @@ basic connect / disconnect / send / receive functionality.
 Heartbeat (ping/pong) is handled natively by the ``websockets`` library
 via the ``ping_interval`` parameter; no extra SDK wrapper is needed.
 """
+
 from __future__ import annotations
 
 import asyncio
-from typing import Any, AsyncIterator
+import contextlib
+from typing import TYPE_CHECKING, Any
 
 from easy_sandbox.models.errors import ConnectionError_
-from easy_sandbox.transport.config import TransportConfig
 from easy_sandbox.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from easy_sandbox.transport.config import TransportConfig
 
 logger = get_logger("transport.ws")
 
@@ -23,7 +29,7 @@ ConnectionLostError = ConnectionError_
 
 try:
     import websockets
-    import websockets.client
+    import websockets.asyncio.client
 
     HAS_WEBSOCKETS = True
 except ImportError:
@@ -63,7 +69,7 @@ class WebSocketClient:
         ``ping_interval`` / ``ping_timeout`` parameters.
         """
         try:
-            self._ws = await websockets.client.connect(
+            self._ws = await websockets.asyncio.client.connect(
                 self._url,
                 additional_headers=self._extra_headers,
                 ping_interval=self._config.ws_ping_interval,
@@ -136,10 +142,8 @@ class WebSocketClient:
         self._connected = False
 
         if self._ws:
-            try:
+            with contextlib.suppress(Exception):
                 await self._ws.close()
-            except Exception:
-                pass
             self._ws = None
 
         logger.debug("WebSocket closed")

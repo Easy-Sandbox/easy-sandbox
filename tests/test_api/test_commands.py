@@ -1,7 +1,8 @@
 """Tests for the CommandsModule API."""
+
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -12,10 +13,10 @@ from easy_sandbox.models.process import (
     ProcessInfo,
     ProcessResult,
 )
+from tests.test_api.conftest import TEST_ENVD_URL, _MockStreamReader
 
-from easy_sandbox.transport.streaming import StreamReader
-
-from tests.test_api.conftest import TEST_ENVD_URL, TEST_ENVD_TOKEN, _MockStreamReader
+if TYPE_CHECKING:
+    from unittest.mock import AsyncMock
 
 
 class TestCommandsParsing:
@@ -41,6 +42,29 @@ class TestCommandsParsing:
         assert cmd == "python3"
         assert args == ["-c", "print(1)"]
 
+    @pytest.mark.parametrize(
+        "cmd,expected_exe",
+        [
+            ("ls /tmp | grep log", "sh"),
+            ("echo a && echo b", "sh"),
+            ("echo hi 2>&1", "sh"),
+            ("echo a; echo b", "sh"),
+            ("cat < file.txt", "sh"),
+            ("echo $(date)", "sh"),
+            ("python3 -c 'print(1|2)'", "python3"),  # inside quotes, no wrap
+            ('grep -r "a|b" .', "grep"),  # inside quotes, no wrap
+            ("echo hello", "echo"),  # simple, no wrap
+            ("ls -la /tmp", "ls"),  # simple with args, no wrap
+        ],
+    )
+    def test_parse_cmd_shell_wrap(self, cmd: str, expected_exe: str) -> None:
+        """Commands with unquoted shell operators are wrapped in sh -c."""
+        exe, args = CommandsModule._parse_cmd(cmd)
+        assert exe == expected_exe
+        if expected_exe == "sh":
+            assert args[0] == "-c"
+            assert args[1] == cmd
+
 
 class TestCommandsRun:
     """Test CommandsModule.run()."""
@@ -63,10 +87,12 @@ class TestCommandsRun:
         mock_process_protocol: AsyncMock,
     ) -> None:
         # Reset mock to provide fresh chunks
-        mock_process_protocol.start.return_value = _MockStreamReader([
-            ProcessChunk(type=ProcessChunkType.STDOUT, data="output\n"),
-            ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
-        ])
+        mock_process_protocol.start.return_value = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.STDOUT, data="output\n"),
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
         await commands_module.run("ls -la /app")
         call_kwargs = mock_process_protocol.start.call_args
         assert call_kwargs[1]["cmd"] == "ls"
@@ -78,9 +104,11 @@ class TestCommandsRun:
         commands_module: CommandsModule,
         mock_process_protocol: AsyncMock,
     ) -> None:
-        mock_process_protocol.start.return_value = _MockStreamReader([
-            ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
-        ])
+        mock_process_protocol.start.return_value = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
         await commands_module.run(
             "echo test",
             env={"FOO": "bar"},
@@ -98,9 +126,11 @@ class TestCommandsRun:
         commands_module: CommandsModule,
         mock_process_protocol: AsyncMock,
     ) -> None:
-        mock_process_protocol.start.return_value = _MockStreamReader([
-            ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
-        ])
+        mock_process_protocol.start.return_value = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
         await commands_module.run("echo hello")
         call_args = mock_process_protocol.start.call_args
         assert call_args[0][0] == TEST_ENVD_URL  # envd_url positional arg
@@ -201,9 +231,11 @@ class TestCommandsUserParam:
         commands_module: CommandsModule,
         mock_process_protocol: AsyncMock,
     ) -> None:
-        mock_process_protocol.start.return_value = _MockStreamReader([
-            ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
-        ])
+        mock_process_protocol.start.return_value = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
         await commands_module.run("echo hi", user="root")
         call_kwargs = mock_process_protocol.start.call_args[1]
         assert call_kwargs["user"] == "root"
@@ -214,9 +246,11 @@ class TestCommandsUserParam:
         commands_module: CommandsModule,
         mock_process_protocol: AsyncMock,
     ) -> None:
-        mock_process_protocol.start.return_value = _MockStreamReader([
-            ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
-        ])
+        mock_process_protocol.start.return_value = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
         await commands_module.run("echo hi")
         call_kwargs = mock_process_protocol.start.call_args[1]
         assert call_kwargs["user"] == ""
@@ -227,9 +261,11 @@ class TestCommandsUserParam:
         commands_module: CommandsModule,
         mock_process_protocol: AsyncMock,
     ) -> None:
-        mock_process_protocol.start.return_value = _MockStreamReader([
-            ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
-        ])
+        mock_process_protocol.start.return_value = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
         async for _ in commands_module.stream("echo hi", user="admin"):
             pass
         call_kwargs = mock_process_protocol.start.call_args[1]
@@ -241,9 +277,11 @@ class TestCommandsUserParam:
         commands_module: CommandsModule,
         mock_process_protocol: AsyncMock,
     ) -> None:
-        mock_process_protocol.start.return_value = _MockStreamReader([
-            ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
-        ])
+        mock_process_protocol.start.return_value = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
         await commands_module.start("echo hi", user="deploy")
         call_kwargs = mock_process_protocol.start.call_args[1]
         assert call_kwargs["user"] == "deploy"
@@ -259,10 +297,12 @@ class TestCommandsBackground:
         mock_process_protocol: AsyncMock,
     ) -> None:
         """background=True should return a StreamReader-like handle, not ProcessResult."""
-        mock_reader = _MockStreamReader([
-            ProcessChunk(type=ProcessChunkType.STDOUT, data="bg\n"),
-            ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
-        ])
+        mock_reader = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.STDOUT, data="bg\n"),
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
         mock_process_protocol.start.return_value = mock_reader
         result = await commands_module.run("sleep 10", background=True)
         # Should NOT be a ProcessResult — it should be the reader handle
@@ -276,10 +316,12 @@ class TestCommandsBackground:
         commands_module: CommandsModule,
         mock_process_protocol: AsyncMock,
     ) -> None:
-        mock_process_protocol.start.return_value = _MockStreamReader([
-            ProcessChunk(type=ProcessChunkType.STDOUT, data="done\n"),
-            ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
-        ])
+        mock_process_protocol.start.return_value = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.STDOUT, data="done\n"),
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
         result = await commands_module.run("echo done", background=False)
         assert isinstance(result, ProcessResult)
         assert result.stdout == "done\n"
@@ -291,9 +333,11 @@ class TestCommandsBackground:
         mock_process_protocol: AsyncMock,
     ) -> None:
         """background=True should forward timeout, env, cwd, user to start()."""
-        mock_process_protocol.start.return_value = _MockStreamReader([
-            ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
-        ])
+        mock_process_protocol.start.return_value = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
         await commands_module.run(
             "ls",
             timeout=30,
@@ -360,9 +404,11 @@ class TestStreamSync:
         mock_process_protocol: AsyncMock,
     ) -> None:
         """stream_sync should forward timeout/env/cwd/user to stream()."""
-        mock_process_protocol.start.return_value = _MockStreamReader([
-            ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
-        ])
+        mock_process_protocol.start.return_value = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
         commands_module.stream_sync(
             "ls",
             timeout=30,

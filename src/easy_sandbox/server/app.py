@@ -13,13 +13,12 @@ Typical usage (from a template's ``commands.py``)::
 
 from __future__ import annotations
 
-import asyncio
 import hmac
 import json
+import logging
 import os
-import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import parse_qs, urlparse
 
 from . import routes as _routes  # noqa: F401  (import side-effect: registers routes)
@@ -33,6 +32,10 @@ from .registry import CommandRegistry, default_registry
 from .router import CapabilityGroup, RouteTable, default_table
 from .types import ServerRequest, ServerResponse, SSEResponse
 
+if TYPE_CHECKING:
+    import asyncio
+    import threading
+
 __all__ = [
     "SandboxServer",
     "SandboxRequestHandler",
@@ -43,7 +46,10 @@ __all__ = [
 _TOKEN_ENV_VAR = "EBX_SERVER_TOKEN"
 
 # HTTP methods that may carry a JSON request body.
-_BODY_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+_BODY_METHODS = frozenset({"POST", "DELETE"})
+
+# Maximum allowed request body size (10 MB).
+MAX_REQUEST_BODY_SIZE = 10 * 1024 * 1024
 
 
 class SandboxRequestHandler(BaseHTTPRequestHandler):
@@ -110,11 +116,22 @@ class SandboxRequestHandler(BaseHTTPRequestHandler):
 
         Returns:
             Parsed dict, or ``None`` if parsing fails (a 400 response will
-            have been sent).
+            have been sent).  A 413 response is sent when the body exceeds
+            :data:`MAX_REQUEST_BODY_SIZE`.
         """
         content_length = int(self.headers.get("Content-Length", 0))
         if content_length == 0:
             return {}
+        if content_length > MAX_REQUEST_BODY_SIZE:
+            self._send_json(
+                413,
+                {
+                    "error": f"Request body too large ({content_length} bytes); "
+                    f"limit is {MAX_REQUEST_BODY_SIZE}",
+                    "type": "ValueError",
+                },
+            )
+            return None
         try:
             raw = self.rfile.read(content_length)
             return json.loads(raw)  # type: ignore[no-any-return]
@@ -148,10 +165,13 @@ class SandboxRequestHandler(BaseHTTPRequestHandler):
 
         # Capability-group gate: a disabled group makes the route unavailable.
         if not table.is_group_enabled(route.group):
-            self._send_json(404, {
-                "error": f"Built-in route {route.name!r} is disabled",
-                "type": "ValueError",
-            })
+            self._send_json(
+                404,
+                {
+                    "error": f"Built-in route {route.name!r} is disabled",
+                    "type": "ValueError",
+                },
+            )
             return
 
         # Read the JSON body for methods that carry one.
@@ -175,12 +195,34 @@ class SandboxRequestHandler(BaseHTTPRequestHandler):
             self._dispatch_streaming(route, request)
             return
 
-        response = route.handler(request)
+        try:
+            response = route.handler(request)
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger(__name__).exception(
+                "Unhandled exception in handler %s: %s", route.name, exc,
+            )
+            self._send_json(
+                500,
+                {"error": str(exc), "type": type(exc).__name__},
+            )
+            return
         self._send_response(response)
 
     def _dispatch_streaming(self, route: Any, request: ServerRequest) -> None:
         """Invoke a streaming (SSE) handler and flush its events."""
-        result = route.handler(request)
+        try:
+            result = route.handler(request)
+        except Exception as exc:  # noqa: BLE001
+            logging.getLogger(__name__).exception(
+                "Unhandled exception in streaming handler %s: %s",
+                route.name,
+                exc,
+            )
+            self._send_json(
+                500,
+                {"error": str(exc), "type": type(exc).__name__},
+            )
+            return
         if isinstance(result, SSEResponse):
             self.send_response(result.status)
             for key, value in result.headers.items():
@@ -257,9 +299,7 @@ class SandboxServer:
         Args:
             port: TCP port to listen on (default ``9000``).
         """
-        self._httpd = ThreadingHTTPServer(
-            (self._host, port), SandboxRequestHandler
-        )
+        self._httpd = ThreadingHTTPServer((self._host, port), SandboxRequestHandler)
         # Store back-references so the handler can access auth_token, registry
         # and the route table.
         self._httpd.auth_token = self.auth_token  # type: ignore[attr-defined]
@@ -293,9 +333,7 @@ class SandboxServer:
             self._pty_loop = loop
             stop = _asyncio.Event()
             self._pty_stop_event = stop
-            loop.run_until_complete(
-                start_pty_server(self._host, self._pty_port, stop_event=stop)
-            )
+            loop.run_until_complete(start_pty_server(self._host, self._pty_port, stop_event=stop))
 
         self._pty_thread = _threading.Thread(target=_run_pty, daemon=True)
         self._pty_thread.start()

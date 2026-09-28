@@ -4,18 +4,24 @@ Provides a single ``OutputManager`` that every CLI command should use instead
 of bare ``click.echo`` calls.  Supports normal, verbose, quiet, JSON, and
 CI output modes.
 """
+
 from __future__ import annotations
 
 import json as json_module
 import logging
 import os
 import sys
-from typing import Any
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any
 
 import click
 
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+
 __all__ = [
     "OutputManager",
+    "enable_verbose",
     "get_output",
     "is_tty",
     "is_ci_env",
@@ -109,7 +115,9 @@ class OutputManager:
         elif quiet:
             self._level = logging.ERROR
         else:
-            self._level = logging.INFO
+            # NOTE-01: Default to WARNING to avoid noisy INFO logs in
+            # normal usage; users can use --verbose for DEBUG output.
+            self._level = logging.WARNING
 
         # Configure the root logger once so that library-level logging
         # respects the chosen verbosity.
@@ -125,6 +133,20 @@ class OutputManager:
     def use_json(self) -> bool:  # noqa: D401
         """Alias kept for backward compatibility with ``OutputFormatter``."""
         return self.json_mode
+
+    def set_verbose(self, enabled: bool = True) -> None:
+        """Enable (or disable) verbose mode after construction.
+
+        Used when a subcommand-level ``-v/--verbose`` flag is parsed after
+        the root group has already created this manager.
+        """
+        self.verbose = enabled
+        self._level = logging.DEBUG if enabled else logging.WARNING
+        logging.basicConfig(
+            level=self._level,
+            format="%(levelname)s: %(message)s",
+            force=True,
+        )
 
     # -- output methods -----------------------------------------------------
 
@@ -226,7 +248,7 @@ class OutputManager:
         values; normal mode attempts a Rich table with a plain-text fallback.
         """
         if self.json_mode:
-            items = [dict(zip(headers, row, strict=False)) for row in rows]
+            items = [dict(zip(headers, row)) for row in rows]  # noqa: B905
             self._json(items)
             return
         if self.quiet:
@@ -255,8 +277,8 @@ class OutputManager:
     def progress(self, message: str) -> None:
         """Print a progress / status message.
 
-        In CI mode this is a simple one-liner; in interactive mode it could
-        use a spinner (future enhancement).
+        In CI mode this is a simple one-liner; in interactive mode callers
+        should prefer :meth:`spinner` for long-running operations.
         """
         if self.quiet:
             return
@@ -267,6 +289,65 @@ class OutputManager:
                 click.echo(f"... {message}")
             else:
                 click.echo(click.style(f"... {message}", fg="blue"))
+
+    @property
+    def use_rich_spinner(self) -> bool:
+        """Whether rich spinners are appropriate for the current session.
+
+        Only enabled in interactive TTY mode: disabled by ``--quiet``,
+        ``--json``, ``--no-color`` (which includes non-TTY stdout), or when
+        stderr is not connected to a terminal.
+        """
+        return not (
+            self.quiet
+            or self.json_mode
+            or self.no_color
+            or not (hasattr(sys.stderr, "isatty") and sys.stderr.isatty())
+        )
+
+    @contextmanager
+    def spinner(self, message: str) -> Iterator[None]:
+        """Context manager showing an animated spinner for a blocking operation.
+
+        In interactive TTY mode a Rich spinner is rendered on *stderr* (so it
+        never mixes with JSON/text results on stdout).  In quiet, JSON, CI, or
+        non-TTY sessions the spinner is silent — callers already emit their own
+        progress messages where needed.
+
+        If the wrapped block raises, the spinner stops cleanly and the
+        exception propagates untouched so callers can still report errors.
+        """
+        if not self.use_rich_spinner:
+            yield
+            return
+        try:
+            from rich.console import Console
+        except ImportError:
+            yield
+            return
+        console = Console(stderr=True)
+        with console.status(f"[bold blue]{message}...", spinner="dots"):
+            yield
+
+    @contextmanager
+    def live_spinner(self, message: str) -> Iterator[Any]:
+        """Like :meth:`spinner`, but yields an updater callable.
+
+        The yielded ``update(text)`` callable refreshes the spinner text (used
+        to show poll status / elapsed time).  In degraded (non-TTY) mode the
+        updater is a no-op since callers emit their own progress messages.
+        """
+        if not self.use_rich_spinner:
+            yield lambda _text: None  # no-op in non-TTY
+            return
+        try:
+            from rich.console import Console
+        except ImportError:
+            yield lambda _text: None
+            return
+        console = Console(stderr=True)
+        with console.status(f"[bold blue]{message}...", spinner="dots") as status:
+            yield lambda text: status.update(f"[bold blue]{text}...")
 
     # -- private helpers ----------------------------------------------------
 
@@ -304,3 +385,18 @@ def get_output(ctx: click.Context | None = None) -> OutputManager:
 
     # Fallback — create a minimal default manager
     return OutputManager()
+
+
+def enable_verbose(ctx: click.Context) -> None:
+    """Turn on verbose mode from a subcommand-level ``-v/--verbose`` flag.
+
+    Some users type ``ebx create -v`` instead of ``ebx -v create``.  Key
+    subcommands therefore accept a local ``-v/--verbose`` flag and call this
+    helper, which flips the shared :class:`OutputManager` (stored in
+    ``ctx.meta``) to verbose and re-applies DEBUG-level logging.
+    """
+    out = get_output(ctx)
+    out.set_verbose(True)
+    if ctx.obj is None:
+        ctx.obj = {}
+    ctx.obj["verbose"] = True

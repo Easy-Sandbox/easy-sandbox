@@ -38,8 +38,9 @@ Provides:
 from __future__ import annotations
 
 import asyncio
-import errno
+import contextlib
 import fcntl
+import hmac
 import json
 import logging
 import os
@@ -66,6 +67,29 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
+
+# Token environment variable — mirrors the one in app.py.
+_TOKEN_ENV_VAR = "EBX_SERVER_TOKEN"
+
+# Shells allowed for PTY session creation.
+_ALLOWED_SHELLS: frozenset[str] = frozenset(
+    {
+        "/bin/bash",
+        "/bin/sh",
+        "/bin/zsh",
+        "/usr/bin/bash",
+        "/usr/bin/zsh",
+    }
+)
+
+# Environment variables that must never be injected into PTY sessions.
+_DANGEROUS_ENV_VARS: frozenset[str] = frozenset(
+    {
+        "LD_PRELOAD",
+        "LD_LIBRARY_PATH",
+        "DYLD_INSERT_LIBRARIES",
+    }
+)
 
 # ---------------------------------------------------------------------------
 # PtySession
@@ -152,35 +176,27 @@ class PtySession:
     def write(self, data: bytes) -> None:
         """Write *data* to the PTY master (i.e. send input to the shell)."""
         self.last_activity = time.time()
-        try:
+        with contextlib.suppress(OSError):
             os.write(self._master_fd, data)
-        except OSError:
-            pass
 
     def resize(self, cols: int, rows: int) -> None:
         """Resize the terminal to *cols* × *rows*."""
         self._cols = cols
         self._rows = rows
         self.last_activity = time.time()
-        try:
+        with contextlib.suppress(OSError):
             self._set_winsize(self._master_fd, rows, cols)
-        except OSError:
-            pass
 
     def send_signal(self, sig: int) -> None:
         """Send signal *sig* to the shell process group."""
         self.last_activity = time.time()
-        try:
+        with contextlib.suppress(OSError, ProcessLookupError):
             os.killpg(os.getpgid(self._process.pid), sig)
-        except (OSError, ProcessLookupError):
-            pass
 
     def close(self) -> None:
         """Close the session, terminate the shell process, and free the fd."""
-        try:
+        with contextlib.suppress(OSError):
             self._process.terminate()
-        except OSError:
-            pass
         try:
             self._process.wait(timeout=3)
         except subprocess.TimeoutExpired:
@@ -189,10 +205,8 @@ class PtySession:
                 self._process.wait(timeout=1)
             except OSError:
                 pass
-        try:
+        with contextlib.suppress(OSError):
             os.close(self._master_fd)
-        except OSError:
-            pass
 
     @property
     def is_alive(self) -> bool:
@@ -262,9 +276,7 @@ class PtySessionManager:
             # Reap dead sessions first.
             self._reap_dead()
             if len(self._sessions) >= self.MAX_SESSIONS:
-                raise RuntimeError(
-                    f"Session limit reached ({self.MAX_SESSIONS})"
-                )
+                raise RuntimeError(f"Session limit reached ({self.MAX_SESSIONS})")
             session = PtySession(shell=shell, cols=cols, rows=rows, env=env)
             self._sessions[session.id] = session
             return session
@@ -301,7 +313,7 @@ class PtySessionManager:
                 if now - sess.last_activity > self.IDLE_TIMEOUT:
                     to_close.append(sid)
             for sid in to_close:
-                sess = self._sessions.pop(sid, None)
+                sess = self._sessions.pop(sid, None)  # type: ignore[arg-type]
                 if sess is not None:
                     sess.close()
         return len(to_close)
@@ -337,6 +349,15 @@ def _handle_create_session(request: ServerRequest) -> ServerResponse:
     """``POST /pty/sessions`` — create a new PTY session."""
     body = request.body or {}
     shell: str = body.get("shell", "/bin/bash")
+
+    # Validate shell against whitelist.
+    if shell not in _ALLOWED_SHELLS:
+        return ServerResponse.error(
+            400,
+            f"Shell {shell!r} is not allowed; permitted: {sorted(_ALLOWED_SHELLS)}",
+            "ValueError",
+        )
+
     try:
         cols: int = int(body.get("cols", 80))
         rows: int = int(body.get("rows", 24))
@@ -348,9 +369,20 @@ def _handle_create_session(request: ServerRequest) -> ServerResponse:
         )
     env: dict[str, str] | None = body.get("env")
 
+    # Filter out dangerous environment variables.
+    if env:
+        filtered = {k: v for k, v in env.items() if k not in _DANGEROUS_ENV_VARS}
+        if len(filtered) != len(env):
+            removed = sorted(set(env) & _DANGEROUS_ENV_VARS)
+            logger.warning("Filtered dangerous env vars from PTY session: %s", removed)
+        env = filtered if filtered else None
+
     try:
         session = pty_session_manager.create(
-            shell=shell, cols=cols, rows=rows, env=env,
+            shell=shell,
+            cols=cols,
+            rows=rows,
+            env=env,
         )
     except RuntimeError as exc:
         return ServerResponse.error(429, str(exc), "RuntimeError")
@@ -362,13 +394,22 @@ def _handle_create_session(request: ServerRequest) -> ServerResponse:
         pty_port = int(os.environ.get("EBX_PTY_PORT", "9001"))
     except (ValueError, TypeError):
         pty_port = 9001
-    ws_url = f"ws://localhost:{pty_port}/pty?session_id={session.id}"
 
-    return ServerResponse.ok({
-        "session_id": session.id,
-        "ws_url": ws_url,
-        "pid": session.pid,
-    })
+    # Include auth token in ws_url when configured.
+    token = os.environ.get(_TOKEN_ENV_VAR) or None
+    ws_url = f"ws://localhost:{pty_port}/pty?session_id={session.id}"
+    if token:
+        from urllib.parse import quote
+
+        ws_url += f"&token={quote(token, safe='')}"
+
+    return ServerResponse.ok(
+        {
+            "session_id": session.id,
+            "ws_url": ws_url,
+            "pid": session.pid,
+        }
+    )
 
 
 def _handle_list_sessions(request: ServerRequest) -> ServerResponse:
@@ -386,7 +427,9 @@ def _handle_delete_session(request: ServerRequest) -> ServerResponse:
     removed = pty_session_manager.close(session_id)
     if not removed:
         return ServerResponse.error(
-            404, f"Session not found: {session_id}", "ValueError",
+            404,
+            f"Session not found: {session_id}",
+            "ValueError",
         )
     return ServerResponse.ok({"status": "closed", "session_id": session_id})
 
@@ -397,16 +440,25 @@ def _handle_delete_session(request: ServerRequest) -> ServerResponse:
 
 _table = default_table()
 _table.register(
-    "POST", "/pty/sessions", _handle_create_session,
-    group=CapabilityGroup.TERMINAL, name="pty_create_session",
+    "POST",
+    "/pty/sessions",
+    _handle_create_session,
+    group=CapabilityGroup.TERMINAL,
+    name="pty_create_session",
 )
 _table.register(
-    "GET", "/pty/sessions", _handle_list_sessions,
-    group=CapabilityGroup.TERMINAL, name="pty_list_sessions",
+    "GET",
+    "/pty/sessions",
+    _handle_list_sessions,
+    group=CapabilityGroup.TERMINAL,
+    name="pty_list_sessions",
 )
 _table.register(
-    "DELETE", "/pty/sessions/{id}", _handle_delete_session,
-    group=CapabilityGroup.TERMINAL, name="pty_delete_session",
+    "DELETE",
+    "/pty/sessions/{id}",
+    _handle_delete_session,
+    group=CapabilityGroup.TERMINAL,
+    name="pty_delete_session",
 )
 
 
@@ -427,11 +479,24 @@ async def pty_ws_handler(websocket: Any) -> None:
     """WebSocket handler for interactive PTY I/O.
 
     The client must connect to ``ws://<host>:<port>/pty?session_id=<id>``.
+    When a server token is configured (``EBX_SERVER_TOKEN``), the client must
+    also pass ``&token=<token>`` in the query string.
     """
     import websockets  # noqa: F811
 
     # Extract session_id from the request path / query.
-    raw_path: str = websocket.request.path if hasattr(websocket, "request") else getattr(websocket, "path", "")
+    raw_path: str = (
+        websocket.request.path if hasattr(websocket, "request") else getattr(websocket, "path", "")
+    )
+
+    # Authenticate the WebSocket connection.
+    expected_token: str | None = os.environ.get(_TOKEN_ENV_VAR) or None
+    if expected_token is not None:
+        client_token = _extract_query_param(raw_path, "token") or ""
+        if not hmac.compare_digest(client_token, expected_token):
+            await websocket.close(4001, "Unauthorized")
+            return
+
     session_id = _extract_query_param(raw_path, "session_id")
 
     if not session_id:
@@ -444,12 +509,16 @@ async def pty_ws_handler(websocket: Any) -> None:
         return
 
     # Notify the client that the session is connected.
-    await websocket.send(json.dumps({
-        "type": "event",
-        "event": "started",
-        "session_id": session.id,
-        "pid": session.pid,
-    }))
+    await websocket.send(
+        json.dumps(
+            {
+                "type": "event",
+                "event": "started",
+                "session_id": session.id,
+                "pid": session.pid,
+            }
+        )
+    )
 
     # Launch a background task that reads PTY output and forwards to WS.
     read_task = asyncio.ensure_future(_pty_read_loop(websocket, session))
@@ -486,51 +555,65 @@ async def pty_ws_handler(websocket: Any) -> None:
         pass
     finally:
         read_task.cancel()
-        try:
+        with contextlib.suppress(asyncio.CancelledError):
             await read_task
-        except asyncio.CancelledError:
-            pass
 
         # Send an exited event if the process has ended.
         if not session.is_alive:
-            try:
-                await websocket.send(json.dumps({
-                    "type": "event",
-                    "event": "exited",
-                    "session_id": session.id,
-                }))
-            except Exception:  # noqa: BLE001
-                pass
+            with contextlib.suppress(Exception):
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "event",
+                            "event": "exited",
+                            "session_id": session.id,
+                        }
+                    )
+                )
 
 
 async def _pty_read_loop(websocket: Any, session: PtySession) -> None:
     """Continuously read PTY output and send to the WebSocket client."""
     loop = asyncio.get_event_loop()
+    _exited_sent = False
     while True:
         try:
             data = await loop.run_in_executor(None, session.read, 0.1)
             if data:
-                await websocket.send(json.dumps({
-                    "type": "output",
-                    "data": data.decode("utf-8", errors="replace"),
-                }))
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "output",
+                            "data": data.decode("utf-8", errors="replace"),
+                        }
+                    )
+                )
             else:
                 await asyncio.sleep(0.05)
 
-            # If the shell process has exited, send a final event.
-            if not session.is_alive:
+            # If the shell process has exited, send a final event (once).
+            if not session.is_alive and not _exited_sent:
+                _exited_sent = True
                 # Drain remaining output.
                 remaining = await loop.run_in_executor(None, session.read, 0.1)
                 if remaining:
-                    await websocket.send(json.dumps({
-                        "type": "output",
-                        "data": remaining.decode("utf-8", errors="replace"),
-                    }))
-                await websocket.send(json.dumps({
-                    "type": "event",
-                    "event": "exited",
-                    "session_id": session.id,
-                }))
+                    await websocket.send(
+                        json.dumps(
+                            {
+                                "type": "output",
+                                "data": remaining.decode("utf-8", errors="replace"),
+                            }
+                        )
+                    )
+                await websocket.send(
+                    json.dumps(
+                        {
+                            "type": "event",
+                            "event": "exited",
+                            "session_id": session.id,
+                        }
+                    )
+                )
                 break
         except asyncio.CancelledError:
             raise

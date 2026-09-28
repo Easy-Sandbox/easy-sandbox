@@ -23,6 +23,7 @@ async def create(
     template: str = "base",
     *,
     timeout: int = 300,
+    request_timeout: float | None = None,
     metadata: dict[str, str] | None = None,
     envs: dict[str, str] | None = None,
     cpu: int | None = None,
@@ -39,19 +40,20 @@ async def create(
 ) -> Sandbox
 ```
 
-Create a new sandbox. When `description` is provided and `template` remains at its default value `"base"`, the SDK uses an LLM to infer the optimal template and resource configuration.
+Create a new sandbox. When `description` is provided and `template` remains at its default value `"base"`, the SDK records it as a hint log entry. Template inference via LLM happens at the **CLI / Agent layer**, not inside `Sandbox.create()` itself.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `template` | `str` | `"base"` | Sandbox template name |
-| `timeout` | `int` | `300` | Timeout in seconds (1–86400) |
+| `timeout` | `int` | `300` | Sandbox lifetime (TTL) in seconds (1–86400); not an HTTP timeout |
+| `request_timeout` | `float` | `None` | Per-request HTTP timeout (seconds) for the create call only. When `None`, uses `SANDBOX_HTTP_TIMEOUT` / `http_timeout`. Aligns with the E2B SDK. Raising it does not work around platform-side create stalls. |
 | `metadata` | `dict` | `None` | Arbitrary metadata key-value pairs |
 | `envs` | `dict` | `None` | Injected environment variables |
 | `cpu` | `int` | `None` | Number of CPU cores |
 | `memory` | `int` | `None` | Memory in MB |
 | `disk` | `int` | `None` | Disk in MB |
 | `gpu` | `str` | `None` | GPU specification (e.g., `"A10"`) |
-| `description` | `str` | `None` | Natural language description (triggers inference) |
+| `description` | `str` | `None` | Natural language hint (recorded as a log entry; LLM inference happens at the CLI / Agent layer, not inside `create()`) |
 | `secure` | `bool` | `True` | Secure mode (port access requires token) |
 | `api_key` | `str` | `None` | API Key override |
 | `api_url` | `str` | `None` | Platform API URL override |
@@ -207,35 +209,64 @@ async def get_terminal(
 ) -> TerminalSession
 ```
 
-Open an interactive PTY terminal session. Requires the `terminal` capability.
+Open an interactive PTY terminal session. Logically associated with the `terminal` capability (no runtime gate).
 
 **Returns**: `TerminalSession` (WebSocket connection)
-
-**Raises**: `CapabilityNotSupportedError` (E3004) — if the `terminal` capability is not enabled
 
 **Sync version**: `get_terminal_sync()`
 
 #### `list_commands()`
 
 ```python
-def list_commands(self) -> list[dict[str, Any]]
+async def list_commands(
+    self,
+    *,
+    server_port: int = 9000,
+) -> list[dict[str, Any]]
 ```
 
-Return the list of custom commands defined by the template. Requires the `shell` capability.
+Return the merged command catalogue (template + server). Combines template `custom_commands` (source `"template"`) with SandboxServer `/commands` (source `"server"`). When both sources define the same name, the template entry wins and the server entry is marked `shadowed=True`.
 
-**Returns**: List where each item contains `name`, `description`, `args`
+**Returns**: List where each item contains `name`, `description`, `args`, `source`, `shadowed`
 
 #### `run()`
 
 ```python
-async def run(self, name: str, **kwargs: str) -> ProcessResult
+async def run(
+    self,
+    cmd: str,
+    *,
+    timeout: int = 60,
+    env: dict[str, str] | None = None,
+    cwd: str = "",
+    user: str = "",
+    background: bool = False,
+) -> ProcessResult | StreamReader[ProcessChunk]
 ```
 
-Execute a named custom command. Looks up the template's `custom_commands` definition, fills `{placeholder}` tokens, and runs the shell command.
+Execute a bare shell command. Convenience shortcut for `sandbox.commands.run(cmd, ...)`. This is **not** named-command dispatch; use `custom()` for that.
 
-**Raises**: `ValueError` — command does not exist, missing required arguments, or undeclared arguments
+**Returns**: `ProcessResult` (or `StreamReader` when `background=True`)
 
-#### `run_command()`
+#### `custom()`
+
+```python
+async def custom(
+    self,
+    name: str,
+    *,
+    server_port: int = 9000,
+    **kwargs: Any,
+) -> CommandResult
+```
+
+Execute a named command with A→B resolution: first looks up template `custom_commands` (Mechanism A), then falls back to SandboxServer `POST /commands/{name}` (Mechanism B).
+
+**Returns**: `CommandResult` (with `value`, `stdout`, `stderr`, `exit_code`, `execution_time`, `source`)
+
+**Sync version**: `custom_sync()`
+
+#### `run_command()` *(deprecated)*
 
 ```python
 async def run_command(
@@ -247,7 +278,9 @@ async def run_command(
 ) -> Any
 ```
 
-Call a named command on the in-sandbox HTTP server (`POST {port_url}/commands/{name}`). Requires the `ports` capability.
+**Deprecated** alias for `custom()`. Returns only `CommandResult.value` instead of the full `CommandResult`. New code should use `custom()`.
+
+**Sync version**: `run_command_sync()` *(also deprecated)*
 
 ### Properties
 
@@ -294,7 +327,7 @@ sandbox.commands  # CommandsModule instance
 | `send_stdin()` | `async def send_stdin(pid: int, data: str) -> None` | (Deprecated) Same as `send_input()` |
 | `send_signal()` | `async def send_signal(pid: int, signal: int = 15) -> None` | Send a signal to a process |
 
-All methods require the `shell` capability. Each async method has a `_sync` suffixed sync version (e.g., `run_sync()`).
+Logically associated with the `shell` capability (declared in `template.yaml`; no runtime gate — requests are forwarded to the sandbox regardless). Each async method has a `_sync` suffixed sync version (e.g., `run_sync()`).
 
 ---
 
@@ -322,7 +355,7 @@ sandbox.files  # FilesModule instance
 | `upload_url()` | `async def upload_url(path) -> str` | Get upload URL (for compatibility) |
 | `download_url()` | `async def download_url(path) -> str` | Get download URL (for compatibility) |
 
-All methods require the `files` capability. Each async method has a `_sync` suffixed sync version.
+Logically associated with the `files` capability (declared in `template.yaml`; no runtime gate). Each async method has a `_sync` suffixed sync version.
 
 ---
 
@@ -332,7 +365,7 @@ All methods require the `files` capability. Each async method has a `_sync` suff
 sandbox.network  # NetworkModule instance
 ```
 
-All methods are local computations with no network requests. All require the `ports` capability.
+All methods are local computations with no network requests. Logically associated with the `ports` capability (no runtime gate).
 
 | Method | Signature | Description |
 |--------|-----------|-------------|
@@ -356,7 +389,7 @@ sandbox.code  # CodeContextModule instance
 | `restart_context()` | `async def restart_context(context_id) -> dict` | Restart a context |
 | `remove_context()` | `async def remove_context(context_id) -> None` | Delete a context |
 
-All methods require the `code` capability. Each async method has a `_sync` suffixed sync version.
+All methods require the `code` capability and enforce it at runtime — calling any method without the `code` capability raises `CapabilityNotSupportedError` (E3004). Each async method has a `_sync` suffixed sync version.
 
 ---
 
@@ -435,6 +468,27 @@ class SandboxStatus(str, Enum):
 | `exit_code` | `int` | Exit code |
 | `execution_time` | `float` | Execution time (seconds) |
 | `output_files` | `list` | Output file list |
+
+### CommandResult
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `value` | `Any` | Return value — `stdout.strip()` for template commands, JSON return for server commands |
+| `stdout` | `str` | Standard output (empty for server commands) |
+| `stderr` | `str` | Standard error (empty for server commands) |
+| `exit_code` | `int` | Exit code (0 on success, 1 on failure for server commands) |
+| `execution_time` | `float` | Execution time (seconds) |
+| `source` | `str` | `"template"` or `"server"` |
+| `success` | `bool` | `exit_code == 0` (property) |
+
+### OutputFile
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `name` | `str` | File name |
+| `path` | `str` | File path |
+| `size` | `int` | File size (bytes, default 0) |
+| `mime_type` | `str` | MIME type (default `"application/octet-stream"`) |
 
 ### ProcessResult
 

@@ -1,27 +1,29 @@
 """Tests for MCP tool schemas and handlers."""
+
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 
 from easy_sandbox.agent.tools import (
-    TOOL_SCHEMAS,
-    TOOL_SCHEMA_MAP,
     TOOL_HANDLERS,
+    TOOL_SCHEMA_MAP,
+    TOOL_SCHEMAS,
     dispatch_tool,
     handle_create_sandbox,
+    handle_kill_sandbox,
+    handle_list_files,
+    handle_read_file,
     handle_run_code,
     handle_run_command,
-    handle_read_file,
     handle_write_file,
-    handle_list_files,
-    handle_kill_sandbox,
 )
-
 
 # ---------------------------------------------------------------------------
 # Schema tests
 # ---------------------------------------------------------------------------
+
 
 class TestToolSchemas:
     """Test tool schema definitions."""
@@ -98,6 +100,7 @@ class TestToolSchemas:
 # Handler tests
 # ---------------------------------------------------------------------------
 
+
 def _make_mock_manager():
     """Create a mock SandboxManager."""
     manager = AsyncMock()
@@ -111,24 +114,41 @@ def _make_mock_manager():
 
     # Mock commands.run
     from easy_sandbox.models.process import ProcessResult
-    sandbox.commands.run = AsyncMock(return_value=ProcessResult(
-        stdout="hello\n", stderr="", exit_code=0, execution_time=0.5,
-    ))
+
+    sandbox.commands.run = AsyncMock(
+        return_value=ProcessResult(
+            stdout="hello\n",
+            stderr="",
+            exit_code=0,
+            execution_time=0.5,
+        )
+    )
 
     # Mock run_code
     from easy_sandbox.models.process import CodeResult
-    sandbox.run_code = AsyncMock(return_value=CodeResult(
-        text="42", stdout="42\n", stderr="", exit_code=0, output_files=[], execution_time=0.3,
-    ))
+
+    sandbox.run_code = AsyncMock(
+        return_value=CodeResult(
+            text="42",
+            stdout="42\n",
+            stderr="",
+            exit_code=0,
+            output_files=[],
+            execution_time=0.3,
+        )
+    )
 
     # Mock files
     from easy_sandbox.models.filesystem import FileInfo, FileType
+
     sandbox.files.read = AsyncMock(return_value="file content here")
     sandbox.files.write = AsyncMock(return_value=None)
-    sandbox.files.list = AsyncMock(return_value=[
-        FileInfo(name="main.py", path="/app/main.py", type=FileType.FILE, size=128),
-        FileInfo(name="data", path="/app/data", type=FileType.DIRECTORY, size=0),
-    ])
+    sandbox.files.list = AsyncMock(
+        return_value=[
+            FileInfo(name="main.py", path="/app/main.py", type=FileType.FILE, size=128),
+            FileInfo(name="data", path="/app/data", type=FileType.DIRECTORY, size=0),
+        ]
+    )
 
     manager.create_sandbox = AsyncMock(return_value=sandbox)
     manager.get_sandbox = AsyncMock(return_value=sandbox)
@@ -146,45 +166,54 @@ class TestToolHandlers:
 
     async def test_create_sandbox(self, manager):
         result = await handle_create_sandbox(
-            {"template": "python-base", "timeout": 300}, manager,
+            {"template": "python-base", "timeout": 300},
+            manager,
         )
         assert result["sandbox_id"] == "sbx-test-001"
         assert result["status"] == "running"
         manager.create_sandbox.assert_awaited_once_with(
-            template="python-base", timeout=300, envs={},
+            template="python-base",
+            timeout=300,
+            envs={},
         )
 
     async def test_create_sandbox_defaults(self, manager):
         result = await handle_create_sandbox({}, manager)
         assert result["sandbox_id"] == "sbx-test-001"
         manager.create_sandbox.assert_awaited_once_with(
-            template="code-interpreter-v1", timeout=300, envs={},
+            template="code-interpreter-v1",
+            timeout=300,
+            envs={},
         )
 
     async def test_run_code(self, manager):
         result = await handle_run_code(
-            {"code": "print(42)", "language": "python"}, manager,
+            {"code": "print(42)", "language": "python"},
+            manager,
         )
         assert result["stdout"] == "42\n"
         assert result["exit_code"] == 0
         manager.get_sandbox.assert_awaited_once_with(None)
 
     async def test_run_code_with_sandbox_id(self, manager):
-        result = await handle_run_code(
-            {"code": "1+1", "sandbox_id": "sbx-specific"}, manager,
+        await handle_run_code(
+            {"code": "1+1", "sandbox_id": "sbx-specific"},
+            manager,
         )
         manager.get_sandbox.assert_awaited_once_with("sbx-specific")
 
     async def test_run_command(self, manager):
         result = await handle_run_command(
-            {"command": "echo hello"}, manager,
+            {"command": "echo hello"},
+            manager,
         )
         assert result["stdout"] == "hello\n"
         assert result["exit_code"] == 0
 
     async def test_run_command_with_cwd(self, manager):
         await handle_run_command(
-            {"command": "ls", "cwd": "/tmp", "timeout": 10}, manager,
+            {"command": "ls", "cwd": "/tmp", "timeout": 10},
+            manager,
         )
         sandbox = await manager.get_sandbox(None)
         sandbox.commands.run.assert_awaited_with("ls", timeout=10, cwd="/tmp")
@@ -195,10 +224,11 @@ class TestToolHandlers:
 
     async def test_write_file(self, manager):
         result = await handle_write_file(
-            {"path": "/app/test.py", "content": "print('hi')"}, manager,
+            {"path": "/app/test.py", "content": "print('hi')"},
+            manager,
         )
         assert result["success"] is True
-        assert result["bytes_written"] == len("print('hi')".encode("utf-8"))
+        assert result["bytes_written"] == len(b"print('hi')")
 
     async def test_list_files(self, manager):
         result = await handle_list_files({"path": "/app"}, manager)
@@ -209,7 +239,7 @@ class TestToolHandlers:
         assert result["files"][1]["type"] == "directory"
 
     async def test_list_files_default_path(self, manager):
-        result = await handle_list_files({}, manager)
+        await handle_list_files({}, manager)
         sandbox = await manager.get_sandbox(None)
         sandbox.files.list.assert_awaited_with("/app")
 

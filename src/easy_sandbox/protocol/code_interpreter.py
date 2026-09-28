@@ -12,16 +12,25 @@ RPC endpoints:
 - /code.CodeInterpreter/RestartContext — Restart an execution context
 - /code.CodeInterpreter/RemoveContext — Remove an execution context
 """
+
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any
 
-from easy_sandbox.transport.auth import EnvdTokenManager
 from easy_sandbox.transport.codec import ConnectCodec
-from easy_sandbox.transport.http import HttpClient
 from easy_sandbox.utils.logging import get_logger
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from easy_sandbox.transport.auth import EnvdTokenManager
+    from easy_sandbox.transport.http import HttpClient
+
 logger = get_logger("protocol.code_interpreter")
+
+# Extra seconds added to the caller-supplied timeout to derive the HTTP read
+# timeout.  Mirrors the constant in protocol.process.
+_HTTP_TIMEOUT_BUFFER: float = 5.0
 
 _codec = ConnectCodec()
 
@@ -84,10 +93,17 @@ class CodeInterpreterProtocol:
             payload["envVars"] = envs
 
         # 注意：RPC 路径基于 E2B SDK 逆向推断，未经官方文档确认
+        # Derive the HTTP read timeout from the code-execution timeout so
+        # that long-running code is not killed by the HTTP layer's default
+        # 30 s timeout before the server-side timeout fires.
+        http_timeout = float(timeout) + _HTTP_TIMEOUT_BUFFER
+
         response = await self._http.envd_request(
-            envd_url, _EXECUTE,
+            envd_url,
+            _EXECUTE,
             payload=payload,
             envd_token=envd_token,
+            request_timeout=http_timeout,
         )
 
         # --- Buffered callback dispatch ------------------------------------
@@ -122,7 +138,8 @@ class CodeInterpreterProtocol:
         """
         # 注意：RPC 路径基于 E2B SDK 逆向推断，未经官方文档确认
         response = await self._http.envd_request(
-            envd_url, _CREATE_CONTEXT,
+            envd_url,
+            _CREATE_CONTEXT,
             payload={"language": language},
             envd_token=envd_token,
         )
@@ -141,12 +158,13 @@ class CodeInterpreterProtocol:
         """
         # 注意：RPC 路径基于 E2B SDK 逆向推断，未经官方文档确认
         response = await self._http.envd_request(
-            envd_url, _LIST_CONTEXTS,
+            envd_url,
+            _LIST_CONTEXTS,
             payload={},
             envd_token=envd_token,
         )
         contexts = response.get("contexts", response.get("result", {}).get("contexts", []))
-        return contexts
+        return contexts  # type: ignore[no-any-return]
 
     async def restart_context(
         self,
@@ -163,7 +181,8 @@ class CodeInterpreterProtocol:
         """
         # 注意：RPC 路径基于 E2B SDK 逆向推断，未经官方文档确认
         response = await self._http.envd_request(
-            envd_url, _RESTART_CONTEXT,
+            envd_url,
+            _RESTART_CONTEXT,
             payload={"contextId": context_id},
             envd_token=envd_token,
         )
@@ -184,7 +203,8 @@ class CodeInterpreterProtocol:
         """
         # 注意：RPC 路径基于 E2B SDK 逆向推断，未经官方文档确认
         await self._http.envd_request(
-            envd_url, _REMOVE_CONTEXT,
+            envd_url,
+            _REMOVE_CONTEXT,
             payload={"contextId": context_id},
             envd_token=envd_token,
         )

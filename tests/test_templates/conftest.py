@@ -4,6 +4,7 @@ Everything here is **offline**: no network, no real platform API, no docker
 daemon.  The only boundary that gets mocked in ``test_local_install.py`` is the
 backend build request (and, for the GitHub flavour, the archive download).
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -33,11 +34,7 @@ def discover_template_dirs() -> list[Path]:
     """
     if not TEMPLATES_DIR.is_dir():  # pragma: no cover - guards a broken checkout
         return []
-    return sorted(
-        p
-        for p in TEMPLATES_DIR.iterdir()
-        if p.is_dir() and not p.name.startswith(".")
-    )
+    return sorted(p for p in TEMPLATES_DIR.iterdir() if p.is_dir() and not p.name.startswith("."))
 
 
 def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:

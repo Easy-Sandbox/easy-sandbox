@@ -65,16 +65,20 @@ graph TB
     sb_system --- sys_packages["packages"]
     sb_system --- sys_metrics["metrics"]
 
+    template --- tpl_deploy["deploy"]
+    template --- tpl_build["build"]
+    template --- tpl_push["push"]
+    template --- tpl_create["create"]
+    template --- tpl_install["install"]
     template --- tpl_list["list"]
     template --- tpl_info["info"]
-    template --- tpl_build["build"]
     template --- tpl_delete["delete"]
-    template --- tpl_install["install"]
-    template --- tpl_cache["cache"]
+    template --- tpl_search["search"]
 
     mcp --- mcp_install["install"]
     mcp --- mcp_start["start"]
     mcp --- mcp_status["status"]
+    mcp --- mcp_deploy["deploy"]
 
     config --- cfg_get["get"]
     config --- cfg_set["set"]
@@ -707,29 +711,81 @@ ebx install <template-ref> [选项]
 
 ### ebx template
 
-#### template list
+#### template deploy
 
 ```bash
-ebx template list
+ebx template deploy <template-dir> [选项]
+
+选项：
+  （与 template build 相同 — 一键执行 build → push → create）
+
+示例：
+  ebx template deploy ./my-template
+  ebx template deploy ./my-template --alias my-env
 ```
 
-列出所有自定义模板（通过 Platform API 查询）。
-
-#### template info
-
-```bash
-ebx template info <template-id>
-```
-
-查看模板详细信息。
+端到端流水线：本地构建 Docker 镜像、推送到 ACR、调用 CreateTemplate API。这是发布模板的推荐单命令工作流。
 
 #### template build
 
 ```bash
-ebx template build -f <Dockerfile> [--alias <name>]
+ebx template build <template-dir> [选项]
+
+选项：
+  --acr-registry <url>      ACR 注册表 URL
+  --acr-namespace <ns>      ACR 命名空间（必填）
+  --alias, -a <name>        模板别名
+  --tag, -t <tag>           镜像标签
+  --platform <platform>     目标平台
+  --cpu <n>                 CPU 核数
+  --memory <mb>             内存 (MB)
+  --dockerfile, -f <path>   自定义 Dockerfile 路径
+  --official-api/--legacy-api   使用官方 CreateTemplate API
+  ... (完整选项见 --help)
+
+示例：
+  ebx template build ./my-template --acr-namespace my-ns
 ```
 
-从 Dockerfile 构建自定义模板，提交到平台构建。
+从模板目录构建 Docker 镜像，推送到 ACR，并通过 CreateTemplate API 注册。
+
+#### template push
+
+```bash
+ebx template push <image> [选项]
+
+选项：
+  --acr-registry <url>      ACR 注册表 URL
+  --acr-namespace <ns>      ACR 命名空间（必填）
+  --acr-username <user>     ACR 用户名
+  --acr-password <pass>     ACR 密码
+
+示例：
+  ebx template push my-image:v1 --acr-namespace my-ns
+```
+
+将已有本地 Docker 镜像推送到 ACR，不执行构建或模板注册。
+
+#### template create
+
+```bash
+ebx template create <image> [选项]
+
+选项：
+  --name, -n <name>         模板名称（必填）
+  --team-id <id>            团队 ID
+  --cpu <n>                 CPU 核数
+  --memory <mb>             内存 (MB)
+  --disk-size <mb>          磁盘大小 (MB)
+  --start-cmd <cmd>         启动命令
+  --ready-cmd <cmd>         就绪探测命令
+  ... (完整选项见 --help)
+
+示例：
+  ebx template create registry.cn-hangzhou.aliyuncs.com/ns/img:v1 -n my-template
+```
+
+对已在 ACR 中的镜像调用 CreateTemplate API 注册模板。适用于镜像已推送的场景。
 
 #### template install
 
@@ -752,21 +808,51 @@ ebx template install <template-ref> [选项]
 
 从 GitHub 或本地目录安装模板。模板目录须包含 `template.yaml` 文件。
 
+#### template list
+
+```bash
+ebx template list [选项]
+
+选项：
+  --official-api/--no-official-api   使用官方 API
+```
+
+列出所有模板（通过 Platform API 查询）。
+
+#### template info
+
+```bash
+ebx template info <template-id> [选项]
+
+选项：
+  --official-api/--no-official-api   使用官方 API
+```
+
+查看模板详细信息。
+
 #### template delete
 
 ```bash
 ebx template delete <template-id>
 ```
 
-删除自定义模板（需确认）。
+删除模板（需确认）。
 
-#### template cache
+#### template search
 
 ```bash
-ebx template cache [--clear]
+ebx template search <query> [选项]
+
+选项：
+  --tag, -t <tag>           按标签过滤
+  --status, -s <status>     按状态过滤
+
+示例：
+  ebx template search python
+  ebx template search "数据科学" --tag ml
 ```
 
-管理本地模板缓存。`--clear` 清除所有缓存。
+按名称、描述或标签搜索模板。
 
 ### ebx mcp
 
@@ -807,6 +893,29 @@ ebx mcp status
 ```
 
 显示 MCP Server 状态：传输模式、工具数量、认证配置、各 IDE 安装状态。
+
+#### mcp deploy
+
+```bash
+ebx mcp deploy [选项]
+
+选项：
+  --name <name>             FC 函数名称（默认: easy-sandbox-mcp）
+  --region <region>         FC 地域
+  --template <name>         默认沙箱模板
+  --memory <mb>             FC 函数内存（默认: 512）
+  --timeout <seconds>       FC 函数超时（默认: 600）
+  --auth-token-file <path>  Bearer token 文件（或 --generate-token）
+  --enable-session-affinity 启用 MCP Streamable HTTP 会话亲和
+  --api-key <key>           注入 API key 到 FC 环境变量
+  --custom-domain <domain>  MCP 端点自定义域名
+
+示例：
+  ebx mcp deploy --name my-mcp --region cn-hangzhou --template python-base
+  ebx mcp deploy --generate-token --enable-session-affinity
+```
+
+将 MCP Server 部署到阿里云 FC 作为 Streamable HTTP 端点。产出 FC 函数 ARN、HTTP 触发器 URL 和 IDE 配置片段。详见 [MCP Server 设计 — FC 部署](mcp-server.md#7-fc-部署)。
 
 ***
 
@@ -1044,7 +1153,6 @@ CLI 使用 `LazyGroup` 实现懒加载，`ebx --help` 响应时间 < 200ms。只
 
 - **`ebx build [path]`**：从项目目录自动检测并构建沙箱镜像
 - **`ebx logs <sandbox-id>`**：查看沙箱实时日志
-- **`ebx hibernate / wake`**：沙箱休眠与唤醒
-- **`ebx snapshot`**：创建沙箱快照
-- **Sandbox Pool**：预热沙箱池，支持批量任务场景
+- **`ebx hibernate / wake`**：沙箱休眠与唤醒（需底层平台支持）
+- **`ebx snapshot`**：创建沙箱快照（需底层平台支持）
 - **热重载模式**：`--watch` 标志，本地文件变更自动同步到沙箱

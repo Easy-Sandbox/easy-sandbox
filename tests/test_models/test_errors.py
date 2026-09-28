@@ -1,32 +1,34 @@
 """Tests for the exception hierarchy."""
+
 from __future__ import annotations
 
 import pytest
 
 from easy_sandbox.models.errors import (
-    SandboxError,
     AuthenticationError,
+    CodeExecutionError,
+    CommandTimeoutError,
+    ConnectionError_,
+    ExecutionError,
+    FileNotFoundError_,
+    FileOperationError,
     InvalidAPIKeyError,
-    TokenExpiredError,
     InvalidCredentialsError,
-    SandboxCreationError,
-    TemplateNotFoundError,
+    NetworkError,
+    PermissionDeniedError,
+    ProcessError,
     QuotaExceededError,
     RegionUnavailableError,
-    ExecutionError,
-    CommandTimeoutError,
-    ProcessError,
-    CodeExecutionError,
-    FileOperationError,
-    FileNotFoundError_,
-    PermissionDeniedError,
-    NetworkError,
-    ConnectionError_,
+    SandboxCreationError,
+    SandboxError,
     TemplateBuildError,
     TemplateBuildTimeoutError,
+    TemplateNotFoundError,
+    TokenExpiredError,
+)
+from easy_sandbox.models.errors import (
     __all__ as errors_all,
 )
-
 
 # ---- Base SandboxError ----
 
@@ -147,9 +149,7 @@ class TestExecutionErrors:
         assert err.code == "E3001"
 
     def test_process_error(self):
-        err = ProcessError(
-            "exit 1", exit_code=1, stdout="out", stderr="err"
-        )
+        err = ProcessError("exit 1", exit_code=1, stdout="out", stderr="err")
         assert isinstance(err, ExecutionError)
         assert err.code == "E3002"
         assert err.exit_code == 1
@@ -256,6 +256,7 @@ class TestErrorsAll:
             "ProcessError",
             "CodeExecutionError",
             "CapabilityNotSupportedError",
+            "CommandNotFoundError",
             "FileOperationError",
             "FileNotFoundError_",
             "PermissionDeniedError",

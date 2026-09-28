@@ -33,16 +33,18 @@ E2B SDK                            easy_sandbox
    implementation.  Use ``files.write()`` / ``files.read()`` instead.
 
 .. [1] ``network.get_host()`` / ``get_url()`` / ``get_access_headers()``
-   require the template to declare the ``ports`` capability.  When it is
-   absent they raise ``CapabilityNotSupportedError`` (E3004) rather than
-   silently returning a URL that cannot be reached.  Declare ``ports`` in
-   the template's ``capabilities`` list (template.yaml), or use a
-   template that already does (e.g. ``node-web``).
+   are local URL-computation helpers logically associated with the
+   ``ports`` capability.  They perform **no runtime capability check** —
+   calls succeed regardless of whether the template declares ``ports``.
+   Actual network reachability depends on the sandbox configuration and
+   template capabilities.  Only ``CodeContextModule`` (``code`` capability)
+   enforces a runtime gate (fail-closed, E3004).
 
 Note: Not all E2B SDK features have been implemented yet.  Methods that
 depend on undocumented RPC paths are marked with逆向推断 warnings in their
 docstrings.
 """
+
 from __future__ import annotations
 
 from easy_sandbox.api.sandbox import Sandbox

@@ -4,6 +4,7 @@
 已实测验证：端口 URL 格式为 https://{port}-{sandbox_id}.{domain}
 其中 sandbox_id 已包含 "sbx-" 前缀（如 "sbx-xxxx"）。
 """
+
 from __future__ import annotations
 
 from easy_sandbox.utils.logging import get_logger

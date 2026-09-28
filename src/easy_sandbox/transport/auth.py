@@ -7,6 +7,7 @@ Two authentication modes:
 After sandbox creation, envd API uses envdAccessToken from create response,
 sent via multiple headers (X-Access-Token, E2b-Sandbox-Id, etc. 已实测验证).
 """
+
 from __future__ import annotations
 
 import base64
@@ -79,7 +80,10 @@ class AkSkAuth:
         if not access_key_id or not access_key_secret:
             raise InvalidCredentialsError(
                 "AccessKey ID and Secret cannot be empty",
-                suggestion="Set ALICLOUD_ACCESS_KEY_ID and ALICLOUD_ACCESS_KEY_SECRET environment variables.",
+                suggestion=(
+                    "Set ALICLOUD_ACCESS_KEY_ID and ALICLOUD_ACCESS_KEY_SECRET"
+                    " environment variables."
+                ),
             )
         self._ak = access_key_id.strip()
         self._sk = access_key_secret.strip()
@@ -108,7 +112,7 @@ class AkSkAuth:
         self._cached_token = token
         self._token_expires_at = time.time() + self.TOKEN_TTL
         logger.debug("AK/SK token exchanged, expires at %.0f", self._token_expires_at)
-        return token
+        return str(token)
 
     async def get_headers(self) -> dict[str, str]:
         """Return Authorization: Bearer header with exchanged token."""
@@ -120,6 +124,10 @@ class AkSkAuth:
 
     async def refresh(self) -> None:
         """Force refresh the exchanged token."""
+        if self._exchange_func is None:
+            raise NotImplementedError(
+                "AK/SK token exchange not yet implemented. Use API Key authentication instead."
+            )
         self._cached_token = None
         self._token_expires_at = 0.0
         await self._exchange_token()
@@ -233,6 +241,7 @@ def create_auth_provider(
 
     # E2B-compatible: check E2B_API_KEY
     import os
+
     e2b_key = os.environ.get("E2B_API_KEY")
     if e2b_key:
         logger.debug("Using API Key authentication (via E2B_API_KEY)")

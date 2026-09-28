@@ -1,10 +1,11 @@
 """Filesystem data models."""
+
 from __future__ import annotations
 
 import enum
-from datetime import datetime
+from datetime import datetime  # noqa: TC003  # Pydantic needs at runtime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 
 class FileType(str, enum.Enum):

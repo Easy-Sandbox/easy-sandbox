@@ -1,4 +1,5 @@
 """Tests for DockerBuilder, ACRConfig, and ACR auth helpers."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -47,9 +48,7 @@ class TestACRAuthTokenAlias:
         assert callable(new_name)
 
     @patch("easy_sandbox.api.docker_builder._get_acr_auth_token_personal")
-    def test_old_name_delegates_to_same_impl(
-        self, mock_personal: MagicMock
-    ) -> None:
+    def test_old_name_delegates_to_same_impl(self, mock_personal: MagicMock) -> None:
         """Calling via old name must reach the same implementation."""
         mock_personal.return_value = {
             "tempUserName": "u",
@@ -190,12 +189,15 @@ class TestBuildAndRegisterOfficial:
         """Basic end-to-end official flow: build → push → CreateTemplate."""
         (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
 
-        with patch(
-            "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
-            return_value=[],
-        ), patch(
-            "easy_sandbox.api.fc_template.create_official_template",
-        ) as mock_create:
+        with (
+            patch(
+                "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
+                return_value=[],
+            ),
+            patch(
+                "easy_sandbox.api.fc_template.create_official_template",
+            ) as mock_create,
+        ):
             self._apply_mocks(builder, mock_create)
 
             result = await builder.build_and_register_official(
@@ -259,12 +261,15 @@ class TestBuildAndRegisterOfficial:
         """When ACREE instance ID is present, registry_type must be 'acree'."""
         (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
 
-        with patch(
-            "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
-            return_value=[],
-        ), patch(
-            "easy_sandbox.api.fc_template.create_official_template",
-        ) as mock_create:
+        with (
+            patch(
+                "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
+                return_value=[],
+            ),
+            patch(
+                "easy_sandbox.api.fc_template.create_official_template",
+            ) as mock_create,
+        ):
             self._apply_mocks(builder, mock_create)
 
             result = await builder.build_and_register_official(
@@ -288,12 +293,15 @@ class TestBuildAndRegisterOfficial:
         """Image ref forwarded to create_official_template matches ACR tagged ref."""
         (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
 
-        with patch(
-            "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
-            return_value=[],
-        ), patch(
-            "easy_sandbox.api.fc_template.create_official_template",
-        ) as mock_create:
+        with (
+            patch(
+                "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
+                return_value=[],
+            ),
+            patch(
+                "easy_sandbox.api.fc_template.create_official_template",
+            ) as mock_create,
+        ):
             self._apply_mocks(builder, mock_create)
 
             await builder.build_and_register_official(
@@ -316,12 +324,15 @@ class TestBuildAndRegisterOfficial:
         """Default values: cpu=2, memory=2048, disk=None, internet=None, generation=1."""
         (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
 
-        with patch(
-            "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
-            return_value=[],
-        ), patch(
-            "easy_sandbox.api.fc_template.create_official_template",
-        ) as mock_create:
+        with (
+            patch(
+                "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
+                return_value=[],
+            ),
+            patch(
+                "easy_sandbox.api.fc_template.create_official_template",
+            ) as mock_create,
+        ):
             self._apply_mocks(builder, mock_create)
 
             await builder.build_and_register_official(
@@ -335,7 +346,7 @@ class TestBuildAndRegisterOfficial:
         assert call_kwargs["disk_size"] is None
         assert call_kwargs["internet_access"] is None
         assert call_kwargs["generation"] == 1
-        assert call_kwargs["envd_inject"] is True  # default for build-local
+        assert call_kwargs["envd_inject"] is True  # default for template deploy
 
     @pytest.mark.asyncio
     async def test_wheel_injection_called(
@@ -350,12 +361,15 @@ class TestBuildAndRegisterOfficial:
         fake_wheel = tmp_path / "easy_sandbox-0.0.0-py3-none-any.whl"
         fake_wheel.write_text("fake wheel")
 
-        with patch(
-            "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
-            return_value=[fake_wheel],
-        ) as mock_inject, patch(
-            "easy_sandbox.api.fc_template.create_official_template",
-        ) as mock_create:
+        with (
+            patch(
+                "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
+                return_value=[fake_wheel],
+            ) as mock_inject,
+            patch(
+                "easy_sandbox.api.fc_template.create_official_template",
+            ) as mock_create,
+        ):
             self._apply_mocks(builder, mock_create)
 
             await builder.build_and_register_official(
@@ -376,12 +390,15 @@ class TestBuildAndRegisterOfficial:
         (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
         progress: list[str] = []
 
-        with patch(
-            "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
-            return_value=[],
-        ), patch(
-            "easy_sandbox.api.fc_template.create_official_template",
-        ) as mock_create:
+        with (
+            patch(
+                "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
+                return_value=[],
+            ),
+            patch(
+                "easy_sandbox.api.fc_template.create_official_template",
+            ) as mock_create,
+        ):
             self._apply_mocks(builder, mock_create)
 
             await builder.build_and_register_official(
@@ -394,8 +411,7 @@ class TestBuildAndRegisterOfficial:
         assert any("Docker" in m for m in progress)
         assert any("ACR" in m or "Pushing" in m for m in progress)
         assert any(
-            "official" in m.lower() or "CreateTemplate" in m or "Creating" in m
-            for m in progress
+            "official" in m.lower() or "CreateTemplate" in m or "Creating" in m for m in progress
         )
 
     @pytest.mark.asyncio
@@ -448,12 +464,15 @@ class TestBuildAndRegisterOfficial:
             password="test-placeholder-token",  # noqa: S106
         )
 
-        with patch(
-            "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
-            return_value=[],
-        ), patch(
-            "easy_sandbox.api.fc_template.create_official_template",
-        ) as mock_create:
+        with (
+            patch(
+                "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
+                return_value=[],
+            ),
+            patch(
+                "easy_sandbox.api.fc_template.create_official_template",
+            ) as mock_create,
+        ):
             self._apply_mocks(builder, mock_create)
 
             await builder.build_and_register_official(
@@ -492,12 +511,15 @@ class TestBuildAndRegisterOfficial:
             password="test-placeholder-token",  # noqa: S106
         )
 
-        with patch(
-            "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
-            return_value=[],
-        ), patch(
-            "easy_sandbox.api.fc_template.create_official_template",
-        ) as mock_create:
+        with (
+            patch(
+                "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
+                return_value=[],
+            ),
+            patch(
+                "easy_sandbox.api.fc_template.create_official_template",
+            ) as mock_create,
+        ):
             self._apply_mocks(builder, mock_create)
 
             await builder.build_and_register_official(
@@ -532,12 +554,15 @@ class TestBuildAndRegisterOfficial:
             # No username/password in ACRConfig
         )
 
-        with patch(
-            "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
-            return_value=[],
-        ), patch(
-            "easy_sandbox.api.fc_template.create_official_template",
-        ) as mock_create:
+        with (
+            patch(
+                "easy_sandbox.api.docker_builder.DockerBuilder.inject_sdk_wheel",
+                return_value=[],
+            ),
+            patch(
+                "easy_sandbox.api.fc_template.create_official_template",
+            ) as mock_create,
+        ):
             self._apply_mocks(builder, mock_create)
 
             await builder.build_and_register_official(

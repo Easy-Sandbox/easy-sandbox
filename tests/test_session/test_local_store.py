@@ -1,14 +1,18 @@
 """Tests for LocalSessionStore CRUD operations."""
+
 from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
 from easy_sandbox.models.session import SessionInfo
 from easy_sandbox.session.local import LocalSessionStore
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 @pytest.fixture
@@ -101,9 +105,7 @@ class TestListAll:
         names = {s.name for s in result}
         assert names == {"session-0", "session-1", "session-2"}
 
-    async def test_list_skips_corrupt_files(
-        self, store: LocalSessionStore, tmp_path: Path
-    ) -> None:
+    async def test_list_skips_corrupt_files(self, store: LocalSessionStore, tmp_path: Path) -> None:
         # Write valid session
         s = _make_session()
         await store.save("good", s)

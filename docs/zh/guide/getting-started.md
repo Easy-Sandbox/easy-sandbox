@@ -35,11 +35,11 @@ ebx --version
 export E2B_API_KEY="your-api-key-here"
 ```
 
-### 方式二：CLI 登录（推荐用于本地开发）
+### 方式二：CLI 配置（推荐用于本地开发）
 
 ```bash
-ebx auth login
-# 交互式输入 API Key，保存到 ~/.ebx/.env（权限 600）
+ebx config set api_key your-api-key
+# 写入到 ~/.ebx/.env（权限 600）
 ```
 
 ### 方式三：代码参数
@@ -50,10 +50,10 @@ from easy_sandbox.api.sandbox import Sandbox
 sandbox = await Sandbox.create(api_key="your-api-key-here")
 ```
 
-验证认证状态：
+验证配置状态：
 
 ```bash
-ebx auth status
+ebx config get api_key
 ```
 
 ## 3. 创建第一个 Sandbox

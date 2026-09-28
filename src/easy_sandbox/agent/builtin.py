@@ -1,7 +1,8 @@
 """内置 Agent 语法糖。"""
+
 from __future__ import annotations
 
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from easy_sandbox.utils.logging import get_logger
 
@@ -21,9 +22,15 @@ BUILTIN_AGENTS: dict[str, dict[str, Any]] = {
         "display_name": "Qwen Code Deploy Agent",
         "description": "使用 qwen-code 在 sandbox 内自主部署项目",
         "keywords": [
-            "deploy", "部署", "发布", "上线",
-            "qwen-code", "qwen deploy", "NL deploy",
-            "自动部署", "智能部署",
+            "deploy",
+            "部署",
+            "发布",
+            "上线",
+            "qwen-code",
+            "qwen deploy",
+            "NL deploy",
+            "自动部署",
+            "智能部署",
         ],
         "capabilities": ["shell", "files", "code", "ports"],
         "resources": {"cpu": 2, "memory": 4096},
@@ -121,7 +128,7 @@ class AgentModule:
             命令的 stdout 输出。
         """
         result = await self._sandbox.commands.run(command, timeout=timeout)
-        return result.stdout
+        return result.stdout  # type: ignore[union-attr]
 
     async def browse(self, url: str) -> str:
         """浏览网页（使用 curl 获取）。
@@ -133,7 +140,7 @@ class AgentModule:
             网页内容。
         """
         result = await self._sandbox.commands.run(f"curl -sL {url}")
-        return result.stdout
+        return result.stdout  # type: ignore[union-attr]
 
     async def analyze(self, code: str) -> str:
         """分析代码（运行 pylint 等工具）。
@@ -151,7 +158,7 @@ class AgentModule:
         result = await self._sandbox.commands.run(
             "python -m py_compile /tmp/_analyze.py 2>&1 || true"
         )
-        return result.stdout or "No issues found."
+        return result.stdout or "No issues found."  # type: ignore[union-attr]
 
     async def install(self, *packages: str) -> str:
         """安装 Python 包。
@@ -164,9 +171,10 @@ class AgentModule:
         """
         pkgs = " ".join(packages)
         result = await self._sandbox.commands.run(
-            f"pip install --quiet {pkgs}", timeout=120,
+            f"pip install --quiet {pkgs}",
+            timeout=120,
         )
-        return result.stdout
+        return result.stdout  # type: ignore[union-attr]
 
     async def upload(self, content: str | bytes, path: str) -> None:
         """上传文件内容到沙箱。
@@ -188,4 +196,4 @@ class AgentModule:
         Returns:
             文件内容。
         """
-        return await self._sandbox.files.read(path)
+        return await self._sandbox.files.read(path)  # type: ignore[return-value]

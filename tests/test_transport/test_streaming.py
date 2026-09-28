@@ -1,12 +1,16 @@
 """Tests for transport.streaming module."""
+
 from __future__ import annotations
 
 import asyncio
-from typing import Any, AsyncIterator
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from easy_sandbox.transport.streaming import StreamReader
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 async def _async_iter(items: list[dict[str, Any]]) -> AsyncIterator[dict[str, Any]]:

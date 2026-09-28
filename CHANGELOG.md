@@ -6,7 +6,62 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Breaking Changes (ADR 2026-09-23 — Overdesign Cleanup)
+
+1. **`ebx template install` default behaviour changed: download → download+build+deploy**.
+   `install` now fetches the template sources and then builds the Docker image, pushes to ACR, and registers the template via the official API by default. The previous download-only behaviour is available via `--download-only`.
+   *Migration*: add `--download-only` to `ebx template install` / `ebx install` invocations that should not build and deploy.
+
+2. **Removed `SerializerType.PICKLE` / `SerializerType.MSGPACK`**.
+   The `@sandbox` decorator now only supports `serializer="json"`. Non-JSON serializable return values must be converted to `dict`/`list`/`str` before returning.
+   *Migration*: change `@sandbox(serializer="pickle")` → `@sandbox(serializer="json")` and ensure return values are JSON-compatible.
+
+3. **Removed runtime `check_capability()` gate from most modules**.
+   `CommandsModule`, `FilesModule`, and `NetworkModule` no longer raise `CapabilityNotSupportedError` (E3004) at call time. **Exception: `CodeContextModule` retains the `code` capability gate** — all its methods (`run`, `create_context`, `list_contexts`, `restart_context`, `remove_context`) still raise E3004 when the `code` capability is missing (fail-closed). E3004 is also still raised during template resolution / model validation via `resolve_capabilities()`.
+   *Migration*: remove `try/except CapabilityNotSupportedError` around `commands.*`, `files.*`, and `network.*` calls; declare required capabilities in `template.yaml` instead. **Keep** `try/except CapabilityNotSupportedError` around `run_code()` / `code.*` calls if your template may lack the `code` capability.
+
+4. **Removed `easy_sandbox.integrations` sub-module**.
+   The LangChain/CrewAI/AutoGen adapter module was an empty abstract placeholder and has been deleted.
+   *Migration*: use `agent.tools` or MCP integration directly.
+
+5. **Removed `SessionStore` abstract base class**.
+   Only `LocalSessionStore` remains. The `session/base.py` ABC has been deleted.
+   *Migration*: if you were subclassing `SessionStore`, switch to `LocalSessionStore` or implement your own storage directly.
+
+6. **`SecretStore` changed from macOS Keychain to file-based storage**.
+   Secrets are now stored in `~/.ebx/secrets.json` (plaintext, chmod 600). Old Keychain entries are **not** automatically migrated.
+   *Migration*: re-add secrets via environment variables (`E2B_API_KEY`, `SANDBOX_API_KEY`) or `~/.ebx/.env` file. Use `ebx config set api_key <value>` to persist API keys.
+
+7. **Removed `ebx auth` CLI command group**.
+   The `ebx auth login/logout/status/switch` commands have been removed.
+   *Migration*: use `ebx config set api_key <value>` to persist credentials, or set `E2B_API_KEY` / `SANDBOX_API_KEY` environment variables directly.
+
+8. **Removed `ebx secret` CLI command group**.
+   The `ebx secret create/list/delete/inject` commands have been removed.
+   *Migration*: use environment variables or `.env` files to manage credentials and secrets. For sandbox environment injection, use `ebx create --env KEY=VALUE`.
+
+9. **Removed `ebx session` / `ebx sessions` CLI command group**.
+   The `ebx sessions list/info/rename/export/import/clean` and `ebx start/connect` commands have been removed.
+   *Migration*: session data is still stored locally in `~/.ebx/sessions/` by `LocalSessionStore`. Use the SDK's `Sandbox.connect()` API programmatically.
+
+10. **Removed `ebx skill` CLI command group**.
+   The `ebx skill search/install/list/create/publish` commands have been removed.
+   *Migration*: Skills system is a future planned feature. Use templates as the current capability distribution mechanism.
+
+11. **`Sandbox.run()` is now a bare-shell shortcut** (was named-command dispatcher).
+    `Sandbox.run(cmd)` now delegates to `sandbox.commands.run(cmd)` and returns `ProcessResult | StreamReader`. It no longer dispatches named custom commands.
+    *Migration*: replace `sandbox.run("name", **kwargs)` with `sandbox.custom("name", **kwargs)`.
+
+### Added
+- **`Sandbox.custom(name, *, server_port=9000, **kwargs) -> CommandResult`**: New method for named custom-command dispatch. Uses A→B resolution: first tries template `custom_commands` (mechanism A), then falls back to `@registry.command` on SandboxServer (mechanism B). Returns `CommandResult` with `value`, `stdout`, `stderr`, `exit_code`, `execution_time`, `source` (`"template"` | `"server"`), and `success` property.
+- **`CommandResult` data model**: Structured return type for `custom()` replacing the bare `Any` that `run_command()` returned.
+- **`ebx template init` / `ebx init`**: New scaffold command that generates a complete template project from built-in cases (`python`, `node`, `minimal`) or an existing registry reference (`--from`). Includes interactive case selection on TTY.
+
+### Deprecated
+- **`Sandbox.run_command()` / `Sandbox.run_command_sync()`**: Deprecated in favour of `Sandbox.custom()` / `Sandbox.custom_sync()`. Both deprecated methods wrap `custom()` internally but only return `result.value` (type `Any`) for backward compatibility — the full `CommandResult` (with `stdout`, `stderr`, `exit_code`, `execution_time`, `source`, `success`) is discarded. If you were treating the old return value as a `ProcessResult`, migrate to `custom()` / `custom_sync()` which return the complete `CommandResult`. Will be removed in a future release.
+
 ### Changed
+- `commands.run()`, `commands.stream()`, and `commands.start()` now auto-wrap commands containing unquoted shell operators (`|`, `;`, `&&`, `||`, `>`, `<`, `(...)`, `$(...)`) in `sh -c`. Variable expansion (`$VAR`), backticks, and globs still require explicit `sh -c '...'`.
 - **`ebx template build-local`**: Default mode switched to **official CreateTemplate API** (`--official-api`). Legacy v3/v2 behaviour now requires explicit `--legacy-api` flag.
 - **Official template path prerequisites**: `ebx template create` and `ebx template build-local` (default mode) now require the `alicloud` extra (`pip install "easy-sandbox[cli,alicloud]"` or `pip install "easy-sandbox[alicloud]"`) and Alibaba Cloud AK/SK credentials.
 

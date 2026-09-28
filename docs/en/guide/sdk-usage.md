@@ -56,7 +56,7 @@ async with await Sandbox.create(template="base") as sandbox:
 
 ### Natural Language Creation
 
-When `description` is provided and `template` is left at its default value, the SDK infers the best template and resource configuration via LLM:
+When `description` is provided and `template` is left at its default value, the SDK records it as a hint log entry. Template inference via LLM happens at the **CLI / Agent layer**, not inside `Sandbox.create()` itself:
 
 ```python
 sandbox = await Sandbox.create(
@@ -105,7 +105,7 @@ result = await sandbox.run_code(
     "print('hello')",
     language="python",   # Default "python"
     timeout=30,          # Timeout in seconds (default 30)
-    envs={"KEY": "val"}, # Temporary environment variables for this execution
+    envs={"KEY": "val"}, # Temporary env vars for this execution (envd scope)
 )
 
 print(result.text)           # Output text (stdout with trailing whitespace stripped)
@@ -140,7 +140,7 @@ The `sandbox.commands` submodule provides shell command execution capabilities.
 result = await sandbox.commands.run(
     "ls -la /home/user",
     timeout=60,                # Timeout in seconds (default 60)
-    env={"MY_VAR": "value"},   # Additional environment variables
+    env={"MY_VAR": "value"},   # Additional env vars for this command (envd scope)
     cwd="/app",                # Working directory
 )
 
@@ -365,15 +365,25 @@ See [Error Codes Reference](../reference/error-codes.md) for details.
 
 ## Custom Commands
 
-Templates can define custom commands. Use `sandbox.run()` to execute and `sandbox.list_commands()` to list them:
+Templates can define custom commands. Use `sandbox.custom()` to execute named commands and `sandbox.list_commands()` to list them:
 
 ```python
 # List available commands
-commands = sandbox.list_commands()
+commands = await sandbox.list_commands()
 for cmd in commands:
     print(f"{cmd['name']}: {cmd['description']}")
 
-# Execute a custom command
-result = await sandbox.run("dev", port="8080")
-print(result.stdout)
+# Execute a named custom command
+result = await sandbox.custom("dev", port="8080")
+print(result.value)
 ```
+
+> **Note:** `sandbox.run(cmd)` runs a bare shell command; `sandbox.custom(name)` dispatches a named command.
+
+---
+
+## Environment Variables
+
+Environment variables can be injected at creation (`envs=`) or per-call (`env=`/`envs=`). Commands containing unquoted shell operators (pipes `|`, semicolons `;`, logical operators `&&`/`||`, redirects `>`/`<`, subshells `(...)`, command substitution `$(...)`) are **automatically wrapped** in `sh -c` by `commands.run()`, `commands.stream()`, and `commands.start()`. Variable expansion (`$VAR`), backtick substitution (`` `cmd` ``), and glob patterns (`*`, `?`) still require explicit `sh -c '...'` wrapping, or use `printenv VAR` to read a single variable.
+
+For full details on scopes (envd vs SandboxServer), injection patterns, and security considerations, see the dedicated [Environment Variables Guide](environment-variables.md).

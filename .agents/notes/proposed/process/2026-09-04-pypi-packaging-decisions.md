@@ -1,65 +1,105 @@
-# Decision: PyPI 打包就绪决策（发行名 + P0 修复清单）
+# Decision: PyPI packaging decisions and pre-release P0 checklist
 
 Status: proposed
 Task: #95, #97, #105
 
 ## Problem
-项目即将首次公开发布到 PyPI，需要明确发行名并解决发布前的 blocker 项。审计发现若干硬性阻断（version 为 dev、URLs 为占位符、零 CI）和缺失的类型标记。
+The project is about to make its first public release to PyPI and needs to
+finalise the distribution name and resolve pre-release blockers. The audit
+surfaced several hard blockers (version stuck at `dev`, placeholder URLs, zero
+CI) and a missing typing marker.
 
 ## Decision
-明确发行名为 `easy-sandbox`，并定义发布前必须解决的 P0 清单。
+Confirm the distribution name as `easy-sandbox` and define the P0 checklist that
+must be resolved before publishing.
 
-### 发行名确认
+### Distribution name confirmation
 
-1. **发行名 `easy-sandbox`**：PyPI JSON API 返回 404（可用）。`ebx` 已被第三方占用（HTTP 200），不可用。
-2. **PyPI org `ebx` 审批 pending 不阻塞发布**：org 审批只影响组织归属管理，不影响发行名可用性。发行名是全局唯一命名空间，与 org 无关。
+1. **Distribution name `easy-sandbox`**: the PyPI JSON API returns 404
+   (available). `ebx` is already taken by a third party (HTTP 200) and is not
+   available.
+2. **PyPI org `ebx` approval pending does not block release**: org approval only
+   affects organisational ownership management, not distribution-name
+   availability. The distribution name is a global namespace and is independent
+   of the org.
 
-### P0 修复清单（发布前必须解决）
+### P0 fix list (must be resolved before release)
 
-3. **缺 `py.typed` 标记**：`src/easy_sandbox/py.typed` 不存在。项目使用 `mypy strict=true`，是完全类型化的 SDK，消费者应能利用其类型信息。hatchling 在 `packages` 设置下会自动包含此文件——只需创建空文件。
-4. **缺 CI workflow**：`.github/workflows/` 目录完全不存在。需要：
-   - `ci.yml`：lint + mypy + pytest（矩阵 py3.10–3.13），PR/push to main 触发。
-   - `release.yml`：build + publish to PyPI on tag push。
-   - 初期用 `PYPI_API_TOKEN` 方案（用户已配置 repo secret），中长期迁移到 Trusted Publishing（OIDC）。
-5. **`[project.urls]` 为 `anycodes/*` 占位符**：`pyproject.toml` 的 Homepage/Documentation/Repository/Issues 全部指向 `github.com/anycodes/easy-sandbox*`。需替换为最终确认的 org/repo URL。
-6. **CODE_OF_CONDUCT.md / SECURITY.md 占位符联系邮箱**：两文件中的 `SECURITY_CONTACT_EMAIL` 占位符必须在任何公开发布前替换为真实邮箱。
+3. **Missing `py.typed` marker**: `src/easy_sandbox/py.typed` does not exist.
+   The project uses `mypy strict=true` and is a fully-typed SDK — consumers
+   should be able to leverage its type information. hatchling automatically
+   includes this file under the `packages` setting — simply create an empty
+   file.
+4. **Missing CI workflow**: `.github/workflows/` does not exist at all. Need:
+   - `ci.yml`: lint + mypy + pytest (matrix py3.10–3.13), triggered on PR /
+     push to main.
+   - `release.yml`: build + publish to PyPI on tag push.
+   - Initially use the `PYPI_API_TOKEN` approach (the user has already
+     configured the repo secret); mid-to-long term migrate to Trusted
+     Publishing (OIDC).
+5. **`[project.urls]` are `anycodes/*` placeholders**: Homepage / Documentation
+   / Repository / Issues in `pyproject.toml` all point at
+   `github.com/anycodes/easy-sandbox*`. Replace with the final confirmed
+   org/repo URLs.
+6. **Placeholder contact email in CODE_OF_CONDUCT.md / SECURITY.md**: the
+   `SECURITY_CONTACT_EMAIL` placeholder in both files must be replaced with a
+   real email before any public release.
 
-### 已确认无问题的项
+### Items already confirmed OK
 
-7. version 来源（dynamic → `_version.py`）、build-backend（hatchling）、readme、license（Apache-2.0 SPDX）、requires-python（>=3.10）、dependencies、extras 均 OK。
-8. License classifier 与 SPDX 表达式并存：提示级问题，建议移除 License classifier 保留 SPDX。
-9. README 徽章在 CI + PyPI publish 后自动生效，无需文本改动。
+7. Version source (dynamic → `_version.py`), build-backend (hatchling), readme,
+   license (Apache-2.0 SPDX), requires-python (>=3.10), dependencies, and
+   extras are all fine.
+8. License classifier and SPDX expression coexisting: notice-level issue;
+   recommend removing the License classifier and keeping SPDX.
+9. README badges will activate automatically once CI + PyPI publishing land;
+   no textual change needed.
 
-### 发布路径
+### Release path
 
-10. **安全发布路径**：`python -m build` → `twine check dist/*` → TestPyPI 演练 → 正式 `twine upload`。
-11. **PyPI 不可逆性**：同一版本号一旦上传永久占用，yank 也消耗版本号。务必先 TestPyPI。
-12. **`_version.py` 从 `0.1.0-dev` 改为 `0.1.0`**：PEP 440 会规范化为 `0.1.0.dev0`，`pip install` 默认不装 dev 版。
+10. **Safe release path**: `python -m build` → `twine check dist/*` →
+    TestPyPI dry run → official `twine upload`.
+11. **PyPI immutability**: once a version number is uploaded it is permanently
+    consumed; `yank` also consumes the version number. Always test on TestPyPI
+    first.
+12. **Change `_version.py` from `0.1.0-dev` to `0.1.0`**: PEP 440 normalises
+    that to `0.1.0.dev0`, and `pip install` does not install dev versions by
+    default.
+
+## API Design
+N/A — this decision does not involve API changes. It only concerns packaging
+metadata (`pyproject.toml`, `_version.py`), CI workflows, and documentation
+placeholders; no Python-level SDK APIs are added, removed, or modified.
 
 ## Alternatives considered
-- **发行名用 `ebx`** — PyPI 已被第三方占用。Rejected（硬约束）。
-- **先发布再补 CI** — 没有 CI 的首版无法保证质量，且 badge 空转影响可信度。Rejected。
-- **跳过 TestPyPI 直接正式发布** — PyPI 版本号不可逆，风险过高。Rejected。
+- **Use `ebx` as the distribution name** — already taken by a third party on
+  PyPI. Rejected (hard constraint).
+- **Publish first, add CI later** — a first release without CI cannot vouch for
+  quality, and empty badges hurt trustworthiness. Rejected.
+- **Skip TestPyPI and go straight to production release** — PyPI version
+  numbers are irreversible; too risky. Rejected.
 
 ## Dependencies
-- `pyproject.toml`（metadata 修正）
-- `src/easy_sandbox/_version.py`（版本号）
-- `.github/CODE_OF_CONDUCT.md`、`.github/SECURITY.md`（占位符）
-- `2026-09-04-single-distribution-cli-extra.md`（命名体系）
+- `pyproject.toml` (metadata fixes)
+- `src/easy_sandbox/_version.py` (version number)
+- `.github/CODE_OF_CONDUCT.md`, `.github/SECURITY.md` (placeholders)
+- `2026-09-04-single-distribution-cli-extra.md` (naming scheme)
 
 ## Test Strategy
-- `python -m build` 成功产出 wheel + sdist。
-- `twine check dist/*` PASSED（无 warning/error）。
-- TestPyPI 安装后 `import easy_sandbox` + `ebx --help` 正常。
-- `mypy --strict` 在消费者项目中识别到 `py.typed`。
+- `python -m build` produces wheel + sdist successfully.
+- `twine check dist/*` PASSED (no warnings / errors).
+- After TestPyPI install, `import easy_sandbox` + `ebx --help` work correctly.
+- `mypy --strict` recognises `py.typed` in a consumer project.
 
 ## Acceptance criteria
-- `py.typed` 文件存在于 `src/easy_sandbox/`。
-- CI workflow（ci.yml + release.yml）在 `.github/workflows/` 下且能跑通。
-- `[project.urls]` 指向真实 URL。
-- 占位符邮箱全部替换为真实联系方式。
-- `_version.py` 为稳定版本号（无 `-dev`）。
+- `py.typed` exists under `src/easy_sandbox/`.
+- CI workflows (`ci.yml` + `release.yml`) exist under `.github/workflows/` and
+  execute successfully.
+- `[project.urls]` point at real URLs.
+- Every placeholder email is replaced with a real contact address.
+- `_version.py` holds a stable version number (no `-dev` suffix).
 
 ## Evidence
 - `.agents/evidence/research/2026-09-04-pypi-publish-readiness.md` §1–§7
-- `.agents/evidence/research/2026-09-04-ai-native-oss-completeness.md` §2（Gap Table #1–#3, #9–#10）
+- `.agents/evidence/research/2026-09-04-ai-native-oss-completeness.md` §2
+  (Gap Table #1–#3, #9–#10)

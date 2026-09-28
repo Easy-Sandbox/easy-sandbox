@@ -95,9 +95,9 @@ def _parse_sse_events(raw: str) -> list[dict[str, Any]]:
     current_data: str | None = None
     for line in raw.split("\n"):
         if line.startswith("event: "):
-            current_event = line[len("event: "):]
+            current_event = line[len("event: ") :]
         elif line.startswith("data: "):
-            current_data = line[len("data: "):]
+            current_data = line[len("data: ") :]
         elif line == "" and current_event is not None and current_data is not None:
             events.append({"event": current_event, "data": json.loads(current_data)})
             current_event = None
@@ -113,6 +113,7 @@ def _parse_sse_events(raw: str) -> list[dict[str, Any]]:
 @pytest.fixture(autouse=True)
 def _reset_groups() -> Any:
     """Reset capability groups before/after each test."""
+
     def _reset() -> None:
         table = default_table()
         for group in CapabilityGroup:
@@ -193,7 +194,7 @@ class TestShellStream:
             server_port,
             "POST",
             "/shell/stream",
-            body={"command": f"{sys.executable} -c \"raise SystemExit(42)\""},
+            body={"command": f'{sys.executable} -c "raise SystemExit(42)"'},
         )
         assert status == 200
         events = _parse_sse_events(raw)
@@ -201,17 +202,13 @@ class TestShellStream:
         assert exit_events[-1]["data"]["exit_code"] == 42
 
     def test_missing_command(self, server_port: int) -> None:
-        status, body = _request(
-            server_port, "POST", "/shell/stream", body={}
-        )
+        status, body = _request(server_port, "POST", "/shell/stream", body={})
         assert status == 400
         assert body["type"] == "ValueError"
 
     def test_multiline_output(self, server_port: int) -> None:
-        cmd = f'{sys.executable} -c "print(\'line1\'); print(\'line2\')"'
-        status, raw = _request_raw(
-            server_port, "POST", "/shell/stream", body={"command": cmd}
-        )
+        cmd = f"{sys.executable} -c \"print('line1'); print('line2')\""
+        status, raw = _request_raw(server_port, "POST", "/shell/stream", body={"command": cmd})
         assert status == 200
         events = _parse_sse_events(raw)
         stdout_events = [e for e in events if e["event"] == "stdout"]
@@ -231,7 +228,7 @@ class TestProcessStart:
             server_port,
             "POST",
             "/process/start",
-            body={"command": f"{sys.executable} -c \"import time; time.sleep(30)\""},
+            body={"command": f'{sys.executable} -c "import time; time.sleep(30)"'},
         )
         assert status == 200
         assert "pid" in body
@@ -239,9 +236,7 @@ class TestProcessStart:
         assert isinstance(body["pid"], int)
 
     def test_missing_command(self, server_port: int) -> None:
-        status, body = _request(
-            server_port, "POST", "/process/start", body={}
-        )
+        status, body = _request(server_port, "POST", "/process/start", body={})
         assert status == 400
         assert body["type"] == "ValueError"
 
@@ -299,7 +294,7 @@ class TestProcessList:
             server_port,
             "POST",
             "/process/start",
-            body={"command": f"{sys.executable} -c \"import time; time.sleep(30)\""},
+            body={"command": f'{sys.executable} -c "import time; time.sleep(30)"'},
         )
         status, body = _request(server_port, "GET", "/process/list")
         assert status == 200
@@ -323,7 +318,7 @@ class TestProcessDetail:
             server_port,
             "POST",
             "/process/start",
-            body={"command": f"{sys.executable} -c \"import time; time.sleep(30)\""},
+            body={"command": f'{sys.executable} -c "import time; time.sleep(30)"'},
         )
         pid = start_body["pid"]
         status, body = _request(server_port, "GET", f"/process/{pid}")
@@ -371,7 +366,7 @@ class TestProcessSignal:
             server_port,
             "POST",
             "/process/start",
-            body={"command": f"{sys.executable} -c \"import time; time.sleep(60)\""},
+            body={"command": f'{sys.executable} -c "import time; time.sleep(60)"'},
         )
         pid = start_body["pid"]
         status, body = _request(
@@ -389,7 +384,7 @@ class TestProcessSignal:
             server_port,
             "POST",
             "/process/start",
-            body={"command": f"{sys.executable} -c \"import time; time.sleep(60)\""},
+            body={"command": f'{sys.executable} -c "import time; time.sleep(60)"'},
         )
         pid = start_body["pid"]
         status, body = _request(
@@ -406,7 +401,7 @@ class TestProcessSignal:
             server_port,
             "POST",
             "/process/start",
-            body={"command": f"{sys.executable} -c \"import time; time.sleep(60)\""},
+            body={"command": f'{sys.executable} -c "import time; time.sleep(60)"'},
         )
         pid = start_body["pid"]
         status, body = _request(
@@ -437,7 +432,10 @@ class TestProcessSignal:
             stderr=_sp.PIPE,
         )
         _process_table[1] = _ProcessInfo(
-            pid=1, popen=dummy, command="init", started_at=time.time(),
+            pid=1,
+            popen=dummy,
+            command="init",
+            started_at=time.time(),
         )
         status, body = _request(
             server_port,
@@ -460,7 +458,10 @@ class TestProcessSignal:
             stderr=_sp.PIPE,
         )
         _process_table[my_pid] = _ProcessInfo(
-            pid=my_pid, popen=dummy, command="self", started_at=time.time(),
+            pid=my_pid,
+            popen=dummy,
+            command="self",
+            started_at=time.time(),
         )
         status, body = _request(
             server_port,
@@ -477,7 +478,7 @@ class TestProcessSignal:
             server_port,
             "POST",
             "/process/start",
-            body={"command": f"{sys.executable} -c \"import time; time.sleep(60)\""},
+            body={"command": f'{sys.executable} -c "import time; time.sleep(60)"'},
         )
         pid = start_body["pid"]
         status, body = _request(
@@ -504,7 +505,7 @@ class TestProcessLifecycle:
             server_port,
             "POST",
             "/process/start",
-            body={"command": f"{sys.executable} -c \"import time; time.sleep(60)\""},
+            body={"command": f'{sys.executable} -c "import time; time.sleep(60)"'},
         )
         assert st == 200
         pid = start_body["pid"]

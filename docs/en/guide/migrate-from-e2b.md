@@ -104,7 +104,7 @@ host = sandbox.network.get_host(8080)
 url = sandbox.network.get_url(8080)
 ```
 
-> **Note**: `network.get_host()` and `network.get_url()` require the template to declare the `ports` capability. If not declared, `CapabilityNotSupportedError` (E3004) is raised.
+> **Note**: `network.get_host()` and `network.get_url()` are local URL-computation helpers. They are logically associated with the `ports` capability but **do not** perform a runtime capability check — calls succeed regardless of the template's capability declaration.
 
 ### 3. `get_upload_url()` / `get_download_url()` not implemented
 
@@ -119,15 +119,15 @@ await sandbox.files.write("/path/file.txt", content)
 text = await sandbox.files.read("/path/file.txt")
 ```
 
-### 4. Capability gates
+### 4. Capability model
 
-Easy Sandbox introduces a capability model. Certain operations require the template to declare the corresponding capability; otherwise, `CapabilityNotSupportedError` (E3004) is raised:
+Easy Sandbox introduces a capability model. Templates declare capabilities in `template.yaml`. Only the `code` capability is **runtime-enforced (fail-closed)** — `CodeContextModule` methods raise `CapabilityNotSupportedError` (E3004) when the `code` capability is missing. Other modules forward requests without a runtime gate:
 
-- `run_code()` → Requires the `code` capability
-- `commands.run()` → Requires the `shell` capability
-- `files.*` → Requires the `files` capability
-- `network.*` → Requires the `ports` capability
-- `get_terminal()` → Requires the `terminal` capability
+- `run_code()` / `code.*` → Requires the `code` capability — **runtime-enforced (E3004)**
+- `commands.run()` → Logically associated with `shell` (no runtime gate)
+- `files.*` → Logically associated with `files` (no runtime gate)
+- `network.*` → Logically associated with `ports` (no runtime gate)
+- `get_terminal()` → Logically associated with `terminal` (no runtime gate)
 
 The default capability set `{shell, files, code}` covers most common operations.
 
@@ -139,6 +139,21 @@ Easy Sandbox adds Alibaba Cloud AK/SK authentication, which does not exist in E2
 sandbox = await Sandbox.create(
     access_key_id="your-ak",
     access_key_secret="your-sk",
+)
+```
+
+### 6. Per-request timeout
+
+`Sandbox.create(request_timeout=...)` mirrors E2B's `request_timeout`: it bounds
+how long the client waits for the create HTTP response and is independent of
+`timeout` (the sandbox TTL). When omitted, the global `http_timeout` /
+`SANDBOX_HTTP_TIMEOUT` applies unchanged.
+
+```python
+sandbox = await Sandbox.create(
+    template="python-hello",
+    timeout=300,            # sandbox lifetime (TTL)
+    request_timeout=120,    # HTTP wait for this create call only
 )
 ```
 

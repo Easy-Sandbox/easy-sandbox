@@ -1,4 +1,5 @@
 """GitHub / 本地目录 模板 Registry 客户端。"""
+
 from __future__ import annotations
 
 import os
@@ -37,9 +38,7 @@ class RegistryClient:
         self._api_url = self._registry_url.replace("github.com", "api.github.com")
         self._token = token
 
-    async def resolve(
-        self, ref: str, registry_type: str | None = None
-    ) -> TemplateRef:
+    async def resolve(self, ref: str, registry_type: str | None = None) -> TemplateRef:
         """解析模板引用。
 
         支持格式（Terraform 双斜杠规范）：
@@ -67,9 +66,7 @@ class RegistryClient:
         ):
             abs_path = os.path.abspath(ref)
             if not os.path.isdir(abs_path):
-                raise ValueError(
-                    f"Local template directory not found: {abs_path}"
-                )
+                raise ValueError(f"Local template directory not found: {abs_path}")
             return TemplateRef(
                 registry_type="local",
                 local_path=abs_path,
@@ -124,7 +121,7 @@ class RegistryClient:
 
     def _fetch_local(self, ref: TemplateRef) -> Path:
         """从本地目录加载模板。"""
-        local_path = Path(ref.local_path)
+        local_path = Path(ref.local_path)  # type: ignore[arg-type]
 
         # 验证必要文件存在（template.yaml 或 sandbox-template.yaml 或 sandbox.yaml 或 Dockerfile）
         yaml_path = local_path / "template.yaml"
@@ -149,9 +146,7 @@ class RegistryClient:
     async def _fetch_github(self, ref: TemplateRef) -> Path:
         """从 GitHub 拉取模板（按 tag/branch/sha 走 tarball API，无需 Release）。"""
         if ref.is_builtin:
-            raise ValueError(
-                f"Built-in template '{ref.tag}' does not need to be fetched."
-            )
+            raise ValueError(f"Built-in template '{ref.tag}' does not need to be fetched.")
 
         if not ref.owner or not ref.repo:
             raise ValueError("TemplateRef must have owner and repo for fetching.")
@@ -160,9 +155,7 @@ class RegistryClient:
         cache_key = ref.tag or "default"
         cached = self._check_cache(ref.owner, ref.repo, cache_key, ref.path)
         if cached is not None:
-            logger.info(
-                "Using cached template: %s/%s@%s", ref.owner, ref.repo, cache_key
-            )
+            logger.info("Using cached template: %s/%s@%s", ref.owner, ref.repo, cache_key)
             return cached
 
         # 构造 tarball 下载地址（GitHub 会 302 到 codeload 的 .tar.gz）
@@ -178,9 +171,7 @@ class RegistryClient:
             gh_ref=ref.tag,
         )
 
-        logger.info(
-            "Fetched template: %s/%s@%s → %s", ref.owner, ref.repo, cache_key, dest
-        )
+        logger.info("Fetched template: %s/%s@%s → %s", ref.owner, ref.repo, cache_key, dest)
         return dest
 
     def _tarball_url(self, owner: str, repo: str, gh_ref: str | None) -> str:
@@ -225,8 +216,7 @@ class RegistryClient:
                 body_text = ""
             if remaining == "0" or "rate limit" in body_text.lower():
                 return NetworkError(
-                    "GitHub API rate limit exceeded (anonymous requests are "
-                    "limited to 60/hour).",
+                    "GitHub API rate limit exceeded (anonymous requests are limited to 60/hour).",
                     suggestion=(
                         "Authenticate to raise the limit to 5000/hour: set the "
                         "GITHUB_TOKEN environment variable or pass --token. "
@@ -287,9 +277,7 @@ class RegistryClient:
             try:
                 resp.raise_for_status()
             except httpx.HTTPStatusError as exc:
-                raise self._translate_tarball_error(
-                    exc, owner, repo, gh_ref
-                ) from exc
+                raise self._translate_tarball_error(exc, owner, repo, gh_ref) from exc
 
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
             tmp.write(resp.content)
@@ -305,9 +293,7 @@ class RegistryClient:
                     prefix = members[0].name.split("/")[0] + "/"
 
                     # 如果指定了子目录，在前缀后追加子目录路径
-                    extract_prefix = (
-                        prefix + subdir.strip("/") + "/" if subdir else prefix
-                    )
+                    extract_prefix = prefix + subdir.strip("/") + "/" if subdir else prefix
 
                     found_any = False
                     for member in members:
@@ -317,15 +303,13 @@ class RegistryClient:
                         name = member.name
                         if not name.startswith(extract_prefix):
                             continue
-                        relative = name[len(extract_prefix):]
+                        relative = name[len(extract_prefix) :]
                         if not relative:
                             continue
                         target = (dest / relative).resolve()
                         # 路径穿越防护：目标必须严格位于 dest 目录内
                         if dest_root not in target.parents:
-                            raise ValueError(
-                                f"Unsafe path in archive rejected: {name}"
-                            )
+                            raise ValueError(f"Unsafe path in archive rejected: {name}")
                         found_any = True
                         target.parent.mkdir(parents=True, exist_ok=True)
                         src = tf.extractfile(member)
@@ -335,9 +319,7 @@ class RegistryClient:
                             dst.write(src.read())
 
                     if subdir and not found_any:
-                        raise ValueError(
-                            f"Subdirectory '{subdir}' not found in the archive."
-                        )
+                        raise ValueError(f"Subdirectory '{subdir}' not found in the archive.")
                 else:
                     # 空包（无任何成员）：无论是否指定 subdir 都视为无效模板，
                     # 不静默返回空目录，避免下游误以为拉取成功。
@@ -354,18 +336,14 @@ class RegistryClient:
             tmp_path.unlink(missing_ok=True)
 
     @staticmethod
-    def _cache_path(
-        owner: str, repo: str, tag: str, path: str | None = None
-    ) -> Path:
+    def _cache_path(owner: str, repo: str, tag: str, path: str | None = None) -> Path:
         """构建缓存路径：~/.ebx/templates/owner/repo/tag[/path]。"""
         base = TEMPLATE_CACHE_DIR / owner / repo / tag
         if path:
             return base / path
         return base
 
-    def _check_cache(
-        self, owner: str, repo: str, tag: str, path: str | None = None
-    ) -> Path | None:
+    def _check_cache(self, owner: str, repo: str, tag: str, path: str | None = None) -> Path | None:
         """检查本地缓存。"""
         cache_path = self._cache_path(owner, repo, tag, path)
         if cache_path.exists() and (

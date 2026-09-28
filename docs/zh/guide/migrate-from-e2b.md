@@ -104,7 +104,7 @@ host = sandbox.network.get_host(8080)
 url = sandbox.network.get_url(8080)
 ```
 
-> **注意**：`network.get_host()` 和 `network.get_url()` 需要模板声明 `ports` 能力。若未声明，会抛出 `CapabilityNotSupportedError`（E3004）。
+> **注意**：`network.get_host()` 和 `network.get_url()` 是本地 URL 计算辅助函数。它们在逻辑上关联 `ports` 能力，但**不会**执行运行时能力检查——无论模板是否声明了该能力，调用均会成功。
 
 ### 3. `get_upload_url()` / `get_download_url()` 未实现
 
@@ -119,15 +119,15 @@ await sandbox.files.write("/path/file.txt", content)
 text = await sandbox.files.read("/path/file.txt")
 ```
 
-### 4. 能力门禁
+### 4. 能力模型
 
-Easy Sandbox 引入了能力模型。某些操作需要模板声明对应能力，否则会抛出 `CapabilityNotSupportedError`（E3004）：
+Easy Sandbox 引入了能力模型。模板在 `template.yaml` 中声明能力。仅 `code` 能力在**运行时强制校验（fail-closed）**——`CodeContextModule` 方法在 `code` 能力缺失时抛出 `CapabilityNotSupportedError`（E3004）。其他模块转发请求而无运行时门控：
 
-- `run_code()` → 需要 `code` 能力
-- `commands.run()` → 需要 `shell` 能力
-- `files.*` → 需要 `files` 能力
-- `network.*` → 需要 `ports` 能力
-- `get_terminal()` → 需要 `terminal` 能力
+- `run_code()` / `code.*` → 需要 `code` 能力——**运行时强制校验（E3004）**
+- `commands.run()` → 逻辑关联 `shell`（无运行时门控）
+- `files.*` → 逻辑关联 `files`（无运行时门控）
+- `network.*` → 逻辑关联 `ports`（无运行时门控）
+- `get_terminal()` → 逻辑关联 `terminal`（无运行时门控）
 
 默认能力集 `{shell, files, code}` 覆盖大多数常用操作。
 
@@ -139,6 +139,20 @@ Easy Sandbox 增加了阿里云 AK/SK 认证方式，这在 E2B 中不存在：
 sandbox = await Sandbox.create(
     access_key_id="your-ak",
     access_key_secret="your-sk",
+)
+```
+
+### 6. 单次请求超时
+
+`Sandbox.create(request_timeout=...)` 与 E2B 的 `request_timeout` 对齐：它约束客户端
+等待创建 HTTP 响应的时长，独立于 `timeout`（沙箱生存时长 TTL）。省略时沿用全局
+`http_timeout` / `SANDBOX_HTTP_TIMEOUT` 行为不变。
+
+```python
+sandbox = await Sandbox.create(
+    template="python-hello",
+    timeout=300,            # 沙箱生存时长（TTL）
+    request_timeout=120,    # 仅本次创建请求的 HTTP 等待
 )
 ```
 

@@ -1,7 +1,7 @@
 """Tests for async retry decorator."""
+
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -56,7 +56,6 @@ class TestRetry:
     @pytest.mark.asyncio
     async def test_exponential_backoff(self):
         """Should use exponential backoff between retries."""
-        delays = []
 
         @retry(max_retries=3, base_delay=1.0, jitter=0.0, retry_on=(ValueError,))
         async def always_fail():

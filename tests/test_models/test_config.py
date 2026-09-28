@@ -1,4 +1,5 @@
 """Tests for global config data model."""
+
 from __future__ import annotations
 
 import pytest

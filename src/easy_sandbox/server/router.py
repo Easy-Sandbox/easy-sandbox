@@ -54,7 +54,7 @@ class CapabilityGroup(Enum):
     toggled at runtime or via ``EBX_SERVER_DISABLED_GROUPS``.
     """
 
-    CORE = "core"           # always_on, cannot be disabled
+    CORE = "core"  # always_on, cannot be disabled
     COMMANDS = "commands"
     FILE_OPS = "file_ops"
     PROCESS = "process"

@@ -1,4 +1,5 @@
 """Sandbox file-operation CLI commands: list, stat, mkdir, rm, mv, search."""
+
 from __future__ import annotations
 
 import shlex
@@ -52,10 +53,12 @@ def files_list(
 
     if recursive:
         # Use shell find for recursive listing
-        result = run_sync(sandbox.commands.run(
-            f"find {shlex.quote(path)} -maxdepth 5 2>/dev/null",
-            timeout=30,
-        ))
+        result = run_sync(
+            sandbox.commands.run(
+                f"find {shlex.quote(path)} -maxdepth 5 2>/dev/null",
+                timeout=30,
+            )
+        )
         if fmt.use_json:
             lines = [ln for ln in result.stdout.strip().splitlines() if ln]
             fmt.print_data({"path": path, "entries": lines})
@@ -71,20 +74,19 @@ def files_list(
             return
 
         if fmt.use_json:
-            fmt.print_data([
-                {
-                    "name": e.name,
-                    "type": e.type.value,
-                    "size": e.size,
-                }
-                for e in entries
-            ])
+            fmt.print_data(
+                [
+                    {
+                        "name": e.name,
+                        "type": e.type.value,
+                        "size": e.size,
+                    }
+                    for e in entries
+                ]
+            )
         else:
             headers = ["Name", "Type", "Size"]
-            rows = [
-                [e.name, e.type.value, str(e.size)]
-                for e in entries
-            ]
+            rows = [[e.name, e.type.value, str(e.size)] for e in entries]
             fmt.print_table(headers, rows)
 
 
@@ -277,4 +279,3 @@ files.add_command(files_mkdir, "mkdir")
 files.add_command(files_rm, "rm")
 files.add_command(files_mv, "mv")
 files.add_command(files_search, "search")
-

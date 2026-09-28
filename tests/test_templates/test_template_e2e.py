@@ -12,6 +12,7 @@ Each test verifies:
 5. **Built-in routes** — ``/upload`` + ``/download`` roundtrip, ``/shell``
    echo test.
 """
+
 from __future__ import annotations
 
 import base64
@@ -25,10 +26,13 @@ import tempfile
 import threading
 import time
 from contextlib import contextmanager
-from typing import Any, Generator
+from typing import TYPE_CHECKING, Any
 from unittest.mock import patch
 
 import pytest
+
+if TYPE_CHECKING:
+    from collections.abc import Generator
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -50,9 +54,7 @@ def _find_free_port() -> int:
         return s.getsockname()[1]
 
 
-def _http_get(
-    port: int, path: str, timeout: float = 5.0
-) -> tuple[int, dict[str, Any]]:
+def _http_get(port: int, path: str, timeout: float = 5.0) -> tuple[int, dict[str, Any]]:
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=timeout)
     try:
         conn.request("GET", path)
@@ -88,9 +90,7 @@ def _http_post(
 
 
 @contextmanager
-def _template_server(
-    template_name: str, base_dir: str
-) -> Generator[int, None, None]:
+def _template_server(template_name: str, base_dir: str) -> Generator[int, None, None]:
     """Load a template's ``commands.py``, start the sandbox HTTP server on a
     random port, yield the port, then shut down and restore global state."""
     from easy_sandbox.server import SandboxServer
@@ -131,9 +131,7 @@ def _template_server(
     # --- 3. Start server on a random port ---
     port = _find_free_port()
     server = SandboxServer(host="127.0.0.1", registry=registry)
-    thread = threading.Thread(
-        target=lambda: server.serve(port=port), daemon=True
-    )
+    thread = threading.Thread(target=lambda: server.serve(port=port), daemon=True)
     thread.start()
 
     # --- 4. Wait for /health ---
@@ -148,9 +146,7 @@ def _template_server(
         except Exception:
             time.sleep(0.05)
     if not ready:
-        raise RuntimeError(
-            f"Server for '{template_name}' failed to start on port {port}"
-        )
+        raise RuntimeError(f"Server for '{template_name}' failed to start on port {port}")
 
     try:
         yield port
@@ -206,9 +202,7 @@ def _assert_upload_download_roundtrip(port: int, base_dir: str) -> None:
     content_b64 = base64.b64encode(test_data).decode()
     file_path = os.path.join(base_dir, "e2e_roundtrip.bin")
 
-    status, body = _http_post(
-        port, "/upload", {"path": file_path, "content_base64": content_b64}
-    )
+    status, body = _http_post(port, "/upload", {"path": file_path, "content_base64": content_b64})
     assert status == 200, f"Upload failed: {body}"
     assert body["bytes"] == len(test_data)
 
@@ -224,20 +218,14 @@ def _assert_shell(port: int) -> None:
     assert "hello" in body["stdout"]
 
 
-def _assert_external_command_graceful(
-    port: int, cmd_name: str, params: dict[str, Any]
-) -> None:
+def _assert_external_command_graceful(port: int, cmd_name: str, params: dict[str, Any]) -> None:
     """Invoke a command whose external tool is likely not installed.
 
     Verifies the server routes correctly to the command function and returns
     a structured error (500) rather than crashing or returning 404.
     """
-    status, body = _http_post(
-        port, f"/commands/{cmd_name}", params, timeout=30.0
-    )
-    assert status in (200, 500), (
-        f"Unexpected status {status} for /commands/{cmd_name}: {body}"
-    )
+    status, body = _http_post(port, f"/commands/{cmd_name}", params, timeout=30.0)
+    assert status in (200, 500), f"Unexpected status {status} for /commands/{cmd_name}: {body}"
     if status == 500:
         assert "error" in body, f"500 without 'error' key: {body}"
         assert "type" in body, f"500 without 'type' key: {body}"
@@ -265,9 +253,7 @@ def test_python_hello_e2e(base_dir: str) -> None:
         assert body["result"] == "Hello, World!"
 
         # run_script
-        status, body = _http_post(
-            port, "/commands/run_script", {"code": "print(1+1)"}
-        )
+        status, body = _http_post(port, "/commands/run_script", {"code": "print(1+1)"})
         assert status == 200
         assert "2" in body["result"]
 
@@ -311,9 +297,7 @@ def test_browser_automation_e2e(base_dir: str) -> None:
     with _template_server("browser-automation", base_dir) as port:
         _assert_health(port)
         _assert_commands_registered(port, ["browse"])
-        _assert_external_command_graceful(
-            port, "browse", {"url": "https://example.com"}
-        )
+        _assert_external_command_graceful(port, "browse", {"url": "https://example.com"})
         _assert_upload_download_roundtrip(port, base_dir)
         _assert_shell(port)
 
@@ -333,9 +317,7 @@ def test_deepseek_harness_e2e(base_dir: str) -> None:
     with _template_server("deepseek-harness", base_dir) as port:
         _assert_health(port)
         _assert_commands_registered(port, ["deepseek"])
-        _assert_external_command_graceful(
-            port, "deepseek", {"prompt": "hello"}
-        )
+        _assert_external_command_graceful(port, "deepseek", {"prompt": "hello"})
         _assert_upload_download_roundtrip(port, base_dir)
         _assert_shell(port)
 

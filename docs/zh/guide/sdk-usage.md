@@ -56,7 +56,7 @@ async with await Sandbox.create(template="base") as sandbox:
 
 ### 自然语言创建
 
-当提供 `description` 且 `template` 保持默认值时，SDK 通过 LLM 推断最佳模板和资源配置：
+当提供 `description` 且 `template` 保持默认值时，SDK 会将其记录为 hint 日志条目。通过 LLM 推断模板发生在 **CLI / Agent 层**，而非 `Sandbox.create()` 自身：
 
 ```python
 sandbox = await Sandbox.create(
@@ -105,7 +105,7 @@ result = await sandbox.run_code(
     "print('hello')",
     language="python",   # 默认 "python"
     timeout=30,          # 超时秒数（默认 30）
-    envs={"KEY": "val"}, # 本次执行的临时环境变量
+    envs={"KEY": "val"}, # 本次执行的临时环境变量（envd 作用域）
 )
 
 print(result.text)           # 输出文本（stdout 去除尾部空白）
@@ -140,7 +140,7 @@ result = await sandbox.run_code(
 result = await sandbox.commands.run(
     "ls -la /home/user",
     timeout=60,                # 超时秒数（默认 60）
-    env={"MY_VAR": "value"},   # 额外环境变量
+    env={"MY_VAR": "value"},   # 本次命令的额外环境变量（envd 作用域）
     cwd="/app",                # 工作目录
 )
 
@@ -365,15 +365,25 @@ except SandboxError as e:
 
 ## 自定义命令
 
-模板可以定义自定义命令。使用 `sandbox.run()` 执行，`sandbox.list_commands()` 查看：
+模板可以定义自定义命令。使用 `sandbox.custom()` 执行命名命令，`sandbox.list_commands()` 查看：
 
 ```python
 # 查看可用命令
-commands = sandbox.list_commands()
+commands = await sandbox.list_commands()
 for cmd in commands:
     print(f"{cmd['name']}: {cmd['description']}")
 
-# 执行自定义命令
-result = await sandbox.run("dev", port="8080")
-print(result.stdout)
+# 执行命名自定义命令
+result = await sandbox.custom("dev", port="8080")
+print(result.value)
 ```
+
+> **注意：** `sandbox.run(cmd)` 执行裸 shell 命令；`sandbox.custom(name)` 调度命名命令。
+
+---
+
+## 环境变量
+
+环境变量可在创建时注入（`envs=`）或按调用传入（`env=`/`envs=`）。包含未加引号 shell 运算符（管道 `|`、分号 `;`、逻辑运算符 `&&`/`||`、重定向 `>`/`<`、子 shell `(...)`、命令替换 `$(...)`)的命令会被 `commands.run()`、`commands.stream()` 和 `commands.start()` **自动包裹**在 `sh -c` 中。变量展开（`$VAR`）、反引号替换（`` `cmd` ``）和通配符（`*`、`?`）仍需显式使用 `sh -c '...'` 包裹，读取单个变量可用 `printenv VAR`。
+
+关于作用域（envd vs SandboxServer）、注入模式和安全注意事项的完整详情，请参阅[环境变量指南](environment-variables.md)。

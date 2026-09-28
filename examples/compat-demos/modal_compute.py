@@ -103,7 +103,8 @@ def fit_distribution(n_samples: int, distribution: str) -> dict:
     # 拟合正态分布 / Fit normal distribution
     mu, sigma = stats.norm.fit(data)
     # K-S 检验 / K-S test
-    ks_stat, ks_pvalue = stats.kstest(data, "norm", args=(mu, sigma))
+    # scipy 1.18+ 不再支持 args 参数，改用 cdf 方式
+    ks_stat, ks_pvalue = stats.kstest(data, stats.norm(loc=mu, scale=sigma).cdf)
 
     return {
         "distribution": distribution,

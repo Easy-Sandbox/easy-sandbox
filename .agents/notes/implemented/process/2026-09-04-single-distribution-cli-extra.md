@@ -1,44 +1,61 @@
-# Decision: 单仓库单发行 + [cli] extra（不拆库、暂不做二进制）
+# Decision: Single-repo single-distribution + [cli] extra (no split, no binary for now)
 
 Status: implemented
 Task: #95, #105
 
 ## Problem
-SDK 与 CLI 共存于同一仓库，需要决定打包结构：(1) 是否拆分为独立发行（SDK + CLI 元包）；(2) CLI 依赖如何隔离；(3) 是否提供预构建二进制（shiv/pex/PyInstaller）。
+The SDK and CLI live in the same repository, so the packaging structure must be
+decided: (1) whether to split into separate distributions (SDK + a CLI
+meta-package); (2) how to isolate the CLI dependencies; (3) whether to provide a
+pre-built binary (shiv/pex/PyInstaller).
 
 ## Decision
-维持**单仓库单发行 + `[cli]` extra** 结构。
+Keep the **single-repo single-distribution + `[cli]` extra** structure.
 
-### 命名体系
+### Naming scheme
 
-1. **发行名（pip install X）**：`easy-sandbox`。`ebx` 已被 PyPI 第三方占用（`evryoneowo` 的 "secret manager"，v1.1.0，MIT，2026-01-08 首传），不可用。
-2. **导入名（import Y）**：`easy_sandbox`。与发行名的连字符/下划线对应关系是 Python 打包标准惯例。
-3. **CLI 命令名**：`ebx`。`[project.scripts] ebx = "easy_sandbox.cli.main:cli"`。CLI 命令名与发行名无关，可自由选择。
+1. **Distribution name (pip install X)**: `easy-sandbox`. `ebx` is already taken by
+   a third party on PyPI (`evryoneowo`'s "secret manager", v1.1.0, MIT, first
+   uploaded 2026-01-08) and is unavailable.
+2. **Import name (import Y)**: `easy_sandbox`. The hyphen/underscore correspondence
+   with the distribution name follows standard Python packaging convention.
+3. **CLI command name**: `ebx`. `[project.scripts] ebx = "easy_sandbox.cli.main:cli"`.
+   The CLI command name is independent of the distribution name and can be chosen freely.
 
-### 安装方式
+### Installation modes
 
-4. **纯 SDK**：`pip install easy-sandbox` — 核心依赖 httpx/websockets/pydantic/python-dotenv。
-5. **SDK + CLI**：`pip install "easy-sandbox[cli]"` — 额外安装 click/rich/pyyaml。
-6. **裸安装后 `ebx` 命令缺 click 会报错**：这是已知的可用性陷阱，文档须前置说明。
+4. **SDK only**: `pip install easy-sandbox` — core dependencies httpx/websockets/pydantic/python-dotenv.
+5. **SDK + CLI**: `pip install "easy-sandbox[cli]"` — additionally installs click/rich/pyyaml.
+6. **`ebx` errors when click is missing after a bare install**: this is a known
+   usability pitfall and must be documented up front.
 
-### 不拆库
+### No library split
 
-7. **依赖方向干净、单向**：CLI → SDK。反向为零（全量 Grep `easy_sandbox.cli` / `from .cli` 在 SDK 层 = 0 匹配）。无循环依赖。
-8. **拆分技术可行但收益有限**：
-   - `ebx` 发行名不可用（硬约束），CLI 独立包只能叫 `easy-sandbox-cli`，削弱初衷。
-   - 需版本协同（锁版本、双份 CI、发布节奏同步）。
-   - 当前 extra 机制已满足"只装 SDK / 装 SDK+CLI"两种诉求。
+7. **Clean, one-way dependency**: CLI → SDK. The reverse is zero (a full Grep for
+   `easy_sandbox.cli` / `from .cli` in the SDK layer = 0 matches). No circular dependency.
+8. **A split is technically feasible but of limited benefit**:
+   - The `ebx` distribution name is unavailable (a hard constraint), so a
+     standalone CLI package could only be called `easy-sandbox-cli`, which weakens
+     the original intent.
+   - It would require version coordination (version pinning, duplicate CI,
+     synchronized release cadence).
+   - The current extra mechanism already satisfies the two needs "SDK only" and
+     "SDK + CLI".
 
-### 暂不做二进制
+### No binary for now
 
-9. **freeze 不是结构修复，是分发 UX 选项**。当前阻断点：
-   - `cli/main.py` 的 `LazyGroup` 使用 `importlib.import_module` 动态导入（PyInstaller 需 `--hidden-import`）。
-   - `@click.version_option(package_name="easy-sandbox")` 依赖 `importlib.metadata`（frozen 内通常无 `*.dist-info`）。
-   - `pydantic-core`（Rust）、`orjson`（Rust）、`msgpack`（C）使产物平台相关。
+9. **Freezing is not a structural fix; it is a distribution-UX option**. Current
+   blockers:
+   - `cli/main.py`'s `LazyGroup` uses `importlib.import_module` for dynamic
+     imports (PyInstaller needs `--hidden-import`).
+   - `@click.version_option(package_name="easy-sandbox")` relies on
+     `importlib.metadata` (a frozen bundle usually has no `*.dist-info`).
+   - `pydantic-core` (Rust), `orjson` (Rust), and `msgpack` (C) make the artifact
+     platform-specific.
 
 ## API Design
 ```toml
-# pyproject.toml（现状）
+# pyproject.toml (current)
 [project]
 name = "easy-sandbox"
 # ...
@@ -54,32 +71,44 @@ packages = ["src/easy_sandbox"]
 ```
 
 ```bash
-# 安装方式
-pip install easy-sandbox            # 纯 SDK
+# installation modes
+pip install easy-sandbox            # SDK only
 pip install "easy-sandbox[cli]"     # SDK + CLI
-pip install "easy-sandbox[all]"     # 全部 extras
+pip install "easy-sandbox[all]"     # all extras
 ```
 
 ## Alternatives considered
-- **拆为两个发行（SDK + CLI 元包）** — 技术可行（依赖单向无环），但 `ebx` 发行名被占、版本协同成本高、收益有限。Rejected（暂不建议）。
-- **拆为两个仓库** — 在双发行成本上再加分仓协作/issue/CI 复杂度，当前团队规模不划算。Rejected。
-- **freeze 为单文件二进制** — 纯 UX 加分项，需解决 LazyGroup 动态导入、version_option metadata、原生扩展跨平台构建。可选增强（非必需）。
-- **CLI 依赖并入核心 dependencies** — 裸 `pip install easy-sandbox` 会装 click/rich/pyyaml，对只用 SDK 的用户是不必要的膨胀。Rejected。
+- **Split into two distributions (SDK + a CLI meta-package)** — technically
+  feasible (one-way acyclic dependency), but the `ebx` distribution name is taken,
+  version-coordination cost is high, and the benefit is limited. Rejected (not
+  recommended for now).
+- **Split into two repositories** — adds cross-repo collaboration/issue/CI
+  complexity on top of the dual-distribution cost; not worth it at the current
+  team size. Rejected.
+- **Freeze into a single-file binary** — a pure UX plus, but requires solving
+  LazyGroup dynamic imports, version_option metadata, and cross-platform builds of
+  native extensions. Optional enhancement (not required).
+- **Fold the CLI dependencies into the core dependencies** — a bare
+  `pip install easy-sandbox` would then install click/rich/pyyaml, which is
+  unnecessary bloat for SDK-only users. Rejected.
 
 ## Dependencies
-- `pyproject.toml`（发行配置）
-- `src/easy_sandbox/_version.py`（版本来源）
-- `cli/main.py`（entry point + LazyGroup）
+- `pyproject.toml` (distribution configuration)
+- `src/easy_sandbox/_version.py` (version source)
+- `cli/main.py` (entry point + LazyGroup)
 
 ## Test Strategy
-- `pip install easy-sandbox` 后 `import easy_sandbox` 成功、`ebx` 命令因缺 click 报明确错误。
-- `pip install "easy-sandbox[cli]"` 后 `ebx --help` 正常。
-- Grep `easy_sandbox.cli` / `from .cli` 在 `api/`/`models/`/`transport/`/`protocol/` 等 SDK 层 = 0 匹配（持续验证无循环依赖）。
+- After `pip install easy-sandbox`, `import easy_sandbox` succeeds and the `ebx`
+  command raises a clear error due to missing click.
+- After `pip install "easy-sandbox[cli]"`, `ebx --help` works normally.
+- Grep for `easy_sandbox.cli` / `from .cli` under SDK layers such as
+  `api/`/`models/`/`transport/`/`protocol/` = 0 matches (continuous verification of
+  no circular dependency).
 
 ## Acceptance criteria
-- 单一发行名 `easy-sandbox`，单一导入名 `easy_sandbox`，CLI 命令 `ebx`。
-- `[cli]` extra 隔离 CLI 依赖，SDK 核心无 click/rich/pyyaml。
-- SDK → CLI 依赖方向为零。
+- A single distribution name `easy-sandbox`, a single import name `easy_sandbox`, and the CLI command `ebx`.
+- The `[cli]` extra isolates the CLI dependencies; the SDK core has no click/rich/pyyaml.
+- The SDK → CLI dependency direction is zero.
 
 ## Evidence
 - `.agents/evidence/research/2026-09-04-pypi-publish-readiness.md` §3, §10

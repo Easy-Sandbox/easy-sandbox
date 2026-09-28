@@ -22,21 +22,10 @@ ebx --version
 
 ## 第二步：认证
 
-### 交互式登录
+### 通过 config 设置 API Key
 
 ```bash
-ebx auth login
-# 按提示输入 API Key，保存到 ~/.ebx/.env
-```
-
-### 验证状态
-
-```bash
-ebx auth status
-# 输出示例：
-#   API Key: abcd****efgh
-#   Source: /Users/you/.ebx/.env
-#   Auth Mode: api_key
+ebx config set api_key your-api-key
 ```
 
 ### 或通过环境变量
@@ -44,6 +33,8 @@ ebx auth status
 ```bash
 export E2B_API_KEY="your-api-key"
 ```
+
+> 更多认证方式（AK/SK、.env 文件、config.toml 等）详见 [认证详解](authentication.md)。
 
 ---
 
@@ -128,16 +119,49 @@ ebx download sbx-xxxx /app/result.csv ./result.csv
 
 ## 第七步：执行自定义命令
 
-如果模板定义了自定义命令（或通过 `@sandbox.register` 注册），可以用 `ebx run` 执行：
+`ebx run` 支持两种自定义命令机制：
+
+### 机制 A：template.yaml 声明式
+
+在模板的 `template.yaml` 中声明 Shell 命令：
+
+```yaml
+custom_commands:
+  dev:
+    command: "npm run dev"
+  test:
+    command: "pytest {file} -v"
+    description: "Run tests"
+```
+
+执行：
 
 ```bash
-# 查看可用命令
-ebx run sbx-xxxx --help
-
-# 执行命令
-ebx run sbx-xxxx dev --arg file=tests/
-ebx run sbx-xxxx demo --x 1 --y hello
+ebx run sbx-xxxx dev
+ebx run sbx-xxxx test --arg file=tests/test_api.py
 ```
+
+### 机制 B：@registry.command 注册式
+
+在沙箱内 Python 代码中注册自定义命令：
+
+```python
+from easy_sandbox.server.registry import registry
+
+@registry.command("greet")
+def greet(name: str) -> str:
+    return f"Hello, {name}!"
+
+registry.freeze()
+```
+
+执行：
+
+```bash
+ebx run sbx-xxxx greet --name World
+```
+
+> `ebx run` 会自动先尝试机制 A，若命令未找到则回退到机制 B，对用户完全透明。
 
 ---
 
@@ -178,46 +202,14 @@ ebx install owner/repo
 ebx create --template my-template
 ```
 
----
-
-## 会话管理
-
-会话（session）将沙箱与一个名称关联，方便反复连接：
+### 一键部署自定义模板
 
 ```bash
-# 启动会话
-ebx session start my-project --template base
-
-# 连接到会话
-ebx session connect my-project
-
-# 列出所有会话
-ebx session list
-
-# 查看会话信息
-ebx session info my-project
-
-# 停止会话
-ebx session stop my-project
+ebx template deploy ./my-template \
+  --acr-namespace my-ns --acr-repo my-template
 ```
 
----
-
-## 密钥管理
-
-```bash
-# 创建密钥（安全输入）
-ebx secret create MY_TOKEN
-
-# 列出密钥
-ebx secret list
-
-# 注入到沙箱
-ebx secret inject sbx-xxxx -s MY_TOKEN -s ANOTHER_SECRET
-
-# 删除密钥
-ebx secret delete MY_TOKEN
-```
+`template deploy` 会自动完成：本地 Docker 构建 → ACR 推送 → 调用 CreateTemplate API。详见 [模板编写指南](authoring-templates.md)。
 
 ---
 
@@ -242,7 +234,7 @@ ebx config reset --yes
 
 ## MCP 集成
 
-将 Easy Sandbox 作为 MCP Server 提供给 AI IDE 使用：
+将 Easy Sandbox 作为本地 STDIO MCP Server 提供给 AI IDE 使用。STDIO 模式不需要 HTTP 传输依赖：
 
 ```bash
 # 安装到 Cursor
@@ -257,6 +249,20 @@ ebx mcp status
 # 手动启动（通常由 IDE 自动调用）
 ebx mcp start --template code-interpreter-v1
 ```
+
+### 远程 MCP Server 部署产物
+
+生成用于手动部署到阿里云 FC 的 Streamable HTTP MCP 产物。该命令不会调用 FC 部署 API：
+
+```bash
+# 使用新生成的 Bearer Token 创建产物
+ebx mcp deploy --generate-token --api-key $E2B_API_KEY \
+  --output-dir ./deploy-artifact
+```
+
+HTTP 运行时需安装 `easy-sandbox[mcp]`。随后使用阿里云 FC 官方控制台或 SDK 打包产物、创建函数与 HTTP Trigger。`config.yaml` 是与平台 API 无关的检查清单，不是 FC API 请求体；请通过官方界面转换其中的设置。将输出的 IDE 模板中的 URL 与 token 占位符替换为部署后的实际值。
+
+客户端结束会话时应调用 `DELETE /mcp`。`GET /mcp` 当前返回 501，SSE 服务端通知将在 Phase 2 实现。`config.yaml` 可能包含明文凭证，请勿将部署产物或填入凭证后的 IDE 配置提交到版本库。
 
 ---
 

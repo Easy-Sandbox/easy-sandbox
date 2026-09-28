@@ -1,3 +1,7 @@
+> ⚠️ **HISTORICAL SNAPSHOT** — annotation added 2026-09-24 (task #122, following the #109 audit)
+>
+> This is a point-in-time test-verification snapshot; **all test results, commands, and output are preserved verbatim and untouched.** The old CLI name `sbox` (and `~/.sbox/`, old brand `serverless-sandbox`) shown here reflects the state at that time and is now `ebx` / `easy-sandbox`; see ADR [`2026-09-09-brand-rename-sbox-to-ebx.md`](../../notes/implemented/architecture/2026-09-09-brand-rename-sbox-to-ebx.md). For current state, rely on the latest `verify/` reports, `AGENTS.md`, and `docs/`.
+
 # Server Framework Refactoring — Full Test Suite Verification
 
 **Date:** 2026-09-08  

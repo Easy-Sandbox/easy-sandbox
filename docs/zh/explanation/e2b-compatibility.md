@@ -118,8 +118,8 @@ Easy Sandbox 在 E2B 兼容基础上增加了以下功能：
 | MCP Server | AI IDE 集成（Cursor/Claude/VS Code） |
 | 会话管理 | 命名会话持久化 |
 | NL 部署 | 自然语言驱动的项目部署 |
-| 密钥管理 | `ebx secret` 安全存储 |
-| Skill 系统 | `ebx skill` 搜索和安装 |
+| 密钥管理 | 环境变量和 `.env` 文件安全存储 |
+| Skill 系统 | 待稳定后重新开放 CLI 入口 |
 
 ---
 

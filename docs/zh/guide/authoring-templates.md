@@ -100,7 +100,7 @@ capabilities:
 
 **默认能力集**（不声明 `capabilities` 时）：`shell`、`files`、`code`
 
-`terminal` 和 `ports` 必须在模板中显式声明才能使用。SDK 在调用相关功能前会通过 `check_capability()` 函数进行门禁检查，若能力未启用会抛出 `CapabilityNotSupportedError`（E3004）。
+`terminal` 和 `ports` 必须在模板中显式声明才能使用。能力令牌在模板解析层（`resolve_capabilities()`）使用，解析策略为 fail-closed：如果模板 YAML 格式错误或缺失，解析器会抛出 `TemplateParseError`（E2004）而非默认授予能力。所有 API 方法均可调用，不受声明能力限制；能力声明作为元数据用于模板校验和模型推断。
 
 > **Server 端能力组**：服务端有 8 个能力组（CORE, COMMANDS, FILE_OPS, PROCESS, TERMINAL, SYSTEM, DEV_TOOLS, BROWSER）。其中 TERMINAL 默认启用，仅 DEV_TOOLS 和 BROWSER 默认禁用（`_DEFAULT_DISABLED = {DEV_TOOLS, BROWSER}`）。
 
@@ -176,7 +176,9 @@ sandbox.register.upload()    # POST /upload
 sandbox.register.download()  # GET  /download
 ```
 
-注册的命令通过沙箱内 HTTP server 提供服务，客户端通过 `sandbox.run_command()` 或 `ebx run` 调用。
+注册的命令通过沙箱内 HTTP server 提供服务，客户端通过 `sandbox.custom()` 或 `ebx run` 调用。
+
+> **注意：** `sandbox.run_command()` 是 `sandbox.custom()` 的已弃用别名。新代码应使用 `sandbox.custom()`，它返回完整的 `CommandResult`。
 
 ---
 
@@ -221,9 +223,9 @@ ebx template install ./my-template --registry-type local
 
 模板安装后保存在 `~/.ebx/templates/` 目录下。
 
-### 本地构建并注册模板（build-local）
+### 本地构建并注册模板（template deploy）
 
-当你需要将自定义 Docker 镜像注册为沙箱模板时，使用 `build-local` 子命令。它自动执行：本地 Docker 构建 → ACR 推送 → 调用 CreateTemplate API。
+当你需要将自定义 Docker 镜像注册为沙箱模板时，使用 `template deploy` 子命令。它自动执行：本地 Docker 构建 → ACR 推送 → 调用 CreateTemplate API。
 
 > **前置条件**：
 > - Docker 守护进程已启动
@@ -232,15 +234,15 @@ ebx template install ./my-template --registry-type local
 
 ```bash
 # 默认使用官方 CreateTemplate API
-ebx template build-local ./my-template \
+ebx template deploy ./my-template \
   --acr-namespace my-ns --acr-repo my-template
 
 # 指定资源参数
-ebx template build-local ./my-template \
+ebx template deploy ./my-template \
   --acr-namespace my-ns --cpu 4 --memory 4096 --disk-size 10240 --internet-access
 
 # 使用旧 v3/v2 API（老脚本兼容）
-ebx template build-local ./my-template \
+ebx template deploy ./my-template \
   --acr-namespace my-ns --legacy-api
 ```
 

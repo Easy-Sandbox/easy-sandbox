@@ -1,7 +1,10 @@
 """Sandbox system, capabilities, and shell-stream CLI commands."""
+
 from __future__ import annotations
 
 import json as json_module
+import re
+import shlex
 import sys
 from typing import Any
 
@@ -9,6 +12,25 @@ import click
 
 from easy_sandbox.cli.formatters import get_formatter
 from easy_sandbox.cli.main import handle_errors
+
+# Shell metacharacters that require wrapping in ``sh -c``.
+_SHELL_META_RE = re.compile(r"[|&;<>()$`\\\"'\n]")  # noqa: W605
+
+
+def _wrap_shell_cmd(cmd: str) -> str:
+    """Wrap *cmd* in ``sh -c '...'`` when it contains shell metacharacters.
+
+    Wraps command in ``sh -c`` for variable expansion (``$VAR``), backticks,
+    and newlines.  Note: pipe/redirect/semicolon operators are now
+    auto-detected and wrapped by ``api/commands.py::_needs_shell_wrap``, so
+    this function primarily handles ``$``-expansion and multi-line commands
+    that ``_needs_shell_wrap`` does not cover.
+    """
+    if _SHELL_META_RE.search(cmd):
+        # Use shlex.quote to safely embed the command string.
+        return f"sh -c {shlex.quote(cmd)}"
+    return cmd
+
 
 # ---------------------------------------------------------------------------
 # Helper: connect to sandbox
@@ -46,7 +68,7 @@ def system_info(ctx: click.Context, sandbox_id: str) -> None:
     sandbox = _connect_sandbox(sandbox_id)
 
     script = (
-        "python3 -c \""
+        'python3 -c "'
         "import platform, os, sys, shutil;"
         "u=platform.uname();"
         "d=shutil.disk_usage('/');"
@@ -57,7 +79,7 @@ def system_info(ctx: click.Context, sandbox_id: str) -> None:
         "print(f'Python: {sys.version.split()[0]}');"
         "print(f'Disk_Total_GB: {round(d.total/(1024**3),2)}');"
         "print(f'Disk_Free_GB: {round(d.free/(1024**3),2)}')"
-        "\""
+        '"'
     )
     result = run_sync(sandbox.commands.run(script, timeout=15))
 
@@ -90,7 +112,10 @@ def system_info(ctx: click.Context, sandbox_id: str) -> None:
 @click.command("env")
 @click.argument("sandbox_id")
 @click.option(
-    "--filter", "-f", "env_filter", default="",
+    "--filter",
+    "-f",
+    "env_filter",
+    default="",
     help="Comma-separated variable names to show",
 )
 @click.pass_context
@@ -164,10 +189,12 @@ def system_ports(ctx: click.Context, sandbox_id: str) -> None:
     fmt = get_formatter(ctx)
     sandbox = _connect_sandbox(sandbox_id)
 
-    result = run_sync(sandbox.commands.run(
-        "ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo 'NO_TOOL'",
-        timeout=10,
-    ))
+    result = run_sync(
+        sandbox.commands.run(
+            "ss -tlnp 2>/dev/null || netstat -tlnp 2>/dev/null || echo 'NO_TOOL'",
+            timeout=10,
+        )
+    )
 
     if result.exit_code != 0 or "NO_TOOL" in result.stdout:
         fmt.print_error("Cannot determine listening ports (ss/netstat not available).")
@@ -187,9 +214,13 @@ def system_ports(ctx: click.Context, sandbox_id: str) -> None:
 
 @click.command("packages")
 @click.argument("sandbox_id")
-@click.option("--manager", "-m", default="pip",
-              type=click.Choice(["pip", "npm"]),
-              help="Package manager (default: pip)")
+@click.option(
+    "--manager",
+    "-m",
+    default="pip",
+    type=click.Choice(["pip", "npm"]),
+    help="Package manager (default: pip)",
+)
 @click.pass_context
 @handle_errors
 def system_packages(
@@ -228,10 +259,7 @@ def system_packages(
                 fmt.print_success("No packages found.")
             else:
                 headers = ["Name", "Version"]
-                rows = [
-                    [p.get("name", ""), p.get("version", "")]
-                    for p in packages
-                ]
+                rows = [[p.get("name", ""), p.get("version", "")] for p in packages]
                 fmt.print_table(headers, rows)
     else:
         try:
@@ -240,9 +268,7 @@ def system_packages(
             packages_list = [
                 {
                     "name": name,
-                    "version": info.get("version", "")
-                    if isinstance(info, dict)
-                    else str(info),
+                    "version": info.get("version", "") if isinstance(info, dict) else str(info),
                 }
                 for name, info in deps.items()
             ]
@@ -283,7 +309,7 @@ def system_metrics(ctx: click.Context, sandbox_id: str) -> None:
     sandbox = _connect_sandbox(sandbox_id)
 
     script = (
-        "python3 -c \""
+        'python3 -c "'
         "import os, shutil, json;"
         "try:\\n"
         "  load1, load5, load15 = os.getloadavg()\\n"
@@ -298,16 +324,18 @@ def system_metrics(ctx: click.Context, sandbox_id: str) -> None:
         "'disk_used_gb': round(d.used/(1024**3),2),"
         "'disk_free_gb': round(d.free/(1024**3),2)"
         "}))"
-        "\""
+        '"'
     )
     result = run_sync(sandbox.commands.run(script, timeout=15))
 
     if result.exit_code != 0:
         # Fallback: raw uptime + df
-        result = run_sync(sandbox.commands.run(
-            "uptime 2>/dev/null; echo '---'; df -h / 2>/dev/null",
-            timeout=10,
-        ))
+        result = run_sync(
+            sandbox.commands.run(
+                "uptime 2>/dev/null; echo '---'; df -h / 2>/dev/null",
+                timeout=10,
+            )
+        )
         if fmt.use_json:
             fmt.print_data({"raw": result.stdout.strip()})
         else:
@@ -365,7 +393,10 @@ def capabilities(ctx: click.Context, sandbox_id: str) -> None:
 @click.command("shell-stream")
 @click.argument("sandbox_id")
 @click.option(
-    "--command", "-c", "cmd", required=True,
+    "--command",
+    "-c",
+    "cmd",
+    required=True,
     help="Command to execute with streaming output",
 )
 @click.option("--timeout", "-t", "cmd_timeout", type=int, default=300, help="Timeout in seconds")
@@ -379,9 +410,10 @@ def shell_stream(
     cmd_timeout: int,
     cwd: str,
 ) -> None:
-    """Execute a command with real-time streaming output.
+    """Execute a command with real-time HTTP chunked streaming output.
 
-    Unlike 'exec', output is printed line-by-line as it arrives.
+    Unlike 'exec', output is printed line-by-line as it arrives via
+    HTTP chunked streaming.
 
     Examples:\n
         ebx sandbox shell-stream abc123 --command "pip install numpy"\n
@@ -397,8 +429,13 @@ def shell_stream(
 
     async def _stream() -> int:
         nonlocal exit_code
+        # BUG-06: wrap commands containing pipes / redirections so the
+        # remote shell evaluates the full pipeline.
+        effective_cmd = _wrap_shell_cmd(cmd)
         async for chunk in sandbox.commands.stream(
-            cmd, timeout=cmd_timeout, cwd=cwd,
+            effective_cmd,
+            timeout=cmd_timeout,
+            cwd=cwd,
         ):
             if chunk.type == ProcessChunkType.STDOUT:
                 if chunk.data:

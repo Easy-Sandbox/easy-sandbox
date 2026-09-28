@@ -1,85 +1,85 @@
-# Decision: envd 两层容器服务模型（Image-Baked envd/Gateway + User Opt-in Server Module）
+# Decision: envd Two-Layer Container Service Model (Image-Baked envd/Gateway + User Opt-in Server Module)
 
 Status: implemented
 Task: #94, #105, #118
 
 ## Problem
-SDK 与容器内服务进程之间的职责边界不清晰。核心问题：谁负责提供容器内的 files/process/code/PTY/ports 服务？是用户/模板自带，还是平台侧提供？以及用户若需要长驻服务（如自建 HTTP server），应如何暴露——是替代 envd，还是在 envd 之上叠加？
+The responsibility boundary between the SDK and the in-container service processes is unclear. The core question: who provides the in-container files/process/code/PTY/ports services — the user/template, or the platform side? And when a user needs a long-running service (e.g. a self-hosted HTTP server), how should it be exposed — as a replacement for envd, or layered on top of envd?
 
 ## Decision
-采用**镜像烤入 envd/Gateway + 用户 opt-in server 模块**的两层模型。
+Adopt a two-layer model of **image-baked envd/Gateway + a user opt-in server module**.
 
-### 第一层：envd 与 Gateway 烤进 FC 官方基础镜像，由 entrypoint 启动
+### Layer 1: envd and Gateway are baked into the FC official base image and started by the entrypoint
 
-> **⚠ 关键事实修正（2026-09-05）**：原 ADR 错误描述 envd 为"平台运行时注入"或"构建期注入"。经实拉官方镜像检查（见 `.agents/evidence/research/2026-09-04-fc-claude-code-image-inspection.md`），已确认 envd 和 Gateway 是**烤进（baked into）FC 官方基础镜像**的静态 Go 二进制，而非平台运行时或构建期动态注入。
+> **⚠ Key fact correction (2026-09-05)**: an earlier version of this ADR incorrectly described envd as "injected by the platform runtime" or "injected at build time". After pulling and inspecting the official image (see `.agents/evidence/research/2026-09-04-fc-claude-code-image-inspection.md`), it is confirmed that envd and Gateway are static Go binaries **baked into the FC official base image**, not dynamically injected by the platform runtime or at build time.
 
-1. **容器内有两个 Go server，均为静态链接二进制，烤进 FC 官方基础镜像**：
-   - **Gateway**（`/.fce2b/entrypoint`，端口 5000）：反向代理 + PID1 进程管理器。作为 `ENTRYPOINT` 启动，管理所有子进程生命周期（包括启动 envd），并通过 `proxy.(*Router)` 将请求路由到 envd、Code Interpreter 或动态端口服务。
-   - **envd**（`/.fce2b/envd`，端口 49983）：E2B 标准守护进程（v0.1.14），提供 files（HTTP REST + Connect）、process（Connect streaming）、code（Connect）、terminal/PTY（WebSocket）等标准协议面。
-2. **Gateway 反代层关键能力**：
-   - `routeEnvd`：代理 envd 请求（/health, /metrics, /envs, /files/* 等）到 127.0.0.1:49983
-   - `routeCI`：代理 Code Interpreter 请求到 127.0.0.1:49999（如已启用）
-   - **`routeDynamic`：动态端口路由**，根据 `X-Sandbox-Port` header 将请求代理到对应端口——这是用户自建 server 能被外部访问的基础机制
-   - 进程管理（`process.(*Manager).StartAll`）、僵尸进程回收（`process.(*Reaper)`）、启动就绪守卫（`proxy.(*StartupGuard).WaitForBackend`）
-3. **启动链路**：`docker run → /.fce2b/entrypoint (PID 1)` → 启动 envd (49983) → 启动反向代理 Router (5000) → 等待 /init 初始化。
-4. **envd 二进制不可替换**。版本由镜像决定（`models/sandbox.py` 的 `envd_version` 字段只是消费平台返回值）。本仓库不含 envd 实现。
-5. **builder 模式**：平台对用户源镜像执行"拉取 → 加入云沙箱运行依赖（含 envd/Gateway 二进制）→ 推送为目标镜像"。本质上是把官方基础镜像的 `/.fce2b/` 目录合入用户镜像。
-6. **direct 模式不含 envd**：源镜像需已具备 E2B 运行依赖，否则所有 envd 承接的能力（files/process/code/PTY）全部不可用。
+1. **There are two Go servers in the container, both statically linked binaries baked into the FC official base image**:
+   - **Gateway** (`/.fce2b/entrypoint`, port 5000): reverse proxy + PID1 process manager. Started as the `ENTRYPOINT`, it manages the lifecycle of all child processes (including starting envd) and routes requests via `proxy.(*Router)` to envd, the Code Interpreter, or dynamic port services.
+   - **envd** (`/.fce2b/envd`, port 49983): the E2B standard daemon (v0.1.14), providing the standard protocol surfaces for files (HTTP REST + Connect), process (Connect streaming), code (Connect), and terminal/PTY (WebSocket).
+2. **Key capabilities of the Gateway reverse-proxy layer**:
+   - `routeEnvd`: proxies envd requests (/health, /metrics, /envs, /files/*, etc.) to 127.0.0.1:49983
+   - `routeCI`: proxies Code Interpreter requests to 127.0.0.1:49999 (when enabled)
+   - **`routeDynamic`: dynamic port routing** — proxies a request to the matching port based on the `X-Sandbox-Port` header. This is the underlying mechanism that lets a user's self-hosted server be reached from outside.
+   - Process management (`process.(*Manager).StartAll`), zombie-process reaping (`process.(*Reaper)`), startup-readiness guard (`proxy.(*StartupGuard).WaitForBackend`)
+3. **Startup chain**: `docker run → /.fce2b/entrypoint (PID 1)` → start envd (49983) → start the reverse-proxy Router (5000) → wait for `/init` initialization.
+4. **The envd binary is not replaceable**. Its version is determined by the image (the `envd_version` field in `models/sandbox.py` merely consumes the value returned by the platform). This repository contains no envd implementation.
+5. **builder mode**: the platform performs "pull → add cloud-sandbox runtime dependencies (including the envd/Gateway binaries) → push as the target image" on the user's source image. Essentially it merges the official base image's `/.fce2b/` directory into the user's image.
+6. **direct mode contains no envd**: the source image must already ship the E2B runtime dependencies, otherwise all envd-backed capabilities (files/process/code/PTY) are unavailable.
 
-### 第二层：用户 opt-in 的 easy_sandbox.server 模块
+### Layer 2: the user opt-in easy_sandbox.server module
 
-> **⚠ 关键事实修正（2026-09-05）**：原 ADR 声称"SDK 不 ship 容器内 server"。此决策已推翻。新增用户 opt-in 的 `easy_sandbox.server` 模块，详见 `2026-09-05-sandbox-server-module.md`。
+> **⚠ Key fact correction (2026-09-05)**: an earlier version of this ADR claimed "the SDK does not ship an in-container server". That decision has been reversed. A user opt-in `easy_sandbox.server` module is added; see `2026-09-05-sandbox-server-module.md`.
 
-7. **SDK 新增 `easy_sandbox.server` 模块**：stdlib-only 零依赖的容器内 HTTP server，用户通过 `sandbox.server.start()` 主动启动（非兜底 agent，非自动部署）。内置 `upload`/`download`/`runshell` 命令，直接操作本地文件系统（不绑定 envd API）。
-8. **这不是兜底 agent**：envd 仍是标准能力的基础承载。server 模块的定位是为**用户自定义命令**提供 HTTP 端点注册，通过 `POST /commands/{name}` 调用，客户端经 `https://{port}-{sandbox_id}.{domain}` 访问。
-9. **ports 能力门控**：server 模块需模板显式声明 `capabilities: [..., ports]`。`ports` 不在 `DEFAULT_CAPABILITIES = {shell, files, code}` 里。
-10. **原"循环依赖"论证已不适用**：server 模块是用户主动部署的业务逻辑（经 `files.write` + `commands.start` 投递启动），其定位与"兜底替代 envd"完全不同。前者依赖 envd 是正常的上层→下层依赖，不构成循环。
+7. **The SDK adds an `easy_sandbox.server` module**: a stdlib-only, zero-dependency in-container HTTP server that the user starts proactively via `sandbox.server.start()` (not a fallback agent, not auto-deployed). It ships built-in `upload`/`download`/`runshell` commands that operate directly on the local filesystem (not bound to the envd API).
+8. **This is not a fallback agent**: envd remains the base carrier for standard capabilities. The server module's role is to provide HTTP endpoint registration for **user-defined commands**, invoked via `POST /commands/{name}` and reached by the client through `https://{port}-{sandbox_id}.{domain}`.
+9. **ports capability gating**: the server module requires the template to explicitly declare `capabilities: [..., ports]`. `ports` is not in `DEFAULT_CAPABILITIES = {shell, files, code}`.
+10. **The former "circular dependency" argument no longer applies**: the server module is user-deployed business logic (delivered and started via `files.write` + `commands.start`); its role is entirely different from a "fallback that replaces envd". Its dependency on envd is a normal upper→lower layer dependency and does not form a cycle.
 
 ## API Design
 ```python
-# envd 标准路径（不变）
+# envd standard path (unchanged)
 # envd:   https://49983-{sandbox_id}.{domain}
 
-# 用户 opt-in server 模块（新增）
-await sandbox.server.start()  # 启动容器内 HTTP server
+# User opt-in server module (new)
+await sandbox.server.start()  # start the in-container HTTP server
 result = await sandbox.server.call("runshell", cmd="ls -la")
-# 经 POST https://{port}-{sandbox_id}.{domain}/commands/runshell
+# via POST https://{port}-{sandbox_id}.{domain}/commands/runshell
 
-# 用户自建独立 server（仍支持）
+# User's own standalone server (still supported)
 reader = await sandbox.commands.start("node server.js", cwd="/app", timeout=300)
 url = sandbox.network.get_url(3000)           # https://{3000}-{sandbox_id}.{domain}
-headers = sandbox.network.get_access_headers() # secure 模式下 X-Access-Token
+headers = sandbox.network.get_access_headers() # X-Access-Token in secure mode
 ```
 
 ## Alternatives considered
-- **SDK ship 一个兜底 in-container agent（替代 envd）** — 循环依赖（投递手段依赖 envd）+ 无处安放（无 envd 时 SDK 无法连入）。Rejected。
-- **用户替换 envd 二进制** — envd 版本由镜像掌控，本仓库无替换通道。Rejected。
-- **用户在 direct 模式下自带完整运行时** — 技术可行，但代价是失去全部标准能力开箱即用的保障。仅限高级用户。
-- **FastAPI/Flask 作为 server 模块** — 引入第三方依赖，违反零依赖原则。Rejected。
-- **保留源码投递执行（不引入 server）** — 每次调用都需 files.write + commands.run 完整链路，延迟高、无法常驻。Rejected in favor of persistent HTTP server。
+- **SDK ships a fallback in-container agent (replacing envd)** — Circular dependency (the delivery mechanism depends on envd) + nowhere to place it (with no envd, the SDK cannot connect in). Rejected.
+- **User replaces the envd binary** — envd's version is controlled by the image; this repository provides no replacement channel. Rejected.
+- **User ships a full runtime in direct mode** — Technically feasible, but the cost is losing the out-of-the-box guarantee of all standard capabilities. Advanced users only.
+- **FastAPI/Flask as the server module** — Introduces third-party dependencies, violating the zero-dependency principle. Rejected.
+- **Keep source-delivery execution (no server)** — Every call requires the full files.write + commands.run chain, with high latency and no persistence. Rejected in favor of a persistent HTTP server.
 
 ## Dependencies
 - `transport/config.py` (`ENVD_PORT = 49983`, `build_envd_url`)
-- `transport/auth.py` (`EnvdTokenManager`, envd 四 header)
-- `protocol/` 层全部 Connect/HTTP/WS 协议实现
-- `2026-09-03-capability-model.md` (`DEFAULT_CAPABILITIES` 不含 `ports`)
-- `2026-09-03-command-source-resolution.md` (内置模板无 YAML → `ports` 不可用)
-- `2026-09-05-sandbox-server-module.md` (server 模块架构决策)
-- 阿里云官方文档：《构建自定义镜像模板》、《E2B 兼容说明》
-- `.agents/evidence/research/2026-09-04-fc-claude-code-image-inspection.md`（镜像实地检查证据）
+- `transport/auth.py` (`EnvdTokenManager`, the four envd headers)
+- The entire `protocol/` layer's Connect/HTTP/WS protocol implementations
+- `2026-09-03-capability-model.md` (`DEFAULT_CAPABILITIES` does not include `ports`)
+- `2026-09-03-command-source-resolution.md` (built-in templates have no YAML → `ports` unavailable)
+- `2026-09-05-sandbox-server-module.md` (server module architecture decision)
+- Alibaba Cloud official docs: "Building Custom Image Templates", "E2B Compatibility Notes"
+- `.agents/evidence/research/2026-09-04-fc-claude-code-image-inspection.md` (on-site image inspection evidence)
 
 ## Test Strategy
-- 真实闭环验证（O1）：`FROM ubuntu:22.04` 最小镜像 → `ebx template build` → `ebx create` → `ebx exec "echo ok"` + `files.write`。成功即证实 builder 模式合入。
-- `commands.start(background=True)` + `network.get_url(port)` 端到端可达性。
-- 模板未声明 `ports` 时，调用 `network.get_url()` 应抛 `CapabilityNotSupportedError(E3004)`。
-- server 模块功能验证见 `2026-09-05-sandbox-server-module.md`。
+- Real closed-loop validation (O1): a minimal `FROM ubuntu:22.04` image → `ebx template build` → `ebx create` → `ebx exec "echo ok"` + `files.write`. Success confirms the builder-mode merge.
+- `commands.start(background=True)` + `network.get_url(port)` end-to-end reachability.
+- When a template does not declare `ports`, calling `network.get_url()` should raise `CapabilityNotSupportedError(E3004)`.
+- Server module functional validation: see `2026-09-05-sandbox-server-module.md`.
 
 ## Acceptance criteria
-- 清晰文档：envd/Gateway 烤进 FC 官方基础镜像（非运行时注入），由 entrypoint 进程管理器启动。
-- SDK 新增 opt-in `easy_sandbox.server` 模块，用户主动 `sandbox.server.start()` 启动。
-- 用户自建 server 仍可走 `commands.start` + `network.get_url` 模式。
-- 全文档不再出现"envd 由运行时注入/平台注入"的错误描述。
+- Clear documentation: envd/Gateway are baked into the FC official base image (not runtime-injected), started by the entrypoint process manager.
+- The SDK adds the opt-in `easy_sandbox.server` module, started proactively by the user via `sandbox.server.start()`.
+- A user's own server can still use the `commands.start` + `network.get_url` pattern.
+- No documentation still describes "envd is runtime-injected / platform-injected".
 
 ## Evidence
 - `.agents/evidence/research/2026-09-04-container-serve-boundary.md` §0–§4, §6.7
-- `.agents/evidence/research/2026-09-04-fc-claude-code-image-inspection.md`（镜像实地检查，确认 envd/Gateway 为镜像烤入）
+- `.agents/evidence/research/2026-09-04-fc-claude-code-image-inspection.md` (on-site image inspection, confirming envd/Gateway are image-baked)

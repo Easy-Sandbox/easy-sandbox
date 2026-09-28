@@ -1,11 +1,10 @@
 """Tests for async/sync bridging utilities."""
-from __future__ import annotations
 
-import asyncio
+from __future__ import annotations
 
 import pytest
 
-from easy_sandbox.utils.async_bridge import run_sync, make_sync
+from easy_sandbox.utils.async_bridge import make_sync, run_sync
 
 
 class TestRunSync:

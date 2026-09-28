@@ -1,4 +1,5 @@
 """Tests for the official FCSandbox CreateTemplate API adapter."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
@@ -171,9 +172,7 @@ class TestCreateOfficialTemplate:
         mock_teams_resp = MagicMock()
         mock_teams_resp.body = mock_teams_body
 
-        with patch(
-            "alibabacloud_fcsandbox20260509.client.Client"
-        ) as mock_client_cls:
+        with patch("alibabacloud_fcsandbox20260509.client.Client") as mock_client_cls:
             mock_client = MagicMock()
             mock_client.create_template.return_value = mock_response
             mock_client.list_teams.return_value = mock_teams_resp
@@ -205,9 +204,7 @@ class TestCreateOfficialTemplate:
         mock_response.body = mock_body
         mock_response.status_code = 200
 
-        with patch(
-            "alibabacloud_fcsandbox20260509.client.Client"
-        ) as mock_client_cls:
+        with patch("alibabacloud_fcsandbox20260509.client.Client") as mock_client_cls:
             mock_client = MagicMock()
             mock_client.create_template.return_value = mock_response
             mock_client_cls.return_value = mock_client
@@ -229,9 +226,7 @@ class TestCreateOfficialTemplate:
         from easy_sandbox.api.fc_template import create_official_template
         from easy_sandbox.models.errors import TemplateBuildError
 
-        with patch(
-            "alibabacloud_fcsandbox20260509.client.Client"
-        ) as mock_client_cls:
+        with patch("alibabacloud_fcsandbox20260509.client.Client") as mock_client_cls:
             mock_client = MagicMock()
             mock_client.create_template.side_effect = Exception("API error")
             mock_client_cls.return_value = mock_client
@@ -263,9 +258,7 @@ class TestGetTemplate:
         mock_response.body = mock_body
         mock_response.status_code = 200
 
-        with patch(
-            "alibabacloud_fcsandbox20260509.client.Client"
-        ) as mock_client_cls:
+        with patch("alibabacloud_fcsandbox20260509.client.Client") as mock_client_cls:
             mock_client = MagicMock()
             mock_client.get_template.return_value = mock_response
             mock_client_cls.return_value = mock_client
@@ -278,3 +271,101 @@ class TestGetTemplate:
 
         assert result["templateID"] == "tpl-xyz"
         assert result["statusCode"] == 200
+
+
+class TestListOfficialTemplates:
+    """Tests for list_official_templates with mocked SDK client."""
+
+    def test_list_paginated_success(self) -> None:
+        """Iterate all pages and flatten results."""
+        from easy_sandbox.api.fc_template import list_official_templates
+
+        tpl1 = MagicMock()
+        tpl1.to_map.return_value = {"templateID": "t1", "name": "a", "status": "READY"}
+        tpl2 = MagicMock()
+        tpl2.to_map.return_value = {"templateID": "t2", "name": "b", "status": "BUILDING"}
+
+        page1_body = MagicMock()
+        page1_body.templates = [tpl1]
+        page1_body.next_token = "tok-2"
+        page1_resp = MagicMock()
+        page1_resp.body = page1_body
+
+        page2_body = MagicMock()
+        page2_body.templates = [tpl2]
+        page2_body.next_token = None
+        page2_resp = MagicMock()
+        page2_resp.body = page2_body
+
+        with (
+            patch("alibabacloud_fcsandbox20260509.client.Client") as mock_client_cls,
+            patch(
+                "easy_sandbox.api.fc_template.get_team_id",
+                return_value="team-x",
+            ),
+        ):
+            mock_client = MagicMock()
+            mock_client.list_templates.side_effect = [page1_resp, page2_resp]
+            mock_client_cls.return_value = mock_client
+
+            results = list_official_templates(
+                access_key_id="AK",
+                access_key_secret="SK",
+            )
+
+        assert [r["templateID"] for r in results] == ["t1", "t2"]
+        assert mock_client.list_templates.call_count == 2
+
+
+class TestWaitForTemplateReady:
+    """Tests for strict final-state polling."""
+
+    def test_returns_only_after_ready(self) -> None:
+        from easy_sandbox.api.fc_template import wait_for_template_ready
+
+        with (
+            patch(
+                "easy_sandbox.api.fc_template.get_team_id",
+                return_value="team-x",
+            ),
+            patch(
+                "easy_sandbox.api.fc_template.get_template",
+                side_effect=[
+                    {"status": {"state": "building"}},
+                    {"templateID": "tpl-1", "status": {"state": "ready"}},
+                ],
+            ) as mock_get,
+            patch("easy_sandbox.api.fc_template.time.sleep"),
+        ):
+            result = wait_for_template_ready(
+                "tpl-1",
+                access_key_id="AK",
+                access_key_secret="SK",
+                poll_interval=0,
+            )
+
+        assert result["status"]["state"] == "ready"
+        assert mock_get.call_count == 2
+
+    def test_error_state_raises(self) -> None:
+        from easy_sandbox.api.fc_template import wait_for_template_ready
+        from easy_sandbox.models.errors import TemplateBuildError
+
+        with (
+            patch(
+                "easy_sandbox.api.fc_template.get_team_id",
+                return_value="team-x",
+            ),
+            patch(
+                "easy_sandbox.api.fc_template.get_template",
+                return_value={
+                    "status": {"state": "error", "reason": {"message": "bad image"}},
+                },
+            ),
+            pytest.raises(TemplateBuildError, match="bad image"),
+        ):
+            wait_for_template_ready(
+                "tpl-1",
+                access_key_id="AK",
+                access_key_secret="SK",
+            )

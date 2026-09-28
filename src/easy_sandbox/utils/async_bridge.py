@@ -3,14 +3,18 @@
 Provides run_sync() for calling async functions from sync context,
 and make_sync for generating sync method variants.
 """
+
 from __future__ import annotations
 
 import asyncio
 import functools
-from typing import Any, Callable, Coroutine, TypeVar
 from concurrent.futures import ThreadPoolExecutor
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from easy_sandbox.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
 
 logger = get_logger("utils.async_bridge")
 
@@ -46,9 +50,7 @@ def run_sync(coro: Coroutine[Any, Any, T]) -> T:
     """
     if _has_running_loop():
         # Already in an async context (e.g., Jupyter) — run in a separate thread
-        logger.debug(
-            "Detected running event loop, using thread pool for sync execution"
-        )
+        logger.debug("Detected running event loop, using thread pool for sync execution")
         future = _executor.submit(asyncio.run, coro)
         return future.result()
     else:

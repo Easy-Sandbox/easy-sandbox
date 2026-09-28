@@ -1,14 +1,15 @@
 """Tests for transport.codec module."""
+
 from __future__ import annotations
 
 import pytest
 
 from easy_sandbox.transport.codec import (
-    ConnectCodec,
     CONNECT_CONTENT_TYPE,
-    json_encode,
-    json_decode,
     HAS_ORJSON,
+    ConnectCodec,
+    json_decode,
+    json_encode,
 )
 
 
@@ -104,7 +105,7 @@ class TestConnectCodec:
             ConnectCodec.decode_streaming_frame('"just a string"')
 
     def test_decode_streaming_frame_invalid_json(self):
-        with pytest.raises(Exception):
+        with pytest.raises((ValueError, Exception)):
             ConnectCodec.decode_streaming_frame("{not valid json}")
 
     def test_build_rpc_path(self):
@@ -114,4 +115,3 @@ class TestConnectCodec:
     def test_build_rpc_path_filesystem(self):
         path = ConnectCodec.build_rpc_path("filesystem", "Filesystem", "ReadFile")
         assert path == "/filesystem.Filesystem/ReadFile"
-

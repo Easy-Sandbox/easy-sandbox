@@ -1,13 +1,24 @@
 """Tests for the CodeContextModule API."""
+
 from __future__ import annotations
 
+import textwrap
+from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
 
+from easy_sandbox.api.capability import resolve_capabilities
 from easy_sandbox.api.code import CodeContextModule
+from easy_sandbox.models.errors import (
+    CapabilityNotSupportedError,
+    TemplateParseError,
+)
 from easy_sandbox.models.process import CodeResult
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
 class TestCodeRun:
@@ -233,21 +244,27 @@ class TestCodeRunEnvs:
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {
-            "stdout": "ok\n", "stderr": "", "exitCode": 0, "executionTime": 0.01,
+            "stdout": "ok\n",
+            "stderr": "",
+            "exitCode": 0,
+            "executionTime": 0.01,
         }
         proto = CodeInterpreterProtocol(mock_http)
         envd_token = AsyncMock()
 
         await proto.run_code(
-            "sbx-1", "https://envd", envd_token,
-            code="print(1)", envs={"K": "V"},
+            "sbx-1",
+            "https://envd",
+            envd_token,
+            code="print(1)",
+            envs={"K": "V"},
         )
 
         payload = mock_http.envd_request.call_args.kwargs["payload"]
         assert payload["envVars"] == {"K": "V"}
 
     @pytest.mark.asyncio
-    async def test_no_envs_omits_envVars_key(
+    async def test_no_envs_omits_env_vars_key(
         self,
     ) -> None:
         """Verify envVars is NOT in payload when envs is None."""
@@ -255,13 +272,18 @@ class TestCodeRunEnvs:
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {
-            "stdout": "ok\n", "stderr": "", "exitCode": 0, "executionTime": 0.01,
+            "stdout": "ok\n",
+            "stderr": "",
+            "exitCode": 0,
+            "executionTime": 0.01,
         }
         proto = CodeInterpreterProtocol(mock_http)
         envd_token = AsyncMock()
 
         await proto.run_code(
-            "sbx-1", "https://envd", envd_token,
+            "sbx-1",
+            "https://envd",
+            envd_token,
             code="print(1)",
         )
 
@@ -281,14 +303,19 @@ class TestCodeRunStreamingCallbacks:
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {
-            "stdout": "42\n", "stderr": "", "exitCode": 0, "executionTime": 0.05,
+            "stdout": "42\n",
+            "stderr": "",
+            "exitCode": 0,
+            "executionTime": 0.05,
         }
         proto = CodeInterpreterProtocol(mock_http)
         envd_token = AsyncMock()
 
         collected: list[str] = []
         await proto.run_code(
-            "sbx-1", "https://envd", envd_token,
+            "sbx-1",
+            "https://envd",
+            envd_token,
             code="print(42)",
             on_stdout=collected.append,
         )
@@ -303,14 +330,19 @@ class TestCodeRunStreamingCallbacks:
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {
-            "stdout": "", "stderr": "error msg\n", "exitCode": 1, "executionTime": 0.01,
+            "stdout": "",
+            "stderr": "error msg\n",
+            "exitCode": 1,
+            "executionTime": 0.01,
         }
         proto = CodeInterpreterProtocol(mock_http)
         envd_token = AsyncMock()
 
         collected: list[str] = []
         await proto.run_code(
-            "sbx-1", "https://envd", envd_token,
+            "sbx-1",
+            "https://envd",
+            envd_token,
             code="bad()",
             on_stderr=collected.append,
         )
@@ -325,14 +357,19 @@ class TestCodeRunStreamingCallbacks:
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {
-            "stdout": "42\n", "stderr": "", "exitCode": 0, "executionTime": 0.05,
+            "stdout": "42\n",
+            "stderr": "",
+            "exitCode": 0,
+            "executionTime": 0.05,
         }
         proto = CodeInterpreterProtocol(mock_http)
         envd_token = AsyncMock()
 
         results: list[dict] = []
         await proto.run_code(
-            "sbx-1", "https://envd", envd_token,
+            "sbx-1",
+            "https://envd",
+            envd_token,
             code="print(42)",
             on_result=results.append,
         )
@@ -348,7 +385,10 @@ class TestCodeRunStreamingCallbacks:
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {
-            "stdout": "out\n", "stderr": "err\n", "exitCode": 0, "executionTime": 0.05,
+            "stdout": "out\n",
+            "stderr": "err\n",
+            "exitCode": 0,
+            "executionTime": 0.05,
         }
         proto = CodeInterpreterProtocol(mock_http)
         envd_token = AsyncMock()
@@ -358,7 +398,9 @@ class TestCodeRunStreamingCallbacks:
         res: list[dict] = []
 
         response = await proto.run_code(
-            "sbx-1", "https://envd", envd_token,
+            "sbx-1",
+            "https://envd",
+            envd_token,
             code="x=1",
             on_stdout=out.append,
             on_stderr=err.append,
@@ -390,14 +432,19 @@ class TestCodeRunStreamingCallbacks:
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {
-            "stdout": "", "stderr": "", "exitCode": 0, "executionTime": 0.01,
+            "stdout": "",
+            "stderr": "",
+            "exitCode": 0,
+            "executionTime": 0.01,
         }
         proto = CodeInterpreterProtocol(mock_http)
         envd_token = AsyncMock()
 
         collected: list[str] = []
         await proto.run_code(
-            "sbx-1", "https://envd", envd_token,
+            "sbx-1",
+            "https://envd",
+            envd_token,
             code="pass",
             on_stdout=collected.append,
         )
@@ -412,8 +459,10 @@ class TestCodeRunStreamingCallbacks:
 
         mock_http = AsyncMock()
         mock_http.envd_request.return_value = {
-            "stdout": "hello\n", "stderr": "warn\n",
-            "exitCode": 0, "executionTime": 0.01,
+            "stdout": "hello\n",
+            "stderr": "warn\n",
+            "exitCode": 0,
+            "executionTime": 0.01,
         }
         proto = CodeInterpreterProtocol(mock_http)
         envd_token = AsyncMock()
@@ -465,7 +514,9 @@ class TestCodeRunStreamingCallbacks:
         res: list[dict] = []
 
         await proto.run_code(
-            "sbx-1", "https://envd", envd_token,
+            "sbx-1",
+            "https://envd",
+            envd_token,
             code="print('wrapped')",
             on_stdout=out.append,
             on_result=res.append,
@@ -503,18 +554,14 @@ def _make_404_exc() -> httpx.HTTPStatusError:
     """Create a realistic httpx.HTTPStatusError with status 404."""
     request = httpx.Request("POST", "https://envd/code.CodeInterpreter/Execute")
     response = httpx.Response(status_code=404, request=request)
-    return httpx.HTTPStatusError(
-        "404 Not Found", request=request, response=response
-    )
+    return httpx.HTTPStatusError("404 Not Found", request=request, response=response)
 
 
 def _make_500_exc() -> httpx.HTTPStatusError:
     """Create a realistic httpx.HTTPStatusError with status 500."""
     request = httpx.Request("POST", "https://envd/code.CodeInterpreter/Execute")
     response = httpx.Response(status_code=500, request=request)
-    return httpx.HTTPStatusError(
-        "500 Internal Server Error", request=request, response=response
-    )
+    return httpx.HTTPStatusError("500 Internal Server Error", request=request, response=response)
 
 
 def _mock_process_stream(stdout: str = "", stderr: str = "", exit_code: int = 0):
@@ -546,9 +593,9 @@ class TestCodeRunFallback:
 
         # write-file call, exec call, rm call
         mock_process_protocol.start.side_effect = [
-            _mock_process_stream(),                           # write
+            _mock_process_stream(),  # write
             _mock_process_stream(stdout="42\n", exit_code=0),  # exec
-            _mock_process_stream(),                           # rm
+            _mock_process_stream(),  # rm
         ]
 
         result = await code_module.run("print(42)")
@@ -890,3 +937,228 @@ class TestCodeRunFallback:
         assert mock_code_interpreter_protocol.run_code.await_count == 2
         # process protocol was NOT called for the second run (still 3 from first)
         assert mock_process_protocol.start.await_count == 3
+
+
+# ======================================================================
+# Capability gating — the "code" capability is required on every code
+# interpreter entrypoint (fail-closed).  The gate MUST run before any CI
+# availability check or 404 shell fallback, so a template that does not
+# declare "code" never reaches the interpreter nor the shell fallback.
+# ======================================================================
+
+
+def _code_module(
+    ci: AsyncMock,
+    proc: AsyncMock,
+    capabilities: set[str],
+) -> CodeContextModule:
+    """Build a CodeContextModule with an explicit capability set."""
+    return CodeContextModule(
+        sandbox_id="sbx-1",
+        envd_url="https://envd",
+        envd_token=AsyncMock(),
+        code_interpreter_protocol=ci,
+        capabilities=capabilities,
+        process_protocol=proc,
+    )
+
+
+class TestCodeCapabilityGating:
+    """`code` capability gate on run() and every context method."""
+
+    @pytest.mark.asyncio
+    async def test_run_without_code_capability_raises(
+        self,
+        mock_code_interpreter_protocol: AsyncMock,
+        mock_process_protocol: AsyncMock,
+    ) -> None:
+        """No 'code' capability → run() raises and touches neither CI nor shell."""
+        module = _code_module(
+            mock_code_interpreter_protocol,
+            mock_process_protocol,
+            capabilities={"shell", "files"},
+        )
+        with pytest.raises(CapabilityNotSupportedError) as ei:
+            await module.run("print(1)")
+        assert ei.value.capability == "code"
+        mock_code_interpreter_protocol.run_code.assert_not_awaited()
+        mock_process_protocol.start.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_run_gate_precedes_404_fallback(
+        self,
+        mock_code_interpreter_protocol: AsyncMock,
+        mock_process_protocol: AsyncMock,
+    ) -> None:
+        """Even when CI would 404 into shell fallback, a missing 'code'
+        capability blocks entry — the gate runs first."""
+        mock_code_interpreter_protocol.run_code.side_effect = _make_404_exc()
+        module = _code_module(
+            mock_code_interpreter_protocol,
+            mock_process_protocol,
+            capabilities={"shell", "files"},
+        )
+        with pytest.raises(CapabilityNotSupportedError):
+            await module.run("print(1)")
+        # Fallback shell path must never be reached.
+        mock_process_protocol.start.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_run_gate_precedes_cached_fallback(
+        self,
+        mock_code_interpreter_protocol: AsyncMock,
+        mock_process_protocol: AsyncMock,
+    ) -> None:
+        """Gate also precedes the fast-path (CI already known unavailable)
+        shell fallback branch."""
+        module = _code_module(
+            mock_code_interpreter_protocol,
+            mock_process_protocol,
+            capabilities={"shell", "files"},
+        )
+        module._ci_available = False  # simulate a prior 404
+        with pytest.raises(CapabilityNotSupportedError):
+            await module.run("print(1)")
+        mock_process_protocol.start.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_run_with_code_capability_works(
+        self,
+        mock_code_interpreter_protocol: AsyncMock,
+        mock_process_protocol: AsyncMock,
+    ) -> None:
+        """With 'code' declared, run() proceeds normally."""
+        module = _code_module(
+            mock_code_interpreter_protocol,
+            mock_process_protocol,
+            capabilities={"code"},
+        )
+        result = await module.run("print(42)")
+        assert isinstance(result, CodeResult)
+        assert result.text == "42"
+        mock_code_interpreter_protocol.run_code.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_ci_404_fallback_still_works_with_code(
+        self,
+        mock_code_interpreter_protocol: AsyncMock,
+        mock_process_protocol: AsyncMock,
+    ) -> None:
+        """With 'code' declared, the gate passes and the 404→shell fallback
+        stays intact."""
+        mock_code_interpreter_protocol.run_code.side_effect = _make_404_exc()
+        mock_process_protocol.start.side_effect = [
+            _mock_process_stream(),
+            _mock_process_stream(stdout="42\n", exit_code=0),
+            _mock_process_stream(),
+        ]
+        module = _code_module(
+            mock_code_interpreter_protocol,
+            mock_process_protocol,
+            capabilities={"code"},
+        )
+        result = await module.run("print(42)")
+        assert result.text == "42"
+        assert mock_process_protocol.start.await_count == 3
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "invoke",
+        [
+            lambda m: m.create_context(),
+            lambda m: m.list_contexts(),
+            lambda m: m.restart_context("ctx-1"),
+            lambda m: m.remove_context("ctx-1"),
+        ],
+        ids=["create_context", "list_contexts", "restart_context", "remove_context"],
+    )
+    async def test_context_methods_gated_without_code(
+        self,
+        invoke,
+        mock_code_interpreter_protocol: AsyncMock,
+        mock_process_protocol: AsyncMock,
+    ) -> None:
+        """Every context method is gated on 'code' before hitting the protocol."""
+        module = _code_module(
+            mock_code_interpreter_protocol,
+            mock_process_protocol,
+            capabilities={"shell", "files"},
+        )
+        with pytest.raises(CapabilityNotSupportedError) as ei:
+            await invoke(module)
+        assert ei.value.capability == "code"
+        mock_code_interpreter_protocol.create_context.assert_not_awaited()
+        mock_code_interpreter_protocol.list_contexts.assert_not_awaited()
+        mock_code_interpreter_protocol.restart_context.assert_not_awaited()
+        mock_code_interpreter_protocol.remove_context.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_context_methods_work_with_code(
+        self,
+        mock_code_interpreter_protocol: AsyncMock,
+        mock_process_protocol: AsyncMock,
+    ) -> None:
+        """With 'code' declared, context methods reach the protocol."""
+        module = _code_module(
+            mock_code_interpreter_protocol,
+            mock_process_protocol,
+            capabilities={"code"},
+        )
+        assert (await module.create_context())["contextId"] == "ctx-001"
+        assert len(await module.list_contexts()) == 1
+        assert (await module.restart_context("ctx-001"))["status"] == "active"
+        await module.remove_context("ctx-001")
+        mock_code_interpreter_protocol.create_context.assert_awaited_once()
+        mock_code_interpreter_protocol.list_contexts.assert_awaited_once()
+        mock_code_interpreter_protocol.restart_context.assert_awaited_once()
+        mock_code_interpreter_protocol.remove_context.assert_awaited_once()
+
+    @pytest.mark.asyncio
+    async def test_resolved_capabilities_without_code_gates_run(
+        self,
+        tmp_path: Path,
+        mock_code_interpreter_protocol: AsyncMock,
+        mock_process_protocol: AsyncMock,
+    ) -> None:
+        """A template that resolves WITHOUT 'code' blocks run() end-to-end."""
+        yaml_file = tmp_path / "template.yaml"
+        yaml_file.write_text(
+            textwrap.dedent("""\
+                name: web-only
+                capabilities:
+                  - shell
+                  - files
+            """)
+        )
+        resolved = await resolve_capabilities(
+            "web-only",
+            local_yaml_path=str(yaml_file),
+        )
+        assert "code" not in resolved.capabilities
+        module = _code_module(
+            mock_code_interpreter_protocol,
+            mock_process_protocol,
+            capabilities=resolved.capabilities,
+        )
+        with pytest.raises(CapabilityNotSupportedError):
+            await module.run("print(1)")
+        mock_code_interpreter_protocol.run_code.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_malformed_template_never_grants_code(
+        self,
+        tmp_path: Path,
+    ) -> None:
+        """Capability resolution failure is fail-closed: a matched-but-malformed
+        template raises rather than silently granting DEFAULT_CAPABILITIES
+        (which would include 'code')."""
+        yaml_file = tmp_path / "template.yaml"
+        yaml_file.write_text(
+            textwrap.dedent("""\
+                name: broken
+                capabilities:
+                  - not_a_real_capability
+            """)
+        )
+        with pytest.raises(TemplateParseError):
+            await resolve_capabilities("broken", local_yaml_path=str(yaml_file))

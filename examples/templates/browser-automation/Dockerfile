@@ -1,4 +1,4 @@
-FROM ubuntu:22.04
+FROM mcr.microsoft.com/playwright/python:v1.40.0-jammy
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV LANG=C.UTF-8

@@ -9,23 +9,25 @@ The module uploads the project to ``/workspace`` inside the sandbox, then
 invokes ``qwen`` in headless mode to autonomously analyse, install
 dependencies, build, and start the service.
 """
+
 from __future__ import annotations
 
 import json
 import os
 import shlex
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from easy_sandbox.models.errors import (
-    DeployError,
-    DeployLLMKeyMissingError,
     DeployAgentError,
+    DeployLLMKeyMissingError,
 )
 from easy_sandbox.utils.logging import get_logger
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from easy_sandbox.api.sandbox import Sandbox
 
 logger = get_logger("api.deploy")
@@ -34,6 +36,7 @@ logger = get_logger("api.deploy")
 # ---------------------------------------------------------------------------
 # Data classes
 # ---------------------------------------------------------------------------
+
 
 @dataclass
 class DeployResult:
@@ -121,8 +124,7 @@ def resolve_llm_env(
         raise DeployLLMKeyMissingError(
             "No LLM API key found for qwen-code agent.",
             suggestion=(
-                "Set one of the following environment variables: "
-                + ", ".join(_LLM_KEY_ENV_VARS)
+                "Set one of the following environment variables: " + ", ".join(_LLM_KEY_ENV_VARS)
             ),
         )
 
@@ -162,7 +164,8 @@ _DEPLOY_PROMPT_TEMPLATE = """\
 5. 完成后输出部署结果（JSON 格式）
 
 最终请输出一行 JSON（不要 markdown 代码块），格式:
-{{"status": "success|failed", "url": "http://localhost:<port>", "port": <port>, "logs": "关键日志摘要"}}
+{{"status": "success|failed", "url": "http://localhost:<port>", "port": <port>,
+"logs": "关键日志摘要"}}
 """
 
 
@@ -174,6 +177,7 @@ def _build_prompt(instruction: str) -> str:
 # ---------------------------------------------------------------------------
 # Wall-time parsing
 # ---------------------------------------------------------------------------
+
 
 def _parse_wall_time(wall_time: str) -> int:
     """Parse a wall-time string like ``'10m'`` or ``'300s'`` into seconds."""
@@ -190,6 +194,7 @@ def _parse_wall_time(wall_time: str) -> int:
 # ---------------------------------------------------------------------------
 # DeployModule
 # ---------------------------------------------------------------------------
+
 
 class DeployModule:
     """Orchestrates NL-driven deployment inside a sandbox via qwen-code.
@@ -215,7 +220,7 @@ class DeployModule:
         *,
         max_wall_time: str = "10m",
         max_tool_calls: int = 100,
-        on_progress: Optional[Callable[[str], None]] = None,
+        on_progress: Callable[[str], None] | None = None,
     ) -> DeployResult:
         """Deploy a local project using the qwen-code agent.
 
@@ -258,7 +263,7 @@ class DeployModule:
         # Step 3: Parse output
         if on_progress:
             on_progress("Parsing deployment result...")
-        deploy_result = self._parse_result(result.stdout, result.stderr, result.exit_code)
+        deploy_result = self._parse_result(result.stdout, result.stderr, result.exit_code)  # type: ignore[union-attr]
         deploy_result.sandbox_id = self._sandbox.id
 
         if on_progress:
@@ -289,10 +294,10 @@ class DeployModule:
             # Skip common non-essential directories
             rel = file_path.relative_to(local_root)
             parts = rel.parts
-            if any(
-                p in (".git", "__pycache__", "node_modules", ".venv", ".env", ".tox")
-                for p in parts
-            ):
+            if any(p in (".git", "__pycache__", "node_modules", ".venv", ".tox") for p in parts):
+                continue
+            # Skip .env files (may contain secrets)
+            if rel.name == ".env":
                 continue
 
             remote_path = f"/workspace/{rel.as_posix()}"
@@ -310,12 +315,7 @@ class DeployModule:
     ) -> str:
         """Build the ``qwen`` CLI command string."""
         safe_prompt = shlex.quote(prompt)
-        return (
-            f"qwen -p {safe_prompt} "
-            f"--yolo "
-            f"--output-format json "
-            f"--max-turns {max_tool_calls}"
-        )
+        return f"qwen -p {safe_prompt} --yolo --output-format json --max-turns {max_tool_calls}"
 
     @staticmethod
     def _parse_result(

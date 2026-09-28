@@ -1,4 +1,5 @@
 """Sandbox process-management CLI commands: list, start, info, signal."""
+
 from __future__ import annotations
 
 import sys
@@ -49,16 +50,12 @@ def process_list(ctx: click.Context, sandbox_id: str) -> None:
         return
 
     if fmt.use_json:
-        fmt.print_data([
-            {"pid": p.pid, "command": p.command, "status": p.status}
-            for p in processes
-        ])
+        fmt.print_data(
+            [{"pid": p.pid, "command": p.command, "status": p.status} for p in processes]
+        )
     else:
         headers = ["PID", "Command", "Status"]
-        rows = [
-            [str(p.pid), p.command, p.status]
-            for p in processes
-        ]
+        rows = [[str(p.pid), p.command, p.status] for p in processes]
         fmt.print_table(headers, rows)
 
 
@@ -69,7 +66,7 @@ def process_list(ctx: click.Context, sandbox_id: str) -> None:
 
 @click.command("start")
 @click.argument("sandbox_id")
-@click.option("--command", "-c", "cmd", required=True, help="Command to run in background")
+@click.option("--command", "-c", "cmd", required=True, help="Command to execute")
 @click.option("--timeout", "-t", "cmd_timeout", type=int, default=300, help="Timeout in seconds")
 @click.option("--cwd", default="", help="Working directory")
 @click.pass_context
@@ -81,9 +78,9 @@ def process_start(
     cmd_timeout: int,
     cwd: str,
 ) -> None:
-    """Start a background process in a sandbox.
+    """Execute a command synchronously and wait for completion.
 
-    The process runs asynchronously; output is collected and displayed.
+    Output is collected and displayed after the command finishes.
 
     Examples:\n
         ebx sandbox process start abc123 --command "python app.py"\n
@@ -97,12 +94,14 @@ def process_start(
     result = run_sync(sandbox.commands.run(cmd, timeout=cmd_timeout, cwd=cwd))
 
     if fmt.use_json:
-        fmt.print_data({
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "exit_code": result.exit_code,
-            "execution_time": result.execution_time,
-        })
+        fmt.print_data(
+            {
+                "stdout": result.stdout,
+                "stderr": result.stderr,
+                "exit_code": result.exit_code,
+                "execution_time": result.execution_time,
+            }
+        )
     else:
         if result.stdout:
             click.echo(result.stdout, nl=False)
@@ -140,10 +139,12 @@ def process_info(ctx: click.Context, sandbox_id: str, pid: int) -> None:
     sandbox = _connect_sandbox(sandbox_id)
 
     # Use ps for process info
-    result = run_sync(sandbox.commands.run(
-        f"ps -p {pid} -o pid=,ppid=,user=,stat=,rss=,etime=,comm= 2>/dev/null",
-        timeout=10,
-    ))
+    result = run_sync(
+        sandbox.commands.run(
+            f"ps -p {pid} -o pid=,ppid=,user=,stat=,rss=,etime=,comm= 2>/dev/null",
+            timeout=10,
+        )
+    )
 
     if result.exit_code != 0 or not result.stdout.strip():
         fmt.print_error(f"Process {pid} not found or not accessible.")
@@ -174,7 +175,11 @@ def process_info(ctx: click.Context, sandbox_id: str, pid: int) -> None:
 @click.argument("sandbox_id")
 @click.argument("pid", type=int)
 @click.option(
-    "--signal", "-s", "sig", type=int, default=15,
+    "--signal",
+    "-s",
+    "sig",
+    type=int,
+    default=15,
     help="Signal number (default: 15/SIGTERM)",
 )
 @click.pass_context

@@ -270,20 +270,25 @@ graph LR
 
 **Startup Method**: Specify the command in IDE configuration; the IDE automatically starts the process.
 
-### HTTP + SSE — Remote Multi-Client
+### Streamable HTTP — Remote Deployment (FC)
+
+> **Status:** Streamable HTTP transport (`mcp_http.py`) is implemented. The `ebx mcp deploy` CLI command is **not yet implemented**.
 
 ```mermaid
 graph LR
-    A["Client A - Cursor"] <-->|"HTTP POST / SSE Stream"| MCP["MCP Server<br/>HTTP Mode"]
-    B["Client B - Claude"] <-->|"HTTP POST / SSE Stream"| MCP
-    C["Client C - Web App"] <-->|"HTTP POST / SSE Stream"| MCP
-    MCP --> SM["Independent Session Manager<br/>per client"]
+    A["Client A - Cursor"] <-->|"Streamable HTTP<br/>POST /mcp"| MCP["MCP Server<br/>FC Function"]
+    B["Client B - Claude"] <-->|"Streamable HTTP<br/>POST /mcp"| MCP
+    MCP --> SM["Session Manager<br/>per Mcp-Session-Id"]
     SM --> FC[Alibaba Cloud FC]
 ```
 
 **Use Case**: Remote services, team sharing, multiple clients simultaneously.
 
-**Startup Method**: `ebx mcp start --transport http --port 8765`
+**Protocol**: MCP Streamable HTTP (spec 2025-06-18). Session affinity via `Mcp-Session-Id` response header; Alibaba Cloud FC natively supports MCP session routing.
+
+**Startup Method**: Deploy via `ebx mcp deploy` (planned), or run locally with `ebx mcp start --transport http --port 8765`.
+
+> **Note:** The previous HTTP+SSE transport (MCP spec 2024-11-05) has been superseded by the Streamable HTTP spec. Existing SSE endpoints remain functional but new deployments should use Streamable HTTP.
 
 ---
 
@@ -412,22 +417,72 @@ Registered tools:
 ### HTTP Mode Configuration (Remote Service)
 
 ```bash
-# Start HTTP MCP Server
+# Start Streamable HTTP MCP Server locally
 ebx mcp start --transport http --port 8765 --host 0.0.0.0
 
 # Client connection
-# SSE endpoint: http://server:8765/sse
-# POST endpoint: http://server:8765/messages
+# Streamable HTTP endpoint: http://server:8765/mcp
 ```
 
 ```json
-// Remote MCP configuration
+// Remote MCP configuration (Streamable HTTP)
 {
   "mcpServers": {
     "easy-sandbox-remote": {
-      "url": "http://your-server:8765/sse",
-      "transport": "sse"
+      "url": "http://your-server:8765/mcp"
     }
   }
 }
+```
+
+---
+
+## 7. FC Deployment
+
+> **Status:** The Streamable HTTP transport layer (`mcp_http.py`) is implemented. The `ebx mcp deploy` CLI command is **not yet implemented**.
+
+### Architecture
+
+The MCP Server can be deployed to Alibaba Cloud Function Compute (FC) as a Streamable HTTP endpoint, leveraging FC's native MCP session affinity routing.
+
+```mermaid
+graph TB
+    CLI["ebx mcp deploy → Package → FC CreateFunction + CreateTrigger"]
+    FC["FC Function: easy-sandbox-mcp-server"]
+    Sandbox["Envd Sandbox (separate FC instance)"]
+
+    CLI --> FC
+    FC --> Sandbox
+
+    subgraph FC_Function ["FC Function"]
+        ASGI["easy_sandbox.agent.mcp_http:asgi_app"]
+        Trigger["HTTP Trigger: POST/GET/DELETE /mcp"]
+        Session["Session Affinity: Mcp-Session-Id"]
+        Env["Env Vars: EBX_API_KEY / EBX_API_URL / EBX_TEMPLATE"]
+    end
+```
+
+### Key Design Points
+
+- **Protocol**: Streamable HTTP (MCP spec 2025-06-18)
+- **Session affinity**: Delegated to FC platform layer via `Mcp-Session-Id` header — no application-level sticky routing needed
+- **Authentication**: Dual-layer — Client→MCP uses `Authorization: Bearer <token>`; MCP→Sandbox uses `E2B_API_KEY` from FC env
+- **Lifecycle**: Sandboxes are lazily created per MCP session; `DELETE /mcp` triggers cleanup; idle timer as safety net
+- **Cold start**: FC cold start (~1–3s) may conflict with MCP initialize timeout; provisioned instances recommended for production
+
+### CLI Command (Planned)
+
+```bash
+ebx mcp deploy \
+  --name easy-sandbox-mcp \
+  --region cn-hangzhou \
+  --template python-base \
+  --memory 512 --timeout 600 \
+  --generate-token \
+  --enable-session-affinity
+```
+
+Produces: FC function ARN, HTTP trigger URL, and IDE configuration snippet.
+
+See [CLI Design — mcp deploy](cli-design.md#mcp-deploy) for full parameter reference.
 ```

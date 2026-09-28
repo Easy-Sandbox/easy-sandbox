@@ -10,7 +10,10 @@ Error codes follow the pattern E{category}{sequence}:
   E4xxx = Filesystem errors
   E5xxx = Network errors
 """
+
 from __future__ import annotations
+
+from typing import Any
 
 
 class SandboxError(Exception):
@@ -160,7 +163,7 @@ class ProcessError(ExecutionError):
         exit_code: int = -1,
         stdout: str = "",
         stderr: str = "",
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         self.exit_code = exit_code
         self.stdout = stdout
@@ -197,6 +200,47 @@ class CapabilityNotSupportedError(ExecutionError):
             "(template.yaml) or use a template that supports it."
         )
         super().__init__(_message, suggestion=_suggestion, **kwargs)  # type: ignore[arg-type]
+
+
+class CommandNotFoundError(ExecutionError):
+    """Raised when :meth:`Sandbox.custom` cannot resolve a named command.
+
+    ``custom()`` checks two sources in order — the template's
+    ``custom_commands`` (mechanism A) and the in-sandbox SandboxServer
+    registry (mechanism B).  This error is raised when neither source
+    yields the command, either because it is genuinely unknown (server
+    returned 404) or because the SandboxServer could not be reached.
+    """
+
+    code = "E3005"
+
+    def __init__(
+        self,
+        name: str,
+        *,
+        checked: list[str],
+        server_status: str = "",
+        template_commands: list[str] | None = None,
+        **kwargs: object,
+    ) -> None:
+        parts = [f"Command {name!r} not found."]
+        parts.append(f"Checked sources: {', '.join(checked)}.")
+        if template_commands is not None:
+            available = ", ".join(sorted(template_commands)) or "(none)"
+            parts.append(f"Available template commands: {available}.")
+        if server_status:
+            parts.append(f"Server: {server_status}.")
+        _suggestion = kwargs.pop("suggestion", None) or (
+            "Check the command name, the template's custom_commands, and "
+            "whether the SandboxServer is running (sandbox.server.start())."
+        )
+        super().__init__(
+            " ".join(parts),
+            suggestion=_suggestion,  # type: ignore[arg-type]
+            **kwargs,  # type: ignore[arg-type]
+        )
+        self.command_name = name
+        self.checked_sources = checked
 
 
 # --- Filesystem Errors (E4xxx) ---
@@ -236,7 +280,10 @@ class SessionNotFoundError(SessionError):
     """Session not found in the store."""
 
     code = "E6001"
-    suggestion = "Run 'ebx session list' to see available sessions."
+    suggestion = (
+        "Check session files in ~/.ebx/sessions/ "
+        "or use LocalSessionStore().list() programmatically."
+    )
 
 
 class SessionAlreadyExistsError(SessionError):
@@ -308,8 +355,7 @@ class ACRPushError(SandboxError):
 
     code = "E7021"
     suggestion = (
-        "Verify ACR credentials and registry URL. "
-        "Ensure the namespace and repository exist."
+        "Verify ACR credentials and registry URL. Ensure the namespace and repository exist."
     )
 
 
@@ -317,9 +363,7 @@ class ACRLoginError(SandboxError):
     """Failed to login to Alibaba Cloud ACR."""
 
     code = "E7022"
-    suggestion = (
-        "Check AccessKey/AccessSecret credentials and registry URL."
-    )
+    suggestion = "Check AccessKey/AccessSecret credentials and registry URL."
 
 
 # --- Network Errors (E5xxx) ---
@@ -355,6 +399,7 @@ __all__ = [
     "ProcessError",
     "CodeExecutionError",
     "CapabilityNotSupportedError",
+    "CommandNotFoundError",
     "FileOperationError",
     "FileNotFoundError_",
     "PermissionDeniedError",

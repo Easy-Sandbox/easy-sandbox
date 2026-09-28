@@ -10,7 +10,6 @@ def bench_import():
         "easy_sandbox.api",
         "easy_sandbox.agent",
         "easy_sandbox.declarative",
-        "easy_sandbox.integrations",
         "easy_sandbox.session",
     ]
     for mod in modules:

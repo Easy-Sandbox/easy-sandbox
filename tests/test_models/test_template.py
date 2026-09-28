@@ -1,7 +1,6 @@
 """Tests for SandboxTemplate and TemplateRef models."""
-from __future__ import annotations
 
-import pytest
+from __future__ import annotations
 
 from easy_sandbox.models.template import SandboxTemplate, TemplateRef
 
@@ -100,12 +99,12 @@ class TestSandboxTemplate:
         dockerfile = tmpl.to_dockerfile()
         lines = dockerfile.split("\n")
         assert lines[0] == "FROM python:3.11"
-        assert any("apt-get" in l for l in lines)
-        assert any("pip install" in l for l in lines)
-        assert any("npm install" in l for l in lines)
-        assert any("RUN echo done" in l for l in lines)
-        assert any("ENV APP_ENV=prod" in l for l in lines)
-        assert any("COPY src /app" in l for l in lines)
+        assert any("apt-get" in line for line in lines)
+        assert any("pip install" in line for line in lines)
+        assert any("npm install" in line for line in lines)
+        assert any("RUN echo done" in line for line in lines)
+        assert any("ENV APP_ENV=prod" in line for line in lines)
+        assert any("COPY src /app" in line for line in lines)
 
 
 class TestTemplateRef:

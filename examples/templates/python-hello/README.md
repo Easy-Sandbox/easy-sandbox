@@ -34,8 +34,8 @@ SDK 侧等价写法：
 from easy_sandbox import Sandbox
 
 sandbox = Sandbox.create(template="python-hello")
-result = sandbox.run("hello", name="Alice")
-print(result)  # Hello, Alice!
+result = sandbox.custom("hello", name="Alice")
+print(result.value)  # Hello, Alice!
 ```
 
 ### 上传 / 下载

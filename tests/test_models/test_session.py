@@ -1,7 +1,6 @@
 """Tests for session data models."""
-from __future__ import annotations
 
-from datetime import datetime, timezone
+from __future__ import annotations
 
 from easy_sandbox.models.session import SessionConfig, SessionInfo
 

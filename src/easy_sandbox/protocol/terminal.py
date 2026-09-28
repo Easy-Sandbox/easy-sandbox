@@ -3,15 +3,20 @@
 Provides interactive terminal access to sandboxes via WebSocket.
 Supports terminal resize, input/output streaming.
 """
+
 from __future__ import annotations
 
 import json
-from typing import Any, AsyncIterator
+from typing import TYPE_CHECKING, Any
 
-from easy_sandbox.transport.auth import EnvdTokenManager
-from easy_sandbox.transport.config import TransportConfig
 from easy_sandbox.transport.ws import WebSocketClient
 from easy_sandbox.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from easy_sandbox.transport.auth import EnvdTokenManager
+    from easy_sandbox.transport.config import TransportConfig
 
 logger = get_logger("protocol.terminal")
 
@@ -89,11 +94,13 @@ class TerminalSession:
 
         Sends a JSON control message to resize the PTY.
         """
-        control_msg = json.dumps({
-            "type": "resize",
-            "cols": cols,
-            "rows": rows,
-        })
+        control_msg = json.dumps(
+            {
+                "type": "resize",
+                "cols": cols,
+                "rows": rows,
+            }
+        )
         await self._ws.send(control_msg)
         logger.debug("Terminal resized to %dx%d", cols, rows)
 

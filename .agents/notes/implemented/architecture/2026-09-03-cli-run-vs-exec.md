@@ -14,14 +14,14 @@ Semantic split: `exec` = raw shell; `run` = template-declared named command.
 
 ## API Design
 ```bash
-ebx run <sandbox_id> <command_name> [选项]
+ebx run <sandbox_id> <command_name> [options]
 
-选项：
-  --arg, -a <KEY=VALUE>     命名命令参数（可多次使用）
-  --timeout, -t <seconds>   覆盖命令声明的超时
-  --json, -j                结构化输出
+Options:
+  --arg, -a <KEY=VALUE>     named-command argument (repeatable)
+  --timeout, -t <seconds>   override the command's declared timeout
+  --json, -j                structured output
 
-示例：
+Examples:
   ebx run sb-abc123 serve --arg port=9000
   ebx run sb-abc123 migrate --arg target=head --json
 ```

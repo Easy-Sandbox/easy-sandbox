@@ -54,43 +54,26 @@ File reads and writes are protected by file locks:
 
 ## CLI Usage
 
-### Start a Session
+> **Note**: The `ebx session` CLI command group has been removed from the CLI. Session functionality is now provided entirely through the SDK API. The examples below are for reference only; please use the Python SDK in practice.
 
-```bash
-ebx session start my-project --template base --timeout 600
-ebx session start dev-env --template base --env MY_KEY=value
-```
+### SDK Alternative
 
-Starting a session creates a new sandbox and records the mapping.
+```python
+from easy_sandbox.session import SessionManager
 
-### Connect to a Session
+manager = SessionManager()
 
-```bash
-ebx session connect my-project
-# Enters an interactive shell
-```
+# Start a session
+await manager.start("my-project", template="base", timeout=600)
 
-### List Sessions
+# Connect to a session
+sb = await manager.connect("my-project")
 
-```bash
-ebx session list
-# Shows all local sessions and their statuses
-```
+# List sessions
+sessions = await manager.list()
 
-### View Session Info
-
-```bash
-ebx session info my-project
-```
-
-### Stop a Session
-
-```bash
-# Stop and destroy the sandbox
-ebx session stop my-project
-
-# Only untrack, do not destroy the sandbox
-ebx session stop my-project --keep-alive
+# Stop a session
+await manager.stop("my-project")
 ```
 
 ---

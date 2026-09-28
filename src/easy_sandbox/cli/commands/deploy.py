@@ -2,11 +2,11 @@
 
 Supports two modes:
 1. NL deploy (qwen-code): ``ebx deploy ./my-project "部署这个 FastAPI 项目"``
-2. Traditional deploy: ``ebx deploy build`` / ``ebx deploy run``
+2. Traditional deploy: ``ebx deploy ./my-project --traditional``
 """
+
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -15,8 +15,6 @@ import click
 
 from easy_sandbox.cli.formatters import get_formatter
 from easy_sandbox.cli.main import handle_errors
-from easy_sandbox.cli.output import get_output
-
 
 # ---------------------------------------------------------------------------
 # Project type detection (retained for traditional deploy)
@@ -34,24 +32,6 @@ _PROJECT_DETECTORS: list[tuple[str, str, str]] = [
     ("build.gradle", "java", "java-dev"),
 ]
 
-_START_COMMANDS: dict[str, str] = {
-    "python": "python app.py",
-    "nodejs": "npm start",
-    "go": "go run .",
-    "java": "mvn spring-boot:run",
-    "docker": "",
-    "sandbox-config": "",
-}
-
-_INSTALL_COMMANDS: dict[str, str | None] = {
-    "python": "pip install -r requirements.txt",
-    "nodejs": "npm install",
-    "go": "go mod download",
-    "java": None,
-    "docker": None,
-    "sandbox-config": None,
-}
-
 
 def _detect_project(path: Path) -> tuple[str, str]:
     """Detect project type and return (project_type, template).
@@ -65,226 +45,17 @@ def _detect_project(path: Path) -> tuple[str, str]:
     return "unknown", "base"
 
 
-def _generate_dockerfile(
-    project_type: str,
-    template: str,
-    path: Path,
-) -> str:
-    """Generate a Dockerfile for the given project type."""
-    if project_type == "python":
-        return (
-            "FROM python:3.11-slim\n"
-            "WORKDIR /app\n"
-            "COPY requirements.txt .\n"
-            "RUN pip install --no-cache-dir -r requirements.txt\n"
-            "COPY . .\n"
-            'CMD ["python", "app.py"]'
-        )
-    elif project_type == "nodejs":
-        return (
-            "FROM node:20-slim\n"
-            "WORKDIR /app\n"
-            "COPY package*.json .\n"
-            "RUN npm install\n"
-            "COPY . .\n"
-            'CMD ["npm", "start"]'
-        )
-    elif project_type == "go":
-        return (
-            "FROM golang:1.22\n"
-            "WORKDIR /app\n"
-            "COPY go.* .\n"
-            "RUN go mod download\n"
-            "COPY . .\n"
-            'CMD ["go", "run", "."]'
-        )
-    else:
-        return (
-            "FROM ubuntu:22.04\n"
-            "WORKDIR /app\n"
-            "COPY . .\n"
-        )
-
-
-# ---------------------------------------------------------------------------
-# deploy_group (traditional subcommands)
-# ---------------------------------------------------------------------------
-
-@click.group("deploy")
-def deploy_group() -> None:
-    """项目部署管理。"""
-
-
-# ---------------------------------------------------------------------------
-# build
-# ---------------------------------------------------------------------------
-
-@deploy_group.command("build")
-@click.argument("path", default=".")
-@click.option("--alias", "-a", default=None, help="模板别名")
-@click.option("--dockerfile", "-f", "dockerfile_path", default=None, type=click.Path(), help="Dockerfile 路径")
-@click.pass_context
-@handle_errors
-def build(ctx: click.Context, path: str, alias: str | None, dockerfile_path: str | None) -> None:
-    """从项目目录构建模板。
-
-    自动检测项目类型：\n
-    - requirements.txt → Python 环境\n
-    - package.json → Node.js 环境\n
-    - go.mod → Go 环境\n
-    - Dockerfile → 直接使用
-    """
-    from easy_sandbox.utils.async_bridge import run_sync
-
-    fmt = get_formatter(ctx)
-    project_path = Path(path).resolve()
-
-    if not project_path.exists():
-        fmt.print_error(f"Path '{path}' does not exist.")
-        sys.exit(1)
-
-    # Determine Dockerfile content
-    if dockerfile_path:
-        df = Path(dockerfile_path)
-        if not df.exists():
-            fmt.print_error(f"Dockerfile '{dockerfile_path}' not found.")
-            sys.exit(1)
-        dockerfile_content = df.read_text(encoding="utf-8")
-        project_type = "docker"
-        template = "base"
-        fmt.print_success(f"Using provided Dockerfile: {dockerfile_path}")
-    elif (project_path / "Dockerfile").exists():
-        dockerfile_content = (project_path / "Dockerfile").read_text(encoding="utf-8")
-        project_type = "docker"
-        template = "base"
-        fmt.print_success("Using existing Dockerfile.")
-    else:
-        project_type, template = _detect_project(project_path)
-        if project_type == "unknown":
-            fmt.print_error(
-                "Unable to detect project type.",
-                suggestion="Provide a Dockerfile with -f or add a recognized project marker file.",
-            )
-            sys.exit(1)
-        fmt.print_success(f"Detected project type: {project_type}")
-        dockerfile_content = _generate_dockerfile(project_type, template, project_path)
-
-    build_alias = alias or project_path.name
-
-    # Submit build via platform API
-    from easy_sandbox.transport.config import load_config
-    from easy_sandbox.transport.auth import create_auth_provider
-    from easy_sandbox.transport.http import HttpClient
-
-    config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
-    auth = create_auth_provider(
-        api_key=config.api_key,
-        access_key_id=config.access_key_id,
-        access_key_secret=config.access_key_secret,
-    )
-    http_client = HttpClient(config, auth)
-
-    body: dict[str, str] = {"dockerfile": dockerfile_content}
-    if build_alias:
-        body["alias"] = build_alias
-
-    resp = run_sync(http_client.platform_request("POST", "/templates", json=body))
-    result = resp.json()
-    run_sync(http_client.close())
-
-    data = {
-        "TemplateID": result.get("templateID", "N/A"),
-        "BuildID": result.get("buildID", "N/A"),
-        "Alias": build_alias,
-        "ProjectType": project_type,
-        "Status": "building",
-    }
-    if fmt.use_json:
-        fmt.print_data(data)
-    else:
-        fmt.print_dict(data)
-        fmt.print_success("Build submitted. Use 'ebx template list' to check status.")
-
-
-# ---------------------------------------------------------------------------
-# run
-# ---------------------------------------------------------------------------
-
-@deploy_group.command("run")
-@click.argument("path", default=".")
-@click.option("--template", "-t", default=None, help="使用指定模板（跳过构建）")
-@click.option("--watch", is_flag=True, help="监听文件变化自动重新部署")
-@click.pass_context
-@handle_errors
-def run_cmd(ctx: click.Context, path: str, template: str | None, watch: bool) -> None:
-    """部署并运行项目。
-
-    如果提供 --watch，监听文件变化自动同步。
-    """
-    from easy_sandbox.api.sandbox import Sandbox
-    from easy_sandbox.utils.async_bridge import run_sync
-
-    fmt = get_formatter(ctx)
-    project_path = Path(path).resolve()
-
-    if not project_path.exists():
-        fmt.print_error(f"Path '{path}' does not exist.")
-        sys.exit(1)
-
-    project_type, detected_template = _detect_project(project_path)
-    use_template = template or detected_template
-
-    fmt.print_success(f"Creating sandbox with template: {use_template}")
-
-    sandbox = run_sync(Sandbox.create(template=use_template))
-    fmt.print_success(f"Sandbox {sandbox.id} created.")
-
-    # Upload project files (simplified: just report intent)
-    fmt.print_success(f"Uploading project from {project_path}...")
-
-    # Detect and run start command
-    start_cmd = _START_COMMANDS.get(project_type, "")
-    if start_cmd:
-        fmt.print_success(f"Starting: {start_cmd}")
-        result = run_sync(sandbox.commands.run(start_cmd, timeout=ctx.obj.get("timeout", 300)))
-        # Raw output passthrough — keep as click.echo
-        if result.stdout:
-            click.echo(result.stdout, nl=False)
-        if result.stderr:
-            click.echo(result.stderr, err=True, nl=False)
-
-    data = {
-        "SandboxID": sandbox.id,
-        "Template": use_template,
-        "ProjectType": project_type,
-        "URL": sandbox.url,
-    }
-    if watch:
-        data["Watch"] = "enabled"
-
-    if fmt.use_json:
-        fmt.print_data(data)
-    else:
-        fmt.print_dict(data)
-
-    if watch:
-        fmt.print_success("Watch mode enabled. Press Ctrl+C to stop.")
-        try:
-            import time
-            while True:
-                time.sleep(1)
-        except KeyboardInterrupt:
-            fmt.print_success("\nWatch mode stopped.")
-
-
 # ---------------------------------------------------------------------------
 # Top-level deploy shortcut: ebx deploy <path> [instruction]
 # ---------------------------------------------------------------------------
 
+
 @click.command("deploy")
 @click.argument("path", default=".")
 @click.argument("instruction", default="", required=False)
-@click.option("--instruction", "-i", "instruction_opt", default=None, help="NL 部署指令（与位置参数二选一）")
+@click.option(
+    "--instruction", "-i", "instruction_opt", default=None, help="NL 部署指令（与位置参数二选一）"
+)
 @click.option("--max-wall-time", default="10m", help="qwen-code 最大执行时间 (如 '10m', '600s')")
 @click.option("--max-tool-calls", default=100, type=int, help="qwen-code 最大工具调用次数")
 @click.option("--alias", "-a", default=None, help="模板别名（传统模式）")
@@ -361,19 +132,15 @@ def _run_nl_deploy(
         if not (ctx.obj or {}).get("quiet"):
             fmt.print_success(msg)
 
-    try:
-        sandbox = run_sync(
-            Sandbox.deploy(
-                project_path=str(project_path),
-                description=instruction,
-                max_wall_time=max_wall_time,
-                max_tool_calls=max_tool_calls,
-                on_progress=on_progress,
-            )
+    sandbox = run_sync(
+        Sandbox.deploy(
+            project_path=str(project_path),
+            description=instruction,
+            max_wall_time=max_wall_time,
+            max_tool_calls=max_tool_calls,
+            on_progress=on_progress,
         )
-    except Exception as exc:
-        # Let handle_errors deal with SandboxError subtypes
-        raise
+    )
 
     deploy_result = getattr(sandbox, "_deploy_result", None)
     data: dict[str, Any] = {
@@ -422,6 +189,4 @@ def _run_traditional_deploy(
         fmt.print_data(data)
     else:
         fmt.print_dict(data)
-        fmt.print_success(
-            "Deploy shortcut: use 'ebx deploy build' + 'ebx deploy run' for full control."
-        )
+        fmt.print_success("Deploy completed. Use 'ebx template deploy' for custom image builds.")

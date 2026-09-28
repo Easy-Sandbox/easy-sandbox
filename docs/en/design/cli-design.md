@@ -65,16 +65,20 @@ graph TB
     sb_system --- sys_packages["packages"]
     sb_system --- sys_metrics["metrics"]
 
+    template --- tpl_deploy["deploy"]
+    template --- tpl_build["build"]
+    template --- tpl_push["push"]
+    template --- tpl_create["create"]
+    template --- tpl_install["install"]
     template --- tpl_list["list"]
     template --- tpl_info["info"]
-    template --- tpl_build["build"]
     template --- tpl_delete["delete"]
-    template --- tpl_install["install"]
-    template --- tpl_cache["cache"]
+    template --- tpl_search["search"]
 
     mcp --- mcp_install["install"]
     mcp --- mcp_start["start"]
     mcp --- mcp_status["status"]
+    mcp --- mcp_deploy["deploy"]
 
     config --- cfg_get["get"]
     config --- cfg_set["set"]
@@ -707,29 +711,81 @@ This is a top-level shortcut for `ebx template install`.
 
 ### ebx template
 
-#### template list
+#### template deploy
 
 ```bash
-ebx template list
+ebx template deploy <template-dir> [options]
+
+Options:
+  (same as template build — performs build → push → create in one step)
+
+Examples:
+  ebx template deploy ./my-template
+  ebx template deploy ./my-template --alias my-env
 ```
 
-Lists all custom templates (queried via Platform API).
-
-#### template info
-
-```bash
-ebx template info <template-id>
-```
-
-View template details.
+End-to-end pipeline: build Docker image locally, push to ACR, and call CreateTemplate API. This is the recommended one-command workflow for publishing templates.
 
 #### template build
 
 ```bash
-ebx template build -f <Dockerfile> [--alias <name>]
+ebx template build <template-dir> [options]
+
+Options:
+  --acr-registry <url>      ACR registry URL
+  --acr-namespace <ns>      ACR namespace (required)
+  --alias, -a <name>        Template alias
+  --tag, -t <tag>           Image tag
+  --platform <platform>     Target platform
+  --cpu <n>                 CPU cores
+  --memory <mb>             Memory in MB
+  --dockerfile, -f <path>   Custom Dockerfile path
+  --official-api/--legacy-api   Use official CreateTemplate API
+  ... (see --help for full options)
+
+Examples:
+  ebx template build ./my-template --acr-namespace my-ns
 ```
 
-Build a custom template from a Dockerfile, submitted to the platform for building.
+Build a Docker image from a template directory, push to ACR, and register via CreateTemplate API.
+
+#### template push
+
+```bash
+ebx template push <image> [options]
+
+Options:
+  --acr-registry <url>      ACR registry URL
+  --acr-namespace <ns>      ACR namespace (required)
+  --acr-username <user>     ACR username
+  --acr-password <pass>     ACR password
+
+Examples:
+  ebx template push my-image:v1 --acr-namespace my-ns
+```
+
+Push an existing local Docker image to ACR without building or registering a template.
+
+#### template create
+
+```bash
+ebx template create <image> [options]
+
+Options:
+  --name, -n <name>         Template name (required)
+  --team-id <id>            Team ID
+  --cpu <n>                 CPU cores
+  --memory <mb>             Memory in MB
+  --disk-size <mb>          Disk size in MB
+  --start-cmd <cmd>         Start command
+  --ready-cmd <cmd>         Readiness probe command
+  ... (see --help for full options)
+
+Examples:
+  ebx template create registry.cn-hangzhou.aliyuncs.com/ns/img:v1 -n my-template
+```
+
+Register a template from an image already in ACR by calling the CreateTemplate API. Use this when the image is already pushed.
 
 #### template install
 
@@ -752,21 +808,51 @@ Examples:
 
 Install templates from GitHub or local directories. The template directory must contain a `template.yaml` file.
 
+#### template list
+
+```bash
+ebx template list [options]
+
+Options:
+  --official-api/--no-official-api   Use official API
+```
+
+Lists all templates (queried via Platform API).
+
+#### template info
+
+```bash
+ebx template info <template-id> [options]
+
+Options:
+  --official-api/--no-official-api   Use official API
+```
+
+View template details.
+
 #### template delete
 
 ```bash
 ebx template delete <template-id>
 ```
 
-Delete a custom template (requires confirmation).
+Delete a template (requires confirmation).
 
-#### template cache
+#### template search
 
 ```bash
-ebx template cache [--clear]
+ebx template search <query> [options]
+
+Options:
+  --tag, -t <tag>           Filter by tag
+  --status, -s <status>     Filter by status
+
+Examples:
+  ebx template search python
+  ebx template search "data science" --tag ml
 ```
 
-Manage local template cache. `--clear` clears all cached items.
+Search templates by name, description, or tags.
 
 ### ebx mcp
 
@@ -807,6 +893,29 @@ ebx mcp status
 ```
 
 Display MCP Server status: transport mode, tool count, auth config, installation status for each IDE.
+
+#### mcp deploy
+
+```bash
+ebx mcp deploy [options]
+
+Options:
+  --name <name>             FC function name (default: easy-sandbox-mcp)
+  --region <region>         FC region
+  --template <name>         Default sandbox template
+  --memory <mb>             FC function memory (default: 512)
+  --timeout <seconds>       FC function timeout (default: 600)
+  --auth-token-file <path>  Bearer token file (or --generate-token)
+  --enable-session-affinity Enable MCP Streamable HTTP session affinity
+  --api-key <key>           Inject API key into FC env
+  --custom-domain <domain>  Custom domain for the MCP endpoint
+
+Examples:
+  ebx mcp deploy --name my-mcp --region cn-hangzhou --template python-base
+  ebx mcp deploy --generate-token --enable-session-affinity
+```
+
+Deploy the MCP Server to Alibaba Cloud FC as a Streamable HTTP endpoint. Produces an FC function ARN, HTTP trigger URL, and an IDE configuration snippet. See [MCP Server Design — FC Deployment](mcp-server.md#7-fc-deployment) for architecture details.
 
 ***
 
@@ -1044,7 +1153,6 @@ The following features are not yet implemented and are planned for future versio
 
 - **`ebx build [path]`**: Automatically detect and build sandbox images from project directories
 - **`ebx logs <sandbox-id>`**: View sandbox real-time logs
-- **`ebx hibernate / wake`**: Sandbox hibernation and wake
-- **`ebx snapshot`**: Create sandbox snapshots
-- **Sandbox Pool**: Warm sandbox pool for batch task scenarios
+- **`ebx hibernate / wake`**: Sandbox hibernation and wake (requires underlying platform support)
+- **`ebx snapshot`**: Create sandbox snapshots (requires underlying platform support)
 - **Hot Reload Mode**: `--watch` flag for automatic sync of local file changes to sandbox

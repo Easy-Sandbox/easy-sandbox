@@ -1,13 +1,14 @@
 """Tests for filesystem data models."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
 
 from easy_sandbox.models.filesystem import (
-    FileType,
     FileInfo,
-    WatchEventType,
+    FileType,
     WatchEvent,
+    WatchEventType,
 )
 
 

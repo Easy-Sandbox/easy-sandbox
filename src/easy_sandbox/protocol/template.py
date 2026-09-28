@@ -11,10 +11,11 @@ Endpoints (relative to Platform API base URL):
   POST /v2/templates/{tpl}/builds/{build} → triggers real build from an
   image reference (requires ACR EE registry headers).
 """
+
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
@@ -23,8 +24,10 @@ from easy_sandbox.models.errors import (
     TemplateBuildError,
     TemplateBuildTimeoutError,
 )
-from easy_sandbox.transport.http import HttpClient
 from easy_sandbox.utils.logging import get_logger
+
+if TYPE_CHECKING:
+    from easy_sandbox.transport.http import HttpClient
 
 logger = get_logger("protocol.template")
 
@@ -68,16 +71,14 @@ class TemplateProtocol:
             payload["readyCmd"] = ready_cmd
 
         try:
-            response = await self._http.platform_request(
-                "POST", "/templates", json=payload
-            )
+            response = await self._http.platform_request("POST", "/templates", json=payload)
             data = response.json()
             logger.info(
                 "Template creation started: templateID=%s, buildID=%s",
                 data.get("templateID"),
                 data.get("buildID"),
             )
-            return data
+            return data  # type: ignore[no-any-return]
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
             try:
@@ -97,17 +98,15 @@ class TemplateProtocol:
         # API may return list directly or wrapped in a data field
         if isinstance(data, list):
             return data
-        return data.get("data", data.get("templates", []))
+        return data.get("data", data.get("templates", []))  # type: ignore[no-any-return]
 
     async def get(self, template_id: str) -> dict[str, Any]:
         """Get template details.
 
         GET /templates/{id} → 200
         """
-        response = await self._http.platform_request(
-            "GET", f"/templates/{template_id}"
-        )
-        return response.json()
+        response = await self._http.platform_request("GET", f"/templates/{template_id}")
+        return response.json()  # type: ignore[no-any-return]
 
     async def delete(self, template_id: str) -> None:
         """Delete a template.
@@ -115,21 +114,15 @@ class TemplateProtocol:
         DELETE /templates/{id} → 204
         """
         try:
-            await self._http.platform_request(
-                "DELETE", f"/templates/{template_id}"
-            )
+            await self._http.platform_request("DELETE", f"/templates/{template_id}")
             logger.info("Template deleted: %s", template_id)
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code == 404:
-                logger.warning(
-                    "Template %s not found (already deleted?)", template_id
-                )
+                logger.warning("Template %s not found (already deleted?)", template_id)
                 return
             raise
 
-    async def get_build_status(
-        self, template_id: str, build_id: str
-    ) -> dict[str, Any]:
+    async def get_build_status(self, template_id: str, build_id: str) -> dict[str, Any]:
         """Query build status.
 
         GET /templates/{id}/builds/{buildId}/status → 200
@@ -140,7 +133,7 @@ class TemplateProtocol:
         content = response.content
         if content and content.strip():
             try:
-                return response.json()
+                return response.json()  # type: ignore[no-any-return]
             except Exception:
                 logger.warning(
                     "Build status response not valid JSON: %s",
@@ -159,7 +152,7 @@ class TemplateProtocol:
         *,
         cpu_count: int | None = None,
         memory_mb: int | None = None,
-        tags: list[str] | None = None,
+        tags: list[str] | None = None,  # type: ignore[valid-type]
     ) -> dict[str, Any]:
         """Create template metadata via the v3 API.
 
@@ -177,16 +170,14 @@ class TemplateProtocol:
             payload["tags"] = tags
 
         try:
-            response = await self._http.platform_request(
-                "POST", "/v3/templates", json=payload
-            )
+            response = await self._http.platform_request("POST", "/v3/templates", json=payload)
             data = response.json()
             logger.info(
                 "Template v3 created: templateID=%s, buildID=%s",
                 data.get("templateID"),
                 data.get("buildID"),
             )
-            return data
+            return data  # type: ignore[no-any-return]
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
             try:
@@ -206,7 +197,7 @@ class TemplateProtocol:
         from_template: str | None = None,
         start_cmd: str | None = None,
         ready_cmd: str | None = None,
-        steps: list[dict[str, Any]] | None = None,
+        steps: list[dict[str, Any]] | None = None,  # type: ignore[valid-type]
         force: bool = False,
         acr_headers: dict[str, str] | None = None,
     ) -> dict[str, Any]:
@@ -249,14 +240,16 @@ class TemplateProtocol:
         path = f"/v2/templates/{template_id}/builds/{build_id}"
         try:
             response = await self._http.platform_request(
-                "POST", path,
+                "POST",
+                path,
                 json=payload,
                 headers=acr_headers,
             )
             logger.info(
                 "Template v2 build triggered: templateID=%s, buildID=%s, "
                 "HTTP %s, content-length=%s",
-                template_id, build_id,
+                template_id,
+                build_id,
                 response.status_code,
                 response.headers.get("content-length", "?"),
             )
@@ -268,12 +261,13 @@ class TemplateProtocol:
                 except Exception as json_err:
                     logger.warning(
                         "v2 trigger response not valid JSON: %s (body=%s)",
-                        json_err, content[:200],
+                        json_err,
+                        content[:200],
                     )
                     data = {"status": "triggered", "raw": content.decode(errors="replace")[:200]}
             else:
                 data = {"status": "triggered"}
-            return data
+            return data  # type: ignore[no-any-return]
         except httpx.HTTPStatusError as exc:
             status = exc.response.status_code
             raw = exc.response.content
@@ -286,9 +280,7 @@ class TemplateProtocol:
                 f"Template build trigger failed (HTTP {status}): {message}",
             ) from exc
 
-    async def get_build_logs(
-        self, template_id: str, build_id: str
-    ) -> list[dict]:
+    async def get_build_logs(self, template_id: str, build_id: str) -> list[dict[str, Any]]:  # type: ignore[valid-type]
         """Fetch build log entries.
 
         GET /templates/{id}/builds/{buildId}/logs → 200
@@ -305,7 +297,7 @@ class TemplateProtocol:
                     data = response.json()
                     if isinstance(data, list):
                         return data
-                    return data.get("logEntries", data.get("logs", []))
+                    return data.get("logEntries", data.get("logs", []))  # type: ignore[no-any-return]
                 except Exception:
                     return []
             return []
@@ -356,9 +348,7 @@ class TemplateProtocol:
                 return status_data
             elif status == "error":
                 error_msg = status_data.get("error", "Unknown build error")
-                raise TemplateBuildError(
-                    f"Template build failed: {error_msg}"
-                )
+                raise TemplateBuildError(f"Template build failed: {error_msg}")
 
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval

@@ -1,4 +1,5 @@
 """L4 High-level API — user-facing classes."""
+
 from __future__ import annotations
 
 from easy_sandbox.api.capability import ResolvedCapabilities, resolve_capabilities

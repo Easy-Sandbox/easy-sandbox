@@ -38,7 +38,9 @@ Easy Sandbox is a cloud sandbox SDK built on Alibaba Cloud Function Compute, pro
 | [MCP Integration](guide/mcp-integration.md) | Cursor / Claude Desktop integration *(coming soon)* |
 | [Session Persistence](guide/session-persistence.md) | Local / OSS session storage *(coming soon)* |
 | [Migrate from E2B](guide/migrate-from-e2b.md) | Migration guide from E2B SDK *(coming soon)* |
+| [Environment Variables](guide/environment-variables.md) | Sandbox env var scopes, injection, and direct-exec semantics |
 | [Troubleshooting](guide/troubleshooting.md) | Common issues and solutions *(coming soon)* |
+| [E2E Template Workflow](guide/e2e-template-workflow.md) | Complete guide from building a template to using sandboxes |
 
 ### [`reference/`](reference/) — CLI / API / Configuration Reference
 

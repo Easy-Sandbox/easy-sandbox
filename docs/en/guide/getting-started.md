@@ -35,11 +35,11 @@ There are three ways to configure credentials (in descending order of priority):
 export E2B_API_KEY="your-api-key-here"
 ```
 
-### Option 2: CLI login (recommended for local development)
+### Option 2: CLI configuration (recommended for local development)
 
 ```bash
-ebx auth login
-# Interactively enter your API Key, saved to ~/.ebx/.env (permissions 600)
+ebx config set api_key your-api-key
+# Writes to ~/.ebx/.env (permissions 600)
 ```
 
 ### Option 3: Code parameter
@@ -50,10 +50,10 @@ from easy_sandbox.api.sandbox import Sandbox
 sandbox = await Sandbox.create(api_key="your-api-key-here")
 ```
 
-Verify the authentication status:
+Verify the configuration:
 
 ```bash
-ebx auth status
+ebx config get api_key
 ```
 
 ## 3. Create Your First Sandbox
