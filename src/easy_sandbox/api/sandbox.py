@@ -307,8 +307,7 @@ class Sandbox:
         """
         if request_timeout is not None and request_timeout <= 0:
             raise ValueError(
-                f"request_timeout must be a positive number of seconds, "
-                f"got {request_timeout!r}"
+                f"request_timeout must be a positive number of seconds, got {request_timeout!r}"
             )
 
         # NL-first hint: when description is given but template is still the
@@ -343,9 +342,7 @@ class Sandbox:
                 disk=disk,
                 gpu=gpu,
             )
-            info = await sandbox_protocol.create(
-                sandbox_config, request_timeout=request_timeout
-            )
+            info = await sandbox_protocol.create(sandbox_config, request_timeout=request_timeout)
 
             envd_token = EnvdTokenManager(info.envd_access_token, sandbox_id=info.sandbox_id)
 
@@ -743,6 +740,7 @@ class Sandbox:
     async def custom(
         self,
         name: str,
+        /,
         *,
         server_port: int = 9000,
         **kwargs: Any,
@@ -795,8 +793,7 @@ class Sandbox:
                 checked=checked,
                 template_commands=list(self._custom_commands),
                 server_status=(
-                    "skipped after a previous connection failure; "
-                    "is the SandboxServer running?"
+                    "skipped after a previous connection failure; is the SandboxServer running?"
                 ),
             )
 
@@ -809,6 +806,19 @@ class Sandbox:
                 checked=checked,
                 template_commands=list(self._custom_commands),
                 server_status=(f"connection failed ({exc}); is the SandboxServer running?"),
+            ) from exc
+        except RuntimeError as exc:
+            # Non-JSON response (e.g. 502 Bad Gateway when server is not
+            # running).  Treat as server-unreachable so the user gets a
+            # friendly CommandNotFoundError instead of a raw RuntimeError.
+            self._server_probe_failed = True
+            raise CommandNotFoundError(
+                name,
+                checked=checked,
+                template_commands=list(self._custom_commands),
+                server_status=(
+                    f"server returned an invalid response ({exc}); is the SandboxServer running?"
+                ),
             ) from exc
 
         if response.is_success:
@@ -847,6 +857,7 @@ class Sandbox:
     async def run_command(
         self,
         name: str,
+        /,
         *,
         server_port: int = 9000,
         **kwargs: Any,

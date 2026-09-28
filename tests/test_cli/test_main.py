@@ -144,4 +144,3 @@ class TestVerboseSubcommandFlag:
         out.set_verbose(True)
         out.debug("shown")
         assert "shown" in capsys.readouterr().err
-

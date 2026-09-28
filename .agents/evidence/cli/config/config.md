@@ -31,7 +31,7 @@ Exit code: 0
 ```
 $ ebx config get unknown_key
 Unknown config key: 'unknown_key'
-  Suggestion: Available keys: api_key, api_url, domain, http_timeout, llm_api_key, llm_base_url, llm_model, max_retries, region
+  Suggestion: Available keys: api_key, api_url, domain, http2, http_timeout, llm_api_key, llm_base_url, llm_model, max_retries, region
 Exit code: 2
 ```
 
@@ -39,7 +39,7 @@ Exit code: 2
 
 ```
 Unknown config key: 'unknown_key'
-  Suggestion: Available keys: api_key, api_url, domain, http_timeout, llm_api_key, llm_base_url, llm_model, max_retries, region
+  Suggestion: Available keys: api_key, api_url, domain, http2, http_timeout, llm_api_key, llm_base_url, llm_model, max_retries, region
 ```
 
 ### config set region
@@ -65,6 +65,7 @@ $ ebx config list
 api_key       (not set)
 api_url       https://api.cn-hangzhou.e2b.fc.aliyuncs.com (default)
 domain        cn-hangzhou.e2b.fc.aliyuncs.com (default)
+http2         True (default)
 http_timeout  30.0 (default)
 llm_api_key    (default)
 llm_base_url   (default)
@@ -79,15 +80,16 @@ Exit code: 0
 ```
 $ ebx --json config list
 {
-  "api_key": "(not set)",
-  "api_url": "https://api.cn-hangzhou.e2b.fc.aliyuncs.com (default)",
-  "domain": "cn-hangzhou.e2b.fc.aliyuncs.com (default)",
-  "http_timeout": "30.0 (default)",
-  "llm_api_key": " (default)",
-  "llm_base_url": " (default)",
-  "llm_model": " (default)",
-  "max_retries": "3 (default)",
-  "region": "cn-hangzhou (default)"
+  "api_key": null,
+  "api_url": "https://api.cn-hangzhou.e2b.fc.aliyuncs.com",
+  "domain": "cn-hangzhou.e2b.fc.aliyuncs.com",
+  "http2": true,
+  "http_timeout": 30.0,
+  "llm_api_key": null,
+  "llm_base_url": null,
+  "llm_model": null,
+  "max_retries": 3,
+  "region": "cn-hangzhou"
 }
 Exit code: 0
 ```
@@ -96,6 +98,6 @@ Exit code: 0
 
 ```
 $ ebx config reset --yes
-Configuration reset to defaults.
+Configuration reset to defaults (including api_key).
 Exit code: 0
 ```

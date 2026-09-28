@@ -1,7 +1,12 @@
 Usage: cli template info [OPTIONS] TEMPLATE_ID
 
-  查看模板详情。
+  View template details.
+
+  Pass ``--official-api`` to use the official Alibaba Cloud FCSandbox
+  ``GetTemplate`` API (requires AccessKey/AccessSecret in env).
 
 Options:
-  --help  Show this message and exit.
+  --official-api  Query the template via the official Alibaba Cloud FCSandbox
+                  API (AK/SK).
+  --help          Show this message and exit.
 [exit_code:0]

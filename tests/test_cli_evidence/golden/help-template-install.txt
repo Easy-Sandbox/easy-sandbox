@@ -7,7 +7,9 @@ Usage: cli template install [OPTIONS] TEMPLATE_REF
   to skip the build/deploy step and only download to the local cache
   (~/.ebx/templates/).
 
-  示例：
+  Use --dir <path> to download into a specific directory instead of the cache.
+
+  Examples:
 
     ebx install owner/repo --acr-namespace my-ns  # Download + build + deploy
 
@@ -19,13 +21,17 @@ Usage: cli template install [OPTIONS] TEMPLATE_REF
 
     ebx install owner/repo@v1.0 --yes             # Skip confirmation
 
+    ebx install owner/repo --dir ./local-copy     # Download into ./local-copy
+
 Options:
-  --registry-url TEXT             Registry URL（默认 GitHub）
+  --registry-url TEXT             Registry URL (default: GitHub)
   --registry-type [github|local]  Registry type (auto-detected if not specified)
-  --token TEXT                    访问令牌（私有仓库需要）
-  -a, --alias TEXT                模板别名
+  --token TEXT                    Access token (required for private repos)
+  -a, --alias TEXT                Template alias
   --download-only                 Only download to local cache (skip build and
                                   deploy)
+  --dir PATH                      Download template source into this directory
+                                  instead of the cache
   --acr-namespace TEXT            ACR namespace for deploy (env: ACR_NAMESPACE,
                                   or set in .env file)
   --cpu INTEGER                   CPU cores (default: from template.yaml or 2)

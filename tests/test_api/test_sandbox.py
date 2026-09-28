@@ -155,9 +155,7 @@ class TestSandboxCreate:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("bad_value", [0, -1, -0.5])
-    async def test_create_rejects_non_positive_request_timeout(
-        self, bad_value: float
-    ) -> None:
+    async def test_create_rejects_non_positive_request_timeout(self, bad_value: float) -> None:
         """request_timeout must be positive when provided; else ValueError."""
         with pytest.raises(ValueError, match="request_timeout must be a positive number"):
             await Sandbox.create(
@@ -876,3 +874,59 @@ class TestSandboxRunCommand:
             result = await sandbox.run_command("add", x=1)
 
         assert result == 7
+
+    @pytest.mark.asyncio
+    async def test_custom_name_kwarg_no_conflict(
+        self,
+        sandbox: Sandbox,
+        mock_http_client: AsyncMock,
+    ) -> None:
+        """custom('hello', name='World') must not raise TypeError.
+
+        Because ``name`` is positional-only (after the ``/``), passing
+        ``name=`` as a keyword goes into **kwargs, not the command-name
+        parameter.
+        """
+        mock_response = MagicMock()
+        mock_response.is_success = True
+        mock_response.json.return_value = {"result": "Hello World"}
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_http_client._create_envd_client.return_value = mock_client
+
+        result = await sandbox.custom("hello", name="World")
+
+        assert result.value == "Hello World"
+        assert result.source == "server"
+        mock_client.post.assert_called_once_with(
+            "/commands/hello",
+            json={"name": "World"},
+            headers=mock_client.post.call_args.kwargs["headers"],
+        )
+
+    @pytest.mark.asyncio
+    async def test_custom_502_non_json_raises_command_not_found(
+        self,
+        sandbox: Sandbox,
+        mock_http_client: AsyncMock,
+    ) -> None:
+        """A 502 with non-JSON body should raise CommandNotFoundError,
+        not a raw RuntimeError."""
+        import json as _json
+
+        mock_response = MagicMock()
+        mock_response.is_success = False
+        mock_response.status_code = 502
+        mock_response.text = "<html>502 Bad Gateway</html>"
+        mock_response.json.side_effect = _json.JSONDecodeError("x", "y", 0)
+
+        mock_client = AsyncMock()
+        mock_client.post.return_value = mock_response
+        mock_http_client._create_envd_client.return_value = mock_client
+
+        with pytest.raises(CommandNotFoundError, match="invalid response"):
+            await sandbox.custom("anything")
+
+        # Should also cache the probe failure.
+        assert sandbox._server_probe_failed is True

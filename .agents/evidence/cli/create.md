@@ -31,11 +31,11 @@ Exit code: 0
 
 ```
 $ ebx create "运行 python"
-✓ 推断结果：
-    模板: code-interpreter
-    CPU: 2 核  |  内存: 4096 MB
-    置信度: 0.88
-... 创建中...
+✓ Inference result:
+    Template: code-interpreter
+    CPU: 2 cores  |  Memory: 4096 MB
+    Confidence: 0.88
+... Creating...
 ID        sbx-ev-001
 Status    running
 Template  code-interpreter
@@ -48,18 +48,17 @@ Exit code: 0
 
 ```
 $ ebx create "启动 Node.js 服务"
-✓ 推断结果：
-    模板: node-web
-    CPU: 1 核  |  内存: 2048 MB
-    置信度: 0.88
-... 创建中...
+✓ Inference result:
+    Template: node-web
+    CPU: 1 cores  |  Memory: 2048 MB
+    Confidence: 0.88
+... Creating...
 ID        sbx-ev-001
 Status    running
 Template  node-web
 URL       https://sbx-ev-001.cn-hangzhou.e2b.fc.aliyuncs.com
 Sandbox sbx-ev-001 created successfully.
-/Users/anycodes/Documents/Qoder/2026-09-01/chat-1/.venv/lib/python3.11/site-packages/click/parser.py:108: RuntimeWarning: coroutine 'create.<locals>._create_and_upload' was never awaited
-  return tuple(rv), list(args)
+<string>:9: RuntimeWarning: coroutine 'create.<locals>._create_and_upload' was never awaited
 RuntimeWarning: Enable tracemalloc to get the object allocation traceback
 Exit code: 0
 ```
@@ -67,8 +66,7 @@ Exit code: 0
 **stderr:**
 
 ```
-/Users/anycodes/Documents/Qoder/2026-09-01/chat-1/.venv/lib/python3.11/site-packages/click/parser.py:108: RuntimeWarning: coroutine 'create.<locals>._create_and_upload' was never awaited
-  return tuple(rv), list(args)
+<string>:9: RuntimeWarning: coroutine 'create.<locals>._create_and_upload' was never awaited
 RuntimeWarning: Enable tracemalloc to get the object allocation traceback
 ```
 

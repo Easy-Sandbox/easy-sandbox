@@ -61,6 +61,12 @@ my-template/
 | `cpu_count` | `int` | ❌ | `None` | 默认 CPU 核数 |
 | `memory_mb` | `int` | ❌ | `None` | 默认内存 MB |
 
+### 沙箱代数
+
+| 字段 | 类型 | 必须 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `generation` | `int` | ❌ | `1` | 沙箱代数：`1` = 一代（rund），`2` = 二代（MicroVM，Beta）。设置后，CLI 命令（`template deploy`、`template build`、`template create`）会读取此值，除非通过 `--generation` 参数显式覆盖。 |
+
 ### 能力声明
 
 | 字段 | 类型 | 必须 | 默认值 | 说明 |

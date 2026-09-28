@@ -22,29 +22,26 @@ Options:
   --ci                            CI/CD mode (quiet + no-color + json)
   -t, --timeout INTEGER           Default timeout in seconds
   -r, --region TEXT               Region (default: cn-hangzhou)
-  -p, --profile TEXT              [预留] Configuration profile
+  -p, --profile TEXT              [Reserved] Configuration profile
   --version                       Show the version and exit.
   --help                          Show this message and exit.
 
 Commands:
-  auth      Authentication management.
   config    Configuration management.
   connect   Connect to a sandbox interactively (like SSH).
   create    Create a new sandbox.
-  deploy    部署项目到 sandbox。
+  deploy    Deploy a project to a sandbox.
   download  Download a file from the sandbox to local.
   exec      Execute a command in a sandbox.
   info      Get sandbox information.
+  init      Scaffold a new template (shortcut for 'ebx template init').
   install   Install a template (shortcut for 'ebx template install').
   kill      Kill (destroy) a sandbox or all sandboxes.
   list      List sandboxes.
   mcp       MCP Server management — IDE integration.
   run       Run a named custom command or registered command.
-  sandbox   Manage sandboxes (create, list, info, kill, exec, connect,...
-  secret    密钥管理。安全存储和注入 API Key、Token 等敏感信息。
-  session   Manage named sessions (create, resume, list, stop).
-  skill     Skills 管理。
-  template  模板管理。
+  sandbox   Manage sandboxes.
+  template  Template management.
   upload    Upload a local file or directory to the sandbox.
 Exit code: 0
 ```
@@ -60,12 +57,19 @@ Usage: cli create [OPTIONS] [DESCRIPTION]
   Optionally provide a natural-language DESCRIPTION to auto-select template.
 
 Options:
-  -T, --template TEXT    Sandbox template
-  -u, --upload PATH      Local file or directory to upload after creation
-  -t, --timeout INTEGER  Timeout in seconds
-  -e, --env TEXT         传递给 Sandbox 的环境变量，格式 KEY=VALUE
-  -m, --metadata TEXT    元数据键值对，格式 KEY=VALUE
-  --help                 Show this message and exit.
+  -T, --template TEXT      Sandbox template
+  -u, --upload PATH        Local file or directory to upload after creation
+  -t, --timeout INTEGER    Timeout in seconds
+  --request-timeout FLOAT  HTTP request timeout in seconds for the create call
+                           (floor: 120s for cold starts, or your configured
+                           http_timeout if larger). Increase for very slow
+                           sandbox creation.
+  -e, --env TEXT           Environment variable for the sandbox, format
+                           KEY=VALUE (repeatable)
+  -m, --metadata TEXT      Metadata key-value pair, format KEY=VALUE
+                           (repeatable)
+  -v, --verbose            Verbose output (DEBUG level)
+  --help                   Show this message and exit.
 Exit code: 0
 ```
 
@@ -124,6 +128,7 @@ Usage: cli exec [OPTIONS] SANDBOX_ID COMMAND
 Options:
   -t, --timeout INTEGER  Timeout in seconds
   --cwd TEXT             Working directory (empty = container default)
+  -v, --verbose          Verbose output (DEBUG level)
   --help                 Show this message and exit.
 Exit code: 0
 ```
@@ -165,6 +170,8 @@ $ ebx connect --help
 Usage: cli connect [OPTIONS] SANDBOX_ID
 
   Connect to a sandbox interactively (like SSH).
+
+  Each command has a 30-second timeout.
 
 Options:
   --help  Show this message and exit.
@@ -217,15 +224,22 @@ Usage: cli install [OPTIONS] TEMPLATE_REF
 
   Install a template (shortcut for 'ebx template install').
 
-  Templates are fetched from GitHub repos — there is no central registry. Use
-  TEMPLATE_REF in the form owner/repo, owner/repo//subdir, or a local directory
-  path.
+  Downloads and (by default) builds + deploys a template. Use --download-only to
+  skip the build/deploy step.
 
 Options:
-  --registry-url TEXT             Registry URL（默认 GitHub）
+  --registry-url TEXT             Registry URL (default: GitHub)
   --registry-type [github|local]  Registry type (auto-detected if not specified)
-  --token TEXT                    访问令牌（私有仓库需要）
-  -a, --alias TEXT                模板别名
+  --token TEXT                    Access token (required for private repos)
+  -a, --alias TEXT                Template alias
+  --download-only                 Only download to local cache (skip build and
+                                  deploy)
+  --dir PATH                      Download template source into this directory
+                                  instead of the cache
+  --acr-namespace TEXT            ACR namespace for deploy
+  --cpu INTEGER                   CPU cores
+  --memory INTEGER                Memory in MB
+  -y, --yes                       Skip confirmation prompt
   --help                          Show this message and exit.
 Exit code: 0
 ```
@@ -308,20 +322,22 @@ Exit code: 0
 $ ebx template --help
 Usage: cli template [OPTIONS] COMMAND [ARGS]...
 
-  模板管理。
+  Template management.
 
 Options:
   --help  Show this message and exit.
 
 Commands:
-  build        从 Dockerfile 构建模板（旧 API，已知后端不再支持实际构建）。
-  build-local  Build Docker image locally, push to ACR, and create a...
-  cache        Manage the local template cache (~/.ebx/templates/).
-  delete       Delete a custom template from the platform.
-  info         查看模板详情。
-  install      Install a template from GitHub or a local directory.
-  list         List your custom templates on the platform.
-  search       Search community templates by name, tag, or description.
+  build    Build Docker image locally, push to ACR, and create a sandbox...
+  create   Create a sandbox template from an existing container image.
+  delete   Delete a custom template from the platform.
+  deploy   Build, push, and create template in one step
+  info     View template details.
+  init     Scaffold a new sandbox template project.
+  install  Download a template and (by default) build + deploy it.
+  list     List your custom templates on the platform.
+  push     Push a locally-built image to Alibaba Cloud ACR.
+  search   Search community templates by name, tag, or description.
 Exit code: 0
 ```
 
@@ -333,13 +349,16 @@ Usage: cli template list [OPTIONS]
 
   List your custom templates on the platform.
 
-  Shows templates you have built or installed on the platform via 'ebx template
-  build' or 'ebx template install'.  This does NOT query a central registry.  To
-  discover community templates, visit GitHub and install with 'ebx template
-  install <owner/repo>'.
+  Shows templates you have built or cached locally via 'ebx template build' or
+  'ebx template install'.  This does NOT query a central registry.  To discover
+  community templates, visit GitHub and install with 'ebx template install
+  <owner/repo>'. Pass ``--official-api`` to list templates registered via the
+  official Alibaba Cloud FCSandbox CreateTemplate API.
 
 Options:
-  --help  Show this message and exit.
+  --official-api  Query templates via the official Alibaba Cloud FCSandbox API
+                  (AK/SK).
+  --help          Show this message and exit.
 Exit code: 0
 ```
 
@@ -349,10 +368,15 @@ Exit code: 0
 $ ebx template info --help
 Usage: cli template info [OPTIONS] TEMPLATE_ID
 
-  查看模板详情。
+  View template details.
+
+  Pass ``--official-api`` to use the official Alibaba Cloud FCSandbox
+  ``GetTemplate`` API (requires AccessKey/AccessSecret in env).
 
 Options:
-  --help  Show this message and exit.
+  --official-api  Query the template via the official Alibaba Cloud FCSandbox
+                  API (AK/SK).
+  --help          Show this message and exit.
 Exit code: 0
 ```
 
@@ -360,14 +384,75 @@ Exit code: 0
 
 ```
 $ ebx template build --help
-Usage: cli template build [OPTIONS]
+Usage: cli template build [OPTIONS] TEMPLATE_DIR
 
-  从 Dockerfile 构建模板（旧 API，已知后端不再支持实际构建）。
+  Build Docker image locally, push to ACR, and create a sandbox template.
+
+  Supports two modes:
+
+  --official-api (default):
+    local docker build → ACR push → official CreateTemplate API (envdInject).
+    Requires AK/SK credentials and 'easy-sandbox[alicloud]' extra.
+
+  --legacy-api:
+    local docker build → ACR push → legacy v3/v2 platform API.
+    Use --legacy-api to keep the old behaviour.
+
+  Requires Docker daemon running and ACR credentials.
+
+  Examples:
+    ebx template build ./examples/templates/python-hello \
+      --acr-namespace my-ns --acr-repo python-hello
+    ebx template build ./my-template \
+      --acr-namespace prod --acree-instance-id cri-xxx
+    ebx template build ./my-template \
+      --acr-namespace prod --disk-size 10240 --internet-access
+    ebx template build ./my-template \
+      --acr-namespace prod --legacy-api
 
 Options:
-  -f, --dockerfile PATH  [required]
-  -a, --alias TEXT       模板别名
-  --help                 Show this message and exit.
+  --acr-registry TEXT             ACR registry host
+  --acr-namespace TEXT            ACR namespace (env: ACR_NAMESPACE, or set in
+                                  .env file)
+  --acr-repo TEXT                 ACR repository name (defaults to template.yaml
+                                  name or dir name)
+  --acr-username TEXT             ACR login username (defaults to AccessKey from
+                                  .env)
+  --acr-password TEXT             ACR login password (defaults to AccessSecret
+                                  from .env)
+  --acree-instance-id TEXT        ACR EE instance ID (cri-...)
+  --vpc-id TEXT                   VPC ID for ACR EE
+  --vswitch-ids TEXT              Comma-separated VSwitch IDs
+  --security-group-id TEXT        Security group ID
+  -a, --alias TEXT                Template alias
+  -t, --tag TEXT                  Docker image tag
+  --platform TEXT                 Target platform
+  --cpu INTEGER                   CPU cores (default: from template.yaml
+                                  resources.cpu, fallback 2)
+  --memory INTEGER                Memory in MB (default: from template.yaml
+                                  resources.memory, fallback 2048)
+  --start-cmd TEXT                Container start command
+  --ready-cmd TEXT                Container readiness check command
+  --timeout INTEGER               Build timeout in seconds
+  -f, --dockerfile PATH           Custom Dockerfile path
+  --disk-size INTEGER             Disk size in MB (official API only)
+  --internet-access / --no-internet-access
+                                  Internet access (default: platform decides;
+                                  official API only)
+  --official-api / --legacy-api   Use official CreateTemplate API (default) or
+                                  legacy v3/v2
+  --team-id TEXT                  Team ID for official API (or env TEAM_ID /
+                                  E2B_TEAM_ID)
+  --envd-inject / --no-envd-inject
+                                  Enable envd injection (default False)
+  --generation INTEGER            Sandbox generation (default: template.yaml
+                                  'generation', otherwise 1). 1=first-gen
+                                  (rund), 2=second-gen MicroVM.
+  --target-image TEXT             Destination image ref for envd copy (auto-
+                                  derived with random suffix if omitted)
+  -y, --yes                       Skip confirmation prompt
+  -v, --verbose                   Verbose output (DEBUG level)
+  --help                          Show this message and exit.
 Exit code: 0
 ```
 
@@ -380,12 +465,11 @@ Usage: cli template delete [OPTIONS] TEMPLATE_ID
   Delete a custom template from the platform.
 
   Removes the template identified by TEMPLATE_ID from the remote platform.  This
-  does NOT affect the local cache — use 'ebx template cache --clear' to clean
-  local copies.
+  does NOT affect the local cache (~/.ebx/templates/).
 
 Options:
-  --yes   Confirm the action without prompting.
-  --help  Show this message and exit.
+  -y, --yes  Skip confirmation prompt
+  --help     Show this message and exit.
 Exit code: 0
 ```
 
@@ -395,51 +479,45 @@ Exit code: 0
 $ ebx template install --help
 Usage: cli template install [OPTIONS] TEMPLATE_REF
 
-  Install a template from GitHub or a local directory.
+  Download a template and (by default) build + deploy it.
 
-  There is no central template registry.  Templates are sourced from GitHub
-  repos (downloaded from the latest Release) or local directories.
+  By default, install downloads the template, then runs docker build, pushes to
+  ACR, and creates a sandbox template via the official API. Use --download-only
+  to skip the build/deploy step and only download to the local cache
+  (~/.ebx/templates/).
 
-  示例：
+  Use --dir <path> to download into a specific directory instead of the cache.
 
-    ebx template install owner/repo              # GitHub repo (latest release)
+  Examples:
 
-    ebx template install owner/repo//subdir      # Subdirectory of a repo
+    ebx install owner/repo --acr-namespace my-ns  # Download + build + deploy
 
-    ebx template install owner/repo//subdir@v1.0 # Subdirectory + tag
+    ebx install owner/repo --download-only        # Download only
 
-    ebx template install owner/repo@v1.0         # Specific release tag
+    ebx install owner/repo//subdir --download-only # Subdirectory of a repo
 
-    ebx template install owner/repo --token xxx  # Private repo
+    ebx install ./my-template --acr-namespace ns  # Local dir + deploy
 
-    ebx template install ./my-template           # Local directory
+    ebx install owner/repo@v1.0 --yes             # Skip confirmation
 
-    ebx template install /path/to/tmpl --registry-type local
+    ebx install owner/repo --dir ./local-copy     # Download into ./local-copy
 
 Options:
-  --registry-url TEXT             Registry URL（默认 GitHub）
+  --registry-url TEXT             Registry URL (default: GitHub)
   --registry-type [github|local]  Registry type (auto-detected if not specified)
-  --token TEXT                    访问令牌（私有仓库需要）
-  -a, --alias TEXT                模板别名
+  --token TEXT                    Access token (required for private repos)
+  -a, --alias TEXT                Template alias
+  --download-only                 Only download to local cache (skip build and
+                                  deploy)
+  --dir PATH                      Download template source into this directory
+                                  instead of the cache
+  --acr-namespace TEXT            ACR namespace for deploy (env: ACR_NAMESPACE,
+                                  or set in .env file)
+  --cpu INTEGER                   CPU cores (default: from template.yaml or 2)
+  --memory INTEGER                Memory in MB (default: from template.yaml or
+                                  2048)
+  -y, --yes                       Skip confirmation prompt
   --help                          Show this message and exit.
-Exit code: 0
-```
-
-### template-cache --help
-
-```
-$ ebx template cache --help
-Usage: cli template cache [OPTIONS]
-
-  Manage the local template cache (~/.ebx/templates/).
-
-  Without flags, lists cached templates.  With --clear, removes all locally
-  cached copies.  This only affects local files — to delete a template from the
-  platform, use 'ebx template delete'.
-
-Options:
-  --clear  Clear local template cache (~/.ebx/templates/)
-  --help   Show this message and exit.
 Exit code: 0
 ```
 
@@ -455,9 +533,50 @@ Options:
   --help  Show this message and exit.
 
 Commands:
+  deploy   Generate an Alibaba Cloud FC deployment artifact.
   install  Install MCP Server configuration to a target IDE.
   start    Start MCP Server in STDIO mode.
   status   Show MCP Server status and configuration.
+Exit code: 0
+```
+
+### mcp-deploy --help
+
+```
+$ ebx mcp deploy --help
+Usage: cli mcp deploy [OPTIONS]
+
+  Generate an Alibaba Cloud FC deployment artifact.
+
+  Creates a Streamable HTTP ASGI application artifact and prints manual FC
+  deployment steps. Automatic FC API deployment is not implemented.
+
+  POST and DELETE /mcp are implemented. GET /mcp currently returns 501; SSE
+  server notifications are planned for Phase 2.
+
+  Example:
+    ebx mcp deploy --generate-token --api-key $E2B_API_KEY
+    ebx mcp deploy --auth-token-file ./token.txt --region cn-shanghai
+    ebx mcp deploy --output-dir ./deploy-artifact
+
+Options:
+  --name TEXT                     FC function name for the artifact.
+  --region TEXT                   FC region.
+  --template TEXT                 Default sandbox template for MCP sessions.
+  --memory INTEGER                FC function memory (MB).
+  --timeout INTEGER               FC function timeout (s).
+  --auth-token-file PATH          Path to a Bearer token file; an empty token
+                                  fails closed.
+  --generate-token                Auto-generate a random Bearer token.
+  --enable-session-affinity / --no-session-affinity
+                                  Enable Mcp-Session-Id affinity (requires FC
+                                  MCP support).
+  --api-key TEXT                  E2B_API_KEY to inject into the FC function
+                                  env.
+  --custom-domain TEXT            Custom domain for the MCP endpoint.
+  --output-dir PATH               Write the FC deployment artifact to this
+                                  directory.
+  --help                          Show this message and exit.
 Exit code: 0
 ```
 

@@ -189,41 +189,41 @@ Lower layers never import upper layers. Full design: [`docs/en/design/architectu
 
 ### Tutorials & Guides
 
-| Guide | EN | 中文 |
-|-------|----|------|
-| Getting Started | [EN](docs/en/guide/getting-started.md) | [中文](docs/zh/guide/getting-started.md) |
-| CLI Tutorial | [EN](docs/en/guide/cli-tutorial.md) | [中文](docs/zh/guide/cli-tutorial.md) |
-| SDK Usage | [EN](docs/en/guide/sdk-usage.md) | [中文](docs/zh/guide/sdk-usage.md) |
-| Authentication | [EN](docs/en/guide/authentication.md) | [中文](docs/zh/guide/authentication.md) |
-| Environment Variables | [EN](docs/en/guide/environment-variables.md) | [中文](docs/zh/guide/environment-variables.md) |
-| Using Templates | [EN](docs/en/guide/using-templates.md) | [中文](docs/zh/guide/using-templates.md) |
-| Authoring Templates | [EN](docs/en/guide/authoring-templates.md) | [中文](docs/zh/guide/authoring-templates.md) |
-| Deploy & Build | [EN](docs/en/guide/deploy-and-build.md) | [中文](docs/zh/guide/deploy-and-build.md) |
-| Declarative Usage | [EN](docs/en/guide/declarative-usage.md) | [中文](docs/zh/guide/declarative-usage.md) |
-| MCP Integration | [EN](docs/en/guide/mcp-integration.md) | [中文](docs/zh/guide/mcp-integration.md) |
-| Session Persistence | [EN](docs/en/guide/session-persistence.md) | [中文](docs/zh/guide/session-persistence.md) |
-| Migrate from E2B | [EN](docs/en/guide/migrate-from-e2b.md) | [中文](docs/zh/guide/migrate-from-e2b.md) |
-| Troubleshooting | [EN](docs/en/guide/troubleshooting.md) | [中文](docs/zh/guide/troubleshooting.md) |
+| Guide | Link |
+|-------|------|
+| Getting Started | [Getting Started](docs/en/guide/getting-started.md) |
+| CLI Tutorial | [CLI Tutorial](docs/en/guide/cli-tutorial.md) |
+| SDK Usage | [SDK Usage](docs/en/guide/sdk-usage.md) |
+| Authentication | [Authentication](docs/en/guide/authentication.md) |
+| Environment Variables | [Environment Variables](docs/en/guide/environment-variables.md) |
+| Using Templates | [Using Templates](docs/en/guide/using-templates.md) |
+| Authoring Templates | [Authoring Templates](docs/en/guide/authoring-templates.md) |
+| Deploy & Build | [Deploy & Build](docs/en/guide/deploy-and-build.md) |
+| Declarative Usage | [Declarative Usage](docs/en/guide/declarative-usage.md) |
+| MCP Integration | [MCP Integration](docs/en/guide/mcp-integration.md) |
+| Session Persistence | [Session Persistence](docs/en/guide/session-persistence.md) |
+| Migrate from E2B | [Migrate from E2B](docs/en/guide/migrate-from-e2b.md) |
+| Troubleshooting | [Troubleshooting](docs/en/guide/troubleshooting.md) |
 
 ### Reference
 
-| Document | EN | 中文 |
-|----------|----|------|
-| API Reference | [EN](docs/en/reference/api-reference.md) | [中文](docs/zh/reference/api-reference.md) |
-| CLI Reference | [EN](docs/en/reference/cli-reference.md) | [中文](docs/zh/reference/cli-reference.md) |
-| Configuration | [EN](docs/en/reference/configuration.md) | [中文](docs/zh/reference/configuration.md) |
-| Error Codes | [EN](docs/en/reference/error-codes.md) | [中文](docs/zh/reference/error-codes.md) |
-| Template YAML Spec | [EN](docs/en/reference/template-yaml-spec.md) | [中文](docs/zh/reference/template-yaml-spec.md) |
+| Document | Link |
+|----------|------|
+| API Reference | [API Reference](docs/en/reference/api-reference.md) |
+| CLI Reference | [CLI Reference](docs/en/reference/cli-reference.md) |
+| Configuration | [Configuration](docs/en/reference/configuration.md) |
+| Error Codes | [Error Codes](docs/en/reference/error-codes.md) |
+| Template YAML Spec | [Template YAML Spec](docs/en/reference/template-yaml-spec.md) |
 
 ### Design & Architecture
 
-| Document | EN | 中文 |
-|----------|----|------|
-| Design Index | [EN](docs/en/DESIGN.md) | [中文](docs/zh/DESIGN.md) |
-| Architecture | [EN](docs/en/design/architecture.md) | [中文](docs/zh/design/architecture.md) |
-| SDK API Design | [EN](docs/en/design/sdk-api-design.md) | [中文](docs/zh/design/sdk-api-design.md) |
-| CLI Design | [EN](docs/en/design/cli-design.md) | [中文](docs/zh/design/cli-design.md) |
-| Template System | [EN](docs/en/design/template-system.md) | [中文](docs/zh/design/template-system.md) |
+| Document | Link |
+|----------|------|
+| Design Index | [Design Index](docs/en/DESIGN.md) |
+| Architecture | [Architecture](docs/en/design/architecture.md) |
+| SDK API Design | [SDK API Design](docs/en/design/sdk-api-design.md) |
+| CLI Design | [CLI Design](docs/en/design/cli-design.md) |
+| Template System | [Template System](docs/en/design/template-system.md) |
 
 ### Other Resources
 
@@ -233,7 +233,7 @@ Lower layers never import upper layers. Full design: [`docs/en/design/architectu
 | Contributing Guide | [CONTRIBUTING.md](.github/CONTRIBUTING.md) |
 | License | [Apache-2.0](LICENSE) |
 | Examples | [examples/](examples/) |
-| Roadmap | [EN](docs/en/roadmap.md) \| [中文](docs/zh/roadmap.md) |
+| Roadmap | [Roadmap](docs/en/roadmap.md) |
 
 ## Contributing
 

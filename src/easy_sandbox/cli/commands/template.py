@@ -1,4 +1,4 @@
-"""模板管理 CLI 命令。"""
+"""Template management CLI commands."""
 
 from __future__ import annotations
 
@@ -19,9 +19,9 @@ if TYPE_CHECKING:
 
 
 def _extract_platform_error(resp: Any) -> str:
-    """从 Platform 错误响应中提取可读的错误消息。
+    """Extract a human-readable error message from a Platform error response.
 
-    优先解析 JSON body 中的常见错误字段，回退到原始文本或状态码。
+    Prefers JSON body common error fields, falls back to raw text or status code.
     """
     try:
         data = resp.json()
@@ -52,10 +52,10 @@ def _translate_platform_error(
     context: str,
     template_id: str | None = None,
 ) -> Exception:
-    """将 Platform 的 httpx.HTTPStatusError 映射为友好的 SandboxError。
+    """Map a Platform httpx.HTTPStatusError to a friendly SandboxError.
 
-    - 404 且带 template_id → TemplateNotFoundError（提示检查 TEMPLATE_ID）；
-    - 其它状态码 → NetworkError，附“检查认证/平台状态”建议。
+    - 404 with template_id → TemplateNotFoundError (suggest checking TEMPLATE_ID);
+    - Other status codes → NetworkError with "check auth/platform status" suggestion.
     """
     from easy_sandbox.models.errors import NetworkError, TemplateNotFoundError
 
@@ -122,6 +122,7 @@ def _read_yaml_defaults(template_dir: str) -> dict[str, Any]:
                 if resources.get("memory") is not None
                 else yaml_data.get("memory_mb")
             ),
+            "generation": yaml_data.get("generation"),
         }
     except OSError:
         # A missing or unreadable manifest is normal — no defaults.
@@ -182,8 +183,7 @@ def _coerce_int(value: Any, default: int) -> int:
         return int(str(value).strip())
     except (ValueError, TypeError):
         click.echo(
-            f"Warning: invalid integer in template.yaml: {value!r}; "
-            f"using default {default}",
+            f"Warning: invalid integer in template.yaml: {value!r}; using default {default}",
             err=True,
         )
         return default
@@ -237,8 +237,8 @@ def _provenance_notice(out: Any) -> None:
         return
     if os.environ.get("DOCKER_BUILDKIT", "1") != "0":
         out.info(
-            "\u2139 已自动添加 --provenance=false"
-            "（避免 FC 镜像优化失败；设置 DOCKER_BUILDKIT=0 可跳过）"
+            "\u2139 Auto-added --provenance=false"
+            " (prevents FC image optimization failure; set DOCKER_BUILDKIT=0 to skip)"
         )
 
 
@@ -364,8 +364,9 @@ def _do_deploy(
     internet_access: bool | None = None,
     use_official: bool = True,
     team_id: str | None = None,
-    envd_inject: bool = True,
-    generation: int = 1,
+    envd_inject: bool = False,
+    generation: int | None = None,
+    target_image: str | None = None,
     ctx: click.Context | None = None,
     verbose: bool = False,
 ) -> dict[str, Any]:
@@ -388,20 +389,19 @@ def _do_deploy(
     from easy_sandbox.transport.config import load_config
     from easy_sandbox.utils.async_bridge import run_sync
 
-    config = load_config(
-        region=(ctx.obj.get("region") if ctx and ctx.obj else None)
-    )
+    config = load_config(region=(ctx.obj.get("region") if ctx and ctx.obj else None))
 
     yaml_defaults = _read_yaml_defaults(template_dir)
     resolved_cpu: int = cpu if cpu is not None else _coerce_int(yaml_defaults.get("cpu"), 2)
     resolved_memory: int = (
         memory if memory is not None else _coerce_int(yaml_defaults.get("memory"), 2048)
     )
+    resolved_generation: int = (
+        generation if generation is not None else _coerce_int(yaml_defaults.get("generation"), 1)
+    )
     resolved_acr_username = acr_username or config.access_key_id or ""
     resolved_acr_password = acr_password or config.access_key_secret or ""
-    resolved_repo = (
-        acr_repo or yaml_defaults.get("name") or Path(template_dir).resolve().name
-    )
+    resolved_repo = acr_repo or yaml_defaults.get("name") or Path(template_dir).resolve().name
 
     if not resolved_acr_username or not resolved_acr_password:
         raise click.ClickException(
@@ -428,6 +428,13 @@ def _do_deploy(
 
     out = get_output(ctx)
     reporter = _StepReporter(out, verbose=verbose)
+
+    # Warn if start/ready commands used without generation 2
+    if (start_cmd or ready_cmd) and resolved_generation != 2:
+        click.echo(
+            "Warning: --start-cmd / --ready-cmd only take effect with --generation 2 (MicroVM).",
+            err=True,
+        )
 
     # Provenance notice (Task #9)
     _provenance_notice(out)
@@ -470,7 +477,7 @@ def _do_deploy(
             memory_size=resolved_memory,
             disk_size=disk_size,
             internet_access=internet_access,
-            generation=generation,
+            generation=resolved_generation,
             start_command=start_cmd,
             ready_command=ready_cmd,
             envd_inject=envd_inject,
@@ -481,6 +488,7 @@ def _do_deploy(
             registry_vpc_id=acr.vpc_id or None,
             registry_vswitch_id=acr.vswitch_ids or None,
             registry_security_group_id=acr.security_group_id or None,
+            target_image=target_image,
         )
         template_id = api_result.get("templateID", "")
         if not template_id:
@@ -494,9 +502,7 @@ def _do_deploy(
         ) as update_status:
 
             def on_poll(state: str, elapsed: float) -> None:
-                update_status(
-                    f"Waiting for template {template_id} ({state}, {elapsed:.0f}s)"
-                )
+                update_status(f"Waiting for template {template_id} ({state}, {elapsed:.0f}s)")
 
             final_data = wait_for_template_ready(
                 template_id,
@@ -555,7 +561,7 @@ def _do_deploy(
 
 @click.group()
 def template() -> None:
-    """模板管理。"""
+    """Template management."""
 
 
 @template.command("install")
@@ -563,7 +569,7 @@ def template() -> None:
 @click.option(
     "--registry-url",
     default="https://github.com",
-    help="Registry URL（默认 GitHub）",
+    help="Registry URL (default: GitHub)",
 )
 @click.option(
     "--registry-type",
@@ -571,13 +577,20 @@ def template() -> None:
     default=None,
     help="Registry type (auto-detected if not specified)",
 )
-@click.option("--token", default=None, help="访问令牌（私有仓库需要）")
-@click.option("--alias", "-a", default=None, help="模板别名")
+@click.option("--token", default=None, help="Access token (required for private repos)")
+@click.option("--alias", "-a", default=None, help="Template alias")
 @click.option(
     "--download-only",
     is_flag=True,
     default=False,
     help="Only download to local cache (skip build and deploy)",
+)
+@click.option(
+    "--dir",
+    "dest_dir",
+    default=None,
+    type=click.Path(),
+    help="Download template source into this directory instead of the cache",
 )
 @click.option(
     "--acr-namespace",
@@ -608,6 +621,7 @@ def install(
     token: str | None,
     alias: str | None,
     download_only: bool,
+    dest_dir: str | None,
     acr_namespace: str | None,
     cpu: int | None,
     memory: int | None,
@@ -620,12 +634,16 @@ def install(
     Use --download-only to skip the build/deploy step and only download
     to the local cache (~/.ebx/templates/).
 
-    示例：\n
+    Use --dir <path> to download into a specific directory instead of
+    the cache.
+
+    Examples:\n
       ebx install owner/repo --acr-namespace my-ns  # Download + build + deploy\n
       ebx install owner/repo --download-only        # Download only\n
       ebx install owner/repo//subdir --download-only # Subdirectory of a repo\n
       ebx install ./my-template --acr-namespace ns  # Local dir + deploy\n
-      ebx install owner/repo@v1.0 --yes             # Skip confirmation
+      ebx install owner/repo@v1.0 --yes             # Skip confirmation\n
+      ebx install owner/repo --dir ./local-copy     # Download into ./local-copy
     """
     from easy_sandbox.utils.async_bridge import run_sync
     from easy_sandbox.utils.registry import (
@@ -649,8 +667,7 @@ def install(
     if _looks_local and not local_path.exists():
         fmt.print_error(
             f"Path not found: {template_ref}",
-            suggestion="Verify the path exists, or use owner/repo format "
-            "for GitHub templates.",
+            suggestion="Verify the path exists, or use owner/repo format for GitHub templates.",
         )
         sys.exit(EXIT_NOT_FOUND)
 
@@ -685,13 +702,24 @@ def install(
     tmpl = load_template_from_yaml(yaml_path)
     install_name = alias or tmpl.name or Path(source_path).name
 
-    # Copy to local cache
-    if ref.registry_type == "local":
+    # --dir: download into a user-specified directory
+    if dest_dir is not None:
+        dest_path = Path(dest_dir).resolve()
+        if dest_path.exists() and any(dest_path.iterdir()):
+            raise click.ClickException(
+                f"Directory '{dest_path}' already exists and is not empty. "
+                "Remove or empty it first, or choose a different --dir path."
+            )
+        dest_path.mkdir(parents=True, exist_ok=True)
+        shutil.copytree(source_path, dest_path, dirs_exist_ok=True)
+        cached_path: Path = dest_path
+    # Copy to local cache (default)
+    elif ref.registry_type == "local":
         dest = TEMPLATE_CACHE_DIR / install_name
         if Path(source_path).resolve() != dest.resolve():
             dest.mkdir(parents=True, exist_ok=True)
             shutil.copytree(source_path, dest, dirs_exist_ok=True)
-        cached_path: Path = dest
+        cached_path = dest
     else:
         cached_path = Path(source_path)
 
@@ -781,13 +809,9 @@ def install(
         fmt.print_dict(deploy_data)
         if build_status == "ready":
             fmt.print_success("Template installed, built, and ready!")
-            fmt.print_success(
-                f"Use: ebx create --template {deploy_data.get('TemplateID')}"
-            )
+            fmt.print_success(f"Use: ebx create --template {deploy_data.get('TemplateID')}")
         elif build_status in ("pushed", "submitted"):
-            fmt.print_success(
-                "Template downloaded and image pushed; registration submitted."
-            )
+            fmt.print_success("Template downloaded and image pushed; registration submitted.")
         else:
             fmt.print_error(f"Build status: {build_status}")
 
@@ -906,7 +930,7 @@ def list_templates(ctx: click.Context, official_api: bool) -> None:
 @click.pass_context
 @handle_errors
 def info(ctx: click.Context, template_id: str, official_api: bool) -> None:
-    """查看模板详情。
+    """View template details.
 
     Pass ``--official-api`` to use the official Alibaba Cloud FCSandbox
     ``GetTemplate`` API (requires AccessKey/AccessSecret in env).
@@ -990,9 +1014,20 @@ def info(ctx: click.Context, template_id: str, official_api: bool) -> None:
 )
 @click.option("--start-cmd", default=None, help="Container start command")
 @click.option("--ready-cmd", default=None, help="Container readiness check command")
-@click.option("--generation", type=int, default=1, help="Sandbox generation (default 1)")
+@click.option(
+    "--generation",
+    type=int,
+    default=None,
+    help="Sandbox generation (default: template.yaml 'generation', otherwise 1). "
+    "1=first-gen (rund), 2=second-gen MicroVM.",
+)
 @click.option(
     "--envd-inject/--no-envd-inject", default=False, help="Enable envd injection in build"
+)
+@click.option(
+    "--target-image",
+    default=None,
+    help="Destination image ref for envd copy (auto-derived with random suffix if omitted)",
 )
 @click.option(
     "--registry-type",
@@ -1025,8 +1060,9 @@ def create_template(
     internet_access: bool | None,
     start_cmd: str | None,
     ready_cmd: str | None,
-    generation: int,
+    generation: int | None,
     envd_inject: bool,
+    target_image: str | None,
     registry_type: str | None,
     acree_instance_id: str | None,
     registry_username: str | None,
@@ -1064,6 +1100,14 @@ def create_template(
     from easy_sandbox.api.fc_template import create_official_template
 
     region = config.region or "cn-hangzhou"
+    resolved_generation: int = generation if generation is not None else 1
+
+    # Warn if start/ready commands used without generation 2
+    if (start_cmd or ready_cmd) and resolved_generation != 2:
+        click.echo(
+            "Warning: --start-cmd / --ready-cmd only take effect with --generation 2 (MicroVM).",
+            err=True,
+        )
 
     result = create_official_template(
         name=name,
@@ -1076,7 +1120,7 @@ def create_template(
         memory_size=memory,
         disk_size=disk_size,
         internet_access=internet_access,
-        generation=generation,
+        generation=resolved_generation,
         start_command=start_cmd,
         ready_command=ready_cmd,
         envd_inject=envd_inject,
@@ -1084,6 +1128,7 @@ def create_template(
         acr_instance_id=acree_instance_id,
         registry_username=registry_username,
         registry_password=registry_password,
+        target_image=target_image,
     )
 
     data = {
@@ -1260,26 +1305,20 @@ def push(
 @click.option(
     "--security-group-id", envvar="ACR_SECURITY_GROUP_ID", default="", help="Security group ID"
 )
-@click.option("--alias", "-a", default=None, help="模板别名")
+@click.option("--alias", "-a", default=None, help="Template alias")
 @click.option("--tag", "-t", default="latest", help="Docker image tag")
 @click.option("--platform", default="linux/amd64", help="Target platform")
 @click.option(
     "--cpu",
     type=int,
     default=None,
-    help=(
-        "CPU cores (default: from template.yaml resources.cpu, "
-        "fallback 2)"
-    ),
+    help=("CPU cores (default: from template.yaml resources.cpu, fallback 2)"),
 )
 @click.option(
     "--memory",
     type=int,
     default=None,
-    help=(
-        "Memory in MB (default: from template.yaml resources.memory, "
-        "fallback 2048)"
-    ),
+    help=("Memory in MB (default: from template.yaml resources.memory, fallback 2048)"),
 )
 @click.option("--start-cmd", default=None, help="Container start command")
 @click.option("--ready-cmd", default=None, help="Container readiness check command")
@@ -1307,14 +1346,23 @@ def push(
 )
 @click.option(
     "--envd-inject/--no-envd-inject",
-    default=True,
-    help="Enable envd injection (default True for official API)",
+    default=False,
+    help="Enable envd injection (default False)",
 )
-@click.option("--generation", type=int, default=1, help="Sandbox generation (default 1)")
-@click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompt")
 @click.option(
-    "-v", "--verbose", "verbose_flag", is_flag=True, help="Verbose output (DEBUG level)"
+    "--generation",
+    type=int,
+    default=None,
+    help="Sandbox generation (default: template.yaml 'generation', otherwise 1). "
+    "1=first-gen (rund), 2=second-gen MicroVM.",
 )
+@click.option(
+    "--target-image",
+    default=None,
+    help="Destination image ref for envd copy (auto-derived with random suffix if omitted)",
+)
+@click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompt")
+@click.option("-v", "--verbose", "verbose_flag", is_flag=True, help="Verbose output (DEBUG level)")
 @click.pass_context
 @handle_errors
 def build(
@@ -1343,7 +1391,8 @@ def build(
     use_official: bool,
     team_id: str | None,
     envd_inject: bool,
-    generation: int,
+    generation: int | None,
+    target_image: str | None,
     yes: bool,
     verbose_flag: bool,
 ) -> None:
@@ -1385,12 +1434,13 @@ def build(
     # Resolve ACR namespace: CLI > env > .env file
     resolved_namespace = _resolve_acr_namespace(acr_namespace)
     yaml_defaults = _read_yaml_defaults(template_dir)
-    resolved_repo = (
-        acr_repo or yaml_defaults.get("name") or Path(template_dir).resolve().name
-    )
+    resolved_repo = acr_repo or yaml_defaults.get("name") or Path(template_dir).resolve().name
     resolved_cpu: int = cpu if cpu is not None else _coerce_int(yaml_defaults.get("cpu"), 2)
     resolved_memory: int = (
         memory if memory is not None else _coerce_int(yaml_defaults.get("memory"), 2048)
+    )
+    resolved_generation: int = (
+        generation if generation is not None else _coerce_int(yaml_defaults.get("generation"), 1)
     )
     template_name = alias or resolved_repo
 
@@ -1453,7 +1503,8 @@ def build(
         use_official=use_official,
         team_id=team_id,
         envd_inject=envd_inject,
-        generation=generation,
+        generation=resolved_generation,
+        target_image=target_image,
         ctx=ctx,
         verbose=out.verbose,
     )
@@ -1655,7 +1706,7 @@ def search(ctx: click.Context, query: str, tag: str | None, status: str | None) 
 
 
 @template.command("init")
-@click.argument("directory", default=".", type=click.Path())
+@click.argument("directory", default=None, required=False, type=click.Path())
 @click.option(
     "--template",
     "-t",
@@ -1672,10 +1723,13 @@ def search(ctx: click.Context, query: str, tag: str | None, status: str | None) 
 @click.option(
     "--name",
     default=None,
-    help='Template name (default: directory basename, or "my-template" for ".")',
+    help="Template name (default: case name, or fetched template name)",
 )
 @click.option(
-    "--list", "list_cases", is_flag=True, default=False,
+    "--list",
+    "list_cases",
+    is_flag=True,
+    default=False,
     help="List available scaffold cases",
 )
 @click.option("--force", is_flag=True, default=False, help="Overwrite existing files")
@@ -1683,7 +1737,7 @@ def search(ctx: click.Context, query: str, tag: str | None, status: str | None) 
 @handle_errors
 def init(
     ctx: click.Context,
-    directory: str,
+    directory: str | None,
     case: str | None,
     from_ref: str | None,
     name: str | None,
@@ -1695,12 +1749,16 @@ def init(
     Creates a ready-to-build template directory with template.yaml,
     Dockerfile, and (depending on the case) a commands.py file.
 
+    When DIRECTORY is omitted a new ./<name> subdirectory is created
+    (derived from --name, the scaffold case, or the fetched template).
+
     \b
     Examples:
       ebx template init --list                     # List built-in cases
-      ebx template init -t python ./my-template    # Python scaffold
-      ebx template init -t node                    # Node.js in current dir
-      ebx template init --from owner/repo ./copy   # Copy from registry
+      ebx template init -t python                  # Creates ./python/
+      ebx template init -t python --name myapp     # Creates ./myapp/
+      ebx template init -t python ./my-template    # Explicit directory
+      ebx template init --from owner/repo          # Creates ./<template-name>/
     """
     from easy_sandbox.cli.scaffold import available_cases, render_scaffold
 
@@ -1723,15 +1781,13 @@ def init(
             "--template/-t and --from are mutually exclusive. Use one or the other."
         )
 
-    # Resolve directory and template name
-    target = Path(directory).resolve()
-    if name is None:
-        name = target.name if directory != "." else "my-template"
+    # Whether the user explicitly provided a DIRECTORY argument
+    dir_provided = directory is not None
 
     # --from: fetch from registry and copy source files into DIR
     if from_ref:
         from easy_sandbox.utils.async_bridge import run_sync
-        from easy_sandbox.utils.registry import RegistryClient
+        from easy_sandbox.utils.registry import RegistryClient, load_template_from_yaml
 
         client = RegistryClient()
         ref = run_sync(client.resolve(from_ref))
@@ -1744,6 +1800,25 @@ def init(
             source_path = run_sync(client.fetch(ref))
 
         source = Path(source_path)
+
+        # Derive name: --name > template.yaml name > ref basename
+        if name is None:
+            yaml_path = _find_template_yaml(source)
+            if yaml_path:
+                tmpl = load_template_from_yaml(yaml_path)
+                name = tmpl.name or ""
+            if not name:
+                # Fallback: repo basename or last path component
+                name = (
+                    ref.path.rstrip("/").rsplit("/", 1)[-1]
+                    if ref.path
+                    else (ref.repo or Path(from_ref).name)
+                )
+        assert name  # ensured above
+
+        # Resolve target directory
+        target = Path(directory).resolve() if dir_provided else Path.cwd() / name  # type: ignore[arg-type]
+
         target.mkdir(parents=True, exist_ok=True)
         # Check for conflicts
         if not force:
@@ -1778,6 +1853,13 @@ def init(
                 f"No scaffold case specified. Available cases: {case_names}. "
                 "Use -t/--template <case> or --from <ref>."
             )
+
+    # Derive name: --name > case name > "my-template"
+    if name is None:
+        name = case or "my-template"
+
+    # Resolve target directory
+    target = Path(directory).resolve() if dir_provided else Path.cwd() / name  # type: ignore[arg-type]
 
     # Render scaffold files
     try:
@@ -1834,7 +1916,7 @@ def _print_init_summary(
 @click.option(
     "--registry-url",
     default="https://github.com",
-    help="Registry URL（默认 GitHub）",
+    help="Registry URL (default: GitHub)",
 )
 @click.option(
     "--registry-type",
@@ -1842,13 +1924,20 @@ def _print_init_summary(
     default=None,
     help="Registry type (auto-detected if not specified)",
 )
-@click.option("--token", default=None, help="访问令牌（私有仓库需要）")
-@click.option("--alias", "-a", default=None, help="模板别名")
+@click.option("--token", default=None, help="Access token (required for private repos)")
+@click.option("--alias", "-a", default=None, help="Template alias")
 @click.option(
     "--download-only",
     is_flag=True,
     default=False,
     help="Only download to local cache (skip build and deploy)",
+)
+@click.option(
+    "--dir",
+    "dest_dir",
+    default=None,
+    type=click.Path(),
+    help="Download template source into this directory instead of the cache",
 )
 @click.option(
     "--acr-namespace",
@@ -1869,6 +1958,7 @@ def install_shortcut(
     token: str | None,
     alias: str | None,
     download_only: bool,
+    dest_dir: str | None,
     acr_namespace: str | None,
     cpu: int | None,
     memory: int | None,
@@ -1887,6 +1977,7 @@ def install_shortcut(
         token=token,
         alias=alias,
         download_only=download_only,
+        dest_dir=dest_dir,
         acr_namespace=acr_namespace,
         cpu=cpu,
         memory=memory,
@@ -1895,7 +1986,7 @@ def install_shortcut(
 
 
 @click.command("init")
-@click.argument("directory", default=".", type=click.Path())
+@click.argument("directory", default=None, required=False, type=click.Path())
 @click.option(
     "--template",
     "-t",
@@ -1911,7 +2002,10 @@ def install_shortcut(
 )
 @click.option("--name", default=None, help="Template name")
 @click.option(
-    "--list", "list_cases", is_flag=True, default=False,
+    "--list",
+    "list_cases",
+    is_flag=True,
+    default=False,
     help="List available scaffold cases",
 )
 @click.option("--force", is_flag=True, default=False, help="Overwrite existing files")
@@ -1919,7 +2013,7 @@ def install_shortcut(
 @handle_errors
 def init_shortcut(
     ctx: click.Context,
-    directory: str,
+    directory: str | None,
     case: str | None,
     from_ref: str | None,
     name: str | None,

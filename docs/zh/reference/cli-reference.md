@@ -289,12 +289,27 @@ ebx template init [DIRECTORY] [选项]
 | `--list` | | 列出可用脚手架案例 |
 | `--force` | | 覆盖已存在的文件 |
 
+**DIRECTORY 行为**：省略 `DIRECTORY` 时，会在当前工作目录下新建 `./<name>` 子目录。`<name>` 按以下优先级解析：
+
+1. `--name` 的值（最高优先级）
+2. 脚手架案例名（`-t/--template` 的值，如 `python`）
+3. `--from` 拉取到的模板名
+
 ```bash
 # 列出可用脚手架案例
 ebx template init --list
 
-# 将 Python 模板脚手架生成到 ./my-template
+# Python 模板，省略 DIRECTORY → 创建 ./python/
+ebx template init -t python
+
+# 指定 --name → 创建 ./myapp/
+ebx template init -t python --name myapp
+
+# 显式指定 DIRECTORY → 使用该目录
 ebx template init -t python ./my-template
+
+# 从 registry 引用拉取，省略 DIRECTORY → 创建 ./<template-name>/
+ebx template init --from owner/repo
 ```
 
 `--list` 输出示例：
@@ -322,7 +337,7 @@ Next steps:
 
 ### ebx init（快捷方式）
 
-`ebx template init` 的顶层快捷方式：
+`ebx template init` 的顶层快捷方式，行为完全一致（包括省略 DIRECTORY 时自动新建子目录，参见上文）：
 
 ```text
 Usage: ebx init [OPTIONS] [DIRECTORY]
@@ -365,7 +380,8 @@ ebx template deploy <TEMPLATE_DIR> [选项]
 | `--official-api/--legacy-api` | 使用官方 API（默认）或旧 v3/v2 API |
 | `--team-id` | Team ID |
 | `--envd-inject/--no-envd-inject` | envd 注入（默认开启） |
-| `--generation` | 沙箱代数 |
+| `--generation` | 沙箱代数（1 = 一代 rund，2 = 二代 MicroVM Beta；默认 1；也可从 `template.yaml` 的 `generation` 字段读取） |
+| `--target-image` | envd copy 的目标镜像 ref（省略时自动派生随机后缀） |
 | `--dockerfile` / `-f` | 自定义 Dockerfile 路径 |
 | `--start-cmd` / `--ready-cmd` | 启动/就绪命令 |
 | `--timeout` | 构建超时秒数 |
@@ -465,7 +481,7 @@ ebx template deploy ./examples/templates/node-web --acr-namespace serverless-san
 ebx template build <TEMPLATE_DIR> [选项]
 ```
 
-参数与 `template deploy` 相同，参见上方选项表及「参数默认值与优先级」小节。
+参数与 `template deploy` 相同（包括 `--target-image` 和 `--generation`），参见上方选项表及「参数默认值与优先级」小节。
 
 ### ebx template push
 
@@ -500,7 +516,8 @@ ebx template create <IMAGE> --name <NAME> [选项]
 | `--memory` | 内存 MB（默认 2048） |
 | `--disk-size` | 磁盘大小 MB |
 | `--internet-access/--no-internet-access` | 联网访问（默认由平台决定） |
-| `--generation` | 沙箱代数（默认 1） |
+| `--generation` | 沙箱代数（1 = 一代 rund，2 = 二代 MicroVM Beta；默认 1；也可从 `template.yaml` 的 `generation` 字段读取） |
+| `--target-image` | envd copy 的目标镜像 ref（省略时自动派生随机后缀） |
 | `--envd-inject/--no-envd-inject` | 启用 envd 注入 |
 | `--registry-type` | 镜像仓库类型：`acr` / `acree`（自动检测） |
 | `--acree-instance-id` | ACR EE 实例 ID |
@@ -533,6 +550,7 @@ ebx template install <TEMPLATE_REF> [选项]
 | `--token` | | 私有仓库访问令牌 |
 | `--alias` | `-a` | 模板别名 |
 | `--download-only` | | 仅下载到本地缓存（跳过构建和部署） |
+| `--dir` | | 将模板源码下载到自定义目录，而非默认缓存路径（`~/.ebx/templates`） |
 | `--acr-namespace` | | 部署使用的 ACR 命名空间（环境变量 `ACR_NAMESPACE`，或在 `.env` 中设置） |
 | `--cpu` | | CPU 核数（默认：来自 `template.yaml` 或 2） |
 | `--memory` | | 内存 MB（默认：来自 `template.yaml` 或 2048） |
@@ -550,7 +568,7 @@ ebx install owner/repo@v1.0 --yes               # 跳过确认
 
 ### ebx install（快捷方式）
 
-`ebx template install` 的顶层快捷方式（选项与默认完整流水线行为完全一致）：
+`ebx template install` 的顶层快捷方式（选项——包括 `--dir`——与默认完整流水线行为完全一致）：
 
 ```bash
 ebx install owner/repo --acr-namespace my-ns

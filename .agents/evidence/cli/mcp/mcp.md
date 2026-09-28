@@ -9,13 +9,13 @@ $ ebx mcp install --target cursor
 MCP Server config written to /Users/anycodes/.cursor/mcp.json
 
 Registered tools:
-  • create_sandbox     — 创建云端沙箱
-  • run_code           — 执行代码
-  • run_command        — 执行命令
-  • read_file          — 读取文件
-  • write_file         — 写入文件
-  • list_files         — 列出文件
-  • kill_sandbox       — 销毁沙箱
+  • create_sandbox     — Create a cloud sandbox
+  • run_code           — Execute code
+  • run_command        — Execute a command
+  • read_file          — Read a file
+  • write_file         — Write a file
+  • list_files         — List files
+  • kill_sandbox       — Destroy a sandbox
 
 Please restart Cursor to apply changes.
 Exit code: 0
@@ -31,7 +31,7 @@ tools_count       7
 tools             ['create_sandbox', 'run_code', 'run_command', 'read_file', 'write_file', 'list_files', 'kill_sandbox']
 auth_configured   False
 installed_cursor  True
-installed_claude  False
+installed_claude  True
 installed_vscode  True
 Exit code: 0
 ```
@@ -55,7 +55,7 @@ $ ebx --json mcp status
   ],
   "auth_configured": false,
   "installed_cursor": true,
-  "installed_claude": false,
+  "installed_claude": true,
   "installed_vscode": true
 }
 Exit code: 0

@@ -116,13 +116,22 @@ class TestRequiredFiles:
 # ---------------------------------------------------------------------------
 
 
+# Platform-reserved names: these directory names are taken by the FC platform,
+# so the template.yaml ``name`` field must use an alternative.
+_PLATFORM_NAME_OVERRIDES: dict[str, str] = {
+    "codex": "openai-codex",
+    "openclaw": "openclaw-agent",
+}
+
+
 class TestTemplateYaml:
     """``template.yaml`` parses and satisfies the model contract."""
 
     def test_parses_with_real_loader(self, template_dir: Path) -> None:
         tmpl = _load(template_dir)
         assert isinstance(tmpl, SandboxTemplate)
-        assert tmpl.name == template_dir.name
+        expected_name = _PLATFORM_NAME_OVERRIDES.get(template_dir.name, template_dir.name)
+        assert tmpl.name == expected_name
 
     def test_required_keys_declared_explicitly(self, template_dir: Path) -> None:
         raw = _raw(template_dir)
@@ -132,8 +141,9 @@ class TestTemplateYaml:
         )
 
     def test_name_matches_directory(self, template_dir: Path) -> None:
-        """Folder name == ``name`` == default install alias (cache lookup key)."""
-        assert _load(template_dir).name == template_dir.name
+        """Folder name == ``name`` (or known platform override) == default install alias."""
+        expected_name = _PLATFORM_NAME_OVERRIDES.get(template_dir.name, template_dir.name)
+        assert _load(template_dir).name == expected_name
 
     def test_name_is_kebab_case(self, template_dir: Path) -> None:
         assert re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", template_dir.name), (

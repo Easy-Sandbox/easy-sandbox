@@ -346,7 +346,7 @@ class TestBuildAndRegisterOfficial:
         assert call_kwargs["disk_size"] is None
         assert call_kwargs["internet_access"] is None
         assert call_kwargs["generation"] == 1
-        assert call_kwargs["envd_inject"] is True  # default for template deploy
+        assert call_kwargs["envd_inject"] is False  # default for template deploy
 
     @pytest.mark.asyncio
     async def test_wheel_injection_called(

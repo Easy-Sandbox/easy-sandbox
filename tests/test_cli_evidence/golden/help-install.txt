@@ -6,12 +6,14 @@ Usage: cli install [OPTIONS] TEMPLATE_REF
   skip the build/deploy step.
 
 Options:
-  --registry-url TEXT             Registry URL（默认 GitHub）
+  --registry-url TEXT             Registry URL (default: GitHub)
   --registry-type [github|local]  Registry type (auto-detected if not specified)
-  --token TEXT                    访问令牌（私有仓库需要）
-  -a, --alias TEXT                模板别名
+  --token TEXT                    Access token (required for private repos)
+  -a, --alias TEXT                Template alias
   --download-only                 Only download to local cache (skip build and
                                   deploy)
+  --dir PATH                      Download template source into this directory
+                                  instead of the cache
   --acr-namespace TEXT            ACR namespace for deploy
   --cpu INTEGER                   CPU cores
   --memory INTEGER                Memory in MB

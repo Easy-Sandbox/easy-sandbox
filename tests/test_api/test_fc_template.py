@@ -2,9 +2,80 @@
 
 from __future__ import annotations
 
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+
+class TestDeriveTargetImage:
+    """Tests for _derive_target_image helper."""
+
+    def test_simple_tag(self) -> None:
+        from easy_sandbox.api.fc_template import _derive_target_image
+
+        result = _derive_target_image("registry.cn-hangzhou.aliyuncs.com/ns/repo:v1")
+        assert result.startswith("registry.cn-hangzhou.aliyuncs.com/ns/repo:v1-fcsandbox-")
+        assert result != "registry.cn-hangzhou.aliyuncs.com/ns/repo:v1"
+
+    def test_latest_tag(self) -> None:
+        from easy_sandbox.api.fc_template import _derive_target_image
+
+        result = _derive_target_image("registry.cn-hangzhou.aliyuncs.com/ns/repo:latest")
+        assert ":latest-fcsandbox-" in result
+
+    def test_no_tag(self) -> None:
+        from easy_sandbox.api.fc_template import _derive_target_image
+
+        result = _derive_target_image("registry.cn-hangzhou.aliyuncs.com/ns/repo")
+        assert result.startswith("registry.cn-hangzhou.aliyuncs.com/ns/repo:fcsandbox-")
+
+    def test_port_in_registry(self) -> None:
+        """host:port/path:tag — colon before '/' is port, not tag."""
+        from easy_sandbox.api.fc_template import _derive_target_image
+
+        result = _derive_target_image("registry.example.com:5000/ns/repo:v1")
+        # Should append suffix to :v1, not :5000
+        assert result.startswith("registry.example.com:5000/ns/repo:v1-fcsandbox-")
+
+    def test_port_only_no_tag(self) -> None:
+        """host:port/path with no tag."""
+        from easy_sandbox.api.fc_template import _derive_target_image
+
+        result = _derive_target_image("registry.example.com:5000/ns/repo")
+        assert result.startswith("registry.example.com:5000/ns/repo:fcsandbox-")
+
+    def test_suffix_is_unique(self) -> None:
+        from easy_sandbox.api.fc_template import _derive_target_image
+
+        r1 = _derive_target_image("img:v1")
+        r2 = _derive_target_image("img:v1")
+        assert r1 != r2  # random suffix
+
+
+class TestResolveTargetImage:
+    """Tests for _resolve_target_image helper."""
+
+    def test_none_target_derives(self) -> None:
+        from easy_sandbox.api.fc_template import _resolve_target_image
+
+        result = _resolve_target_image("img:v1", None)
+        assert result != "img:v1"
+        assert "-fcsandbox-" in result
+
+    def test_same_as_source_derives(self) -> None:
+        """target == source must be treated as 'not specified'."""
+        from easy_sandbox.api.fc_template import _resolve_target_image
+
+        result = _resolve_target_image("img:v1", "img:v1")
+        assert result != "img:v1"
+        assert "-fcsandbox-" in result
+
+    def test_different_target_returned_as_is(self) -> None:
+        from easy_sandbox.api.fc_template import _resolve_target_image
+
+        result = _resolve_target_image("img:v1", "other:v2")
+        assert result == "other:v2"
 
 
 class TestRequireSDK:
@@ -67,12 +138,12 @@ class TestBuildCreateTemplateRequestMap:
         assert sandbox["generation"] == 1
 
     def test_envd_inject_enabled(self) -> None:
-        """Request map with envdInject enabled."""
+        """Request map with envdInject enabled — copy.image must differ from sandbox image."""
         from easy_sandbox.api.fc_template import build_create_template_request_map
 
         result = build_create_template_request_map(
             name="test-envd",
-            image="img",
+            image="img:v1",
             team_id="t",
             envd_inject=True,
         )
@@ -80,6 +151,10 @@ class TestBuildCreateTemplateRequestMap:
         body = result.get("body", {})
         build_config = body.get("buildConfig", {})
         assert build_config["envdInject"]["enabled"] is True
+        copy_image = build_config["copy"]["image"]
+        sandbox_image = body["runtimeConfig"]["sandboxConfig"]["image"]
+        assert copy_image != sandbox_image
+        assert "-fcsandbox-" in copy_image
 
     def test_envd_inject_disabled(self) -> None:
         """Request map without envdInject — buildConfig should be absent."""
@@ -129,6 +204,42 @@ class TestBuildCreateTemplateRequestMap:
         auth = reg_config.get("authConfig", {})
         assert auth["userName"] == "user"
         assert auth["password"] == "pass"
+
+    def test_explicit_target_image_honored(self) -> None:
+        """Explicit target_image should be used as copy.image."""
+        from easy_sandbox.api.fc_template import build_create_template_request_map
+
+        result = build_create_template_request_map(
+            name="test-explicit",
+            image="source:v1",
+            team_id="t",
+            envd_inject=True,
+            target_image="custom-target:v1",
+        )
+
+        body = result.get("body", {})
+        copy_image = body["buildConfig"]["copy"]["image"]
+        assert copy_image == "custom-target:v1"
+        assert body["runtimeConfig"]["sandboxConfig"]["image"] == "source:v1"
+
+    def test_target_image_equals_source_forces_derivation(self) -> None:
+        """target_image == source image must be auto-derived (never equal)."""
+        from easy_sandbox.api.fc_template import build_create_template_request_map
+
+        src = "registry.cn-hangzhou.aliyuncs.com/ns/repo:v1"
+        result = build_create_template_request_map(
+            name="test-same",
+            image=src,
+            team_id="t",
+            envd_inject=True,
+            target_image=src,  # explicit but == source
+        )
+
+        body = result.get("body", {})
+        copy_image = body["buildConfig"]["copy"]["image"]
+        sandbox_image = body["runtimeConfig"]["sandboxConfig"]["image"]
+        assert copy_image != sandbox_image
+        assert "-fcsandbox-" in copy_image
 
     def test_start_and_ready_commands(self) -> None:
         """start_command and ready_command should appear in sandboxConfig."""
@@ -220,6 +331,149 @@ class TestCreateOfficialTemplate:
         assert result["templateID"] == "tpl-explicit"
         # ListTeams should not be called when team_id is explicit
         mock_client.list_teams.assert_not_called()
+
+    def test_envd_inject_target_image_in_create(self) -> None:
+        """Create with envd_inject: copy.image must differ from source."""
+        from easy_sandbox.api.fc_template import create_official_template
+
+        mock_body = MagicMock()
+        mock_body.template_id = "tpl-envd"
+        mock_body.request_id = "req-e"
+        mock_body.code = "200"
+        mock_body.message = ""
+
+        mock_response = MagicMock()
+        mock_response.body = mock_body
+        mock_response.status_code = 200
+
+        with patch("alibabacloud_fcsandbox20260509.client.Client") as mock_client_cls:
+            mock_client = MagicMock()
+            mock_client.create_template.return_value = mock_response
+            mock_client_cls.return_value = mock_client
+
+            result = create_official_template(
+                name="test",
+                image="registry/ns/repo:v1",
+                access_key_id="AK",
+                access_key_secret="SK",
+                team_id="team-x",
+                envd_inject=True,
+            )
+
+        assert result["templateID"] == "tpl-envd"
+        # Inspect the request passed to create_template
+        call_args = mock_client.create_template.call_args
+        req = call_args[0][0]  # positional arg
+        body = req.body
+        copy_img = body.build_config.copy.image
+        sandbox_img = body.runtime_config.sandbox_config.image
+        assert copy_img != sandbox_img
+        assert "-fcsandbox-" in copy_img
+        assert sandbox_img == "registry/ns/repo:v1"
+
+    def test_409_update_uses_same_target_image(self) -> None:
+        """409→update path receives the same target_image as create."""
+        from easy_sandbox.api.fc_template import create_official_template
+
+        # Make create raise 409
+        with patch("alibabacloud_fcsandbox20260509.client.Client") as mock_client_cls:
+            mock_client = MagicMock()
+            mock_client.create_template.side_effect = Exception("TemplateAlreadyExists 409")
+            # Mock _find_template_by_name for the update fallback
+            tpl_mock = MagicMock()
+            tpl_mock.name = "test"
+            tpl_mock.template_id = "tpl-existing"
+            list_body = MagicMock()
+            list_body.templates = [tpl_mock]
+            list_body.next_token = None
+            list_resp = MagicMock()
+            list_resp.body = list_body
+            mock_client.list_templates.return_value = list_resp
+
+            update_body = MagicMock()
+            update_body.request_id = "req-u"
+            update_resp = MagicMock()
+            update_resp.body = update_body
+            update_resp.status_code = 200
+            mock_client.update_template.return_value = update_resp
+
+            mock_client_cls.return_value = mock_client
+
+            result = create_official_template(
+                name="test",
+                image="registry/ns/repo:v1",
+                access_key_id="AK",
+                access_key_secret="SK",
+                team_id="team-x",
+                envd_inject=True,
+                target_image="explicit-target:v1",
+            )
+
+        assert result["templateID"] == "tpl-existing"
+        # The update call should use the explicit target
+        update_args = mock_client.update_template.call_args
+        update_req = update_args[0][1]  # second positional arg (request)
+        copy_img = update_req.body.build_config.copy.image
+        assert copy_img == "explicit-target:v1"
+
+    def test_409_update_target_equals_source_forces_derivation(self) -> None:
+        """409→update with target==source: both paths derive and agree."""
+        from easy_sandbox.api.fc_template import create_official_template
+
+        src = "registry/ns/repo:v1"
+
+        with patch("alibabacloud_fcsandbox20260509.client.Client") as mock_client_cls:
+            mock_client = MagicMock()
+
+            # Capture the create_template request to inspect resolved target
+            create_req_holder: list[Any] = []
+
+            def capture_create(req: Any) -> None:
+                create_req_holder.append(req)
+                raise Exception("TemplateAlreadyExists 409")
+
+            mock_client.create_template.side_effect = capture_create
+
+            tpl_mock = MagicMock()
+            tpl_mock.name = "test"
+            tpl_mock.template_id = "tpl-existing"
+            list_body = MagicMock()
+            list_body.templates = [tpl_mock]
+            list_body.next_token = None
+            list_resp = MagicMock()
+            list_resp.body = list_body
+            mock_client.list_templates.return_value = list_resp
+
+            update_body = MagicMock()
+            update_body.request_id = "req-u"
+            update_resp = MagicMock()
+            update_resp.body = update_body
+            update_resp.status_code = 200
+            mock_client.update_template.return_value = update_resp
+
+            mock_client_cls.return_value = mock_client
+
+            create_official_template(
+                name="test",
+                image=src,
+                access_key_id="AK",
+                access_key_secret="SK",
+                team_id="team-x",
+                envd_inject=True,
+                target_image=src,  # same as source!
+            )
+
+        # Create path: copy.image differs from source
+        create_req = create_req_holder[0]
+        create_copy_img = create_req.body.build_config.copy.image
+        assert create_copy_img != src
+        assert "-fcsandbox-" in create_copy_img
+
+        # Update path: must use the SAME derived target (no second derivation)
+        update_args = mock_client.update_template.call_args
+        update_req = update_args[0][1]
+        update_copy_img = update_req.body.build_config.copy.image
+        assert update_copy_img == create_copy_img
 
     def test_api_failure_raises_template_build_error(self) -> None:
         """API failure should raise TemplateBuildError."""

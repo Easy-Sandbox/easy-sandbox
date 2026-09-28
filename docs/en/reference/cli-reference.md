@@ -289,12 +289,27 @@ ebx template init [DIRECTORY] [options]
 | `--list` | | List available scaffold cases |
 | `--force` | | Overwrite existing files |
 
+**DIRECTORY behaviour**: when `DIRECTORY` is omitted, a new subdirectory `./<name>` is created in the current working directory. The `<name>` is resolved with the following priority:
+
+1. `--name` value (highest)
+2. Scaffold case name (the `-t/--template` value, e.g. `python`)
+3. Template name fetched via `--from`
+
 ```bash
 # List available scaffold cases
 ebx template init --list
 
-# Scaffold a Python template into ./my-template
+# Scaffold a Python template — DIRECTORY omitted → creates ./python/
+ebx template init -t python
+
+# Explicit --name → creates ./myapp/
+ebx template init -t python --name myapp
+
+# Explicit DIRECTORY → uses that directory
 ebx template init -t python ./my-template
+
+# From a registry ref — DIRECTORY omitted → creates ./<template-name>/
+ebx template init --from owner/repo
 ```
 
 Example output of `--list`:
@@ -322,7 +337,7 @@ Next steps:
 
 ### ebx init (shortcut)
 
-Top-level shortcut for `ebx template init`:
+Top-level shortcut for `ebx template init` — behaviour is identical, including DIRECTORY auto-creation when omitted (see above):
 
 ```text
 Usage: ebx init [OPTIONS] [DIRECTORY]
@@ -365,7 +380,8 @@ ebx template deploy <TEMPLATE_DIR> [options]
 | `--official-api/--legacy-api` | Use official API (default) or legacy v3/v2 API |
 | `--team-id` | Team ID |
 | `--envd-inject/--no-envd-inject` | envd injection (default enabled) |
-| `--generation` | Sandbox generation |
+| `--generation` | Sandbox generation (1 = first-gen rund, 2 = second-gen MicroVM Beta; default 1; can also be read from `template.yaml` `generation` field) |
+| `--target-image` | Target image ref for envd copy (auto-derived with a random suffix when omitted) |
 | `--dockerfile` / `-f` | Custom Dockerfile path |
 | `--start-cmd` / `--ready-cmd` | Start/readiness command |
 | `--timeout` | Build timeout in seconds |
@@ -465,7 +481,7 @@ Build Docker image and push to ACR + register template only (same parameters as 
 ebx template build <TEMPLATE_DIR> [options]
 ```
 
-Parameters are the same as `template deploy`; see the options table and the "Parameter Defaults & Priority" section above.
+Parameters are the same as `template deploy` (including `--target-image` and `--generation`); see the options table and the "Parameter Defaults & Priority" section above.
 
 ### ebx template push
 
@@ -500,7 +516,8 @@ ebx template create <IMAGE> --name <NAME> [options]
 | `--memory` | Memory in MB (default 2048) |
 | `--disk-size` | Disk size in MB |
 | `--internet-access/--no-internet-access` | Internet access (default: platform decides) |
-| `--generation` | Sandbox generation (default 1) |
+| `--generation` | Sandbox generation (1 = first-gen rund, 2 = second-gen MicroVM Beta; default 1; can also be read from `template.yaml` `generation` field) |
+| `--target-image` | Target image ref for envd copy (auto-derived with a random suffix when omitted) |
 | `--envd-inject/--no-envd-inject` | Enable envd injection |
 | `--registry-type` | Registry type: `acr` / `acree` (auto-detected) |
 | `--acree-instance-id` | ACR EE instance ID |
@@ -533,6 +550,7 @@ ebx template install <TEMPLATE_REF> [options]
 | `--token` | | Private repository access token |
 | `--alias` | `-a` | Template alias |
 | `--download-only` | | Only download to local cache (skip build and deploy) |
+| `--dir` | | Download template source to a custom directory instead of the default cache (`~/.ebx/templates`) |
 | `--acr-namespace` | | ACR namespace for deploy (env `ACR_NAMESPACE`, or set in `.env`) |
 | `--cpu` | | CPU cores (default: from `template.yaml` or 2) |
 | `--memory` | | Memory in MB (default: from `template.yaml` or 2048) |
@@ -550,7 +568,7 @@ ebx install owner/repo@v1.0 --yes               # Skip confirmation
 
 ### ebx install (shortcut)
 
-Top-level shortcut for `ebx template install` (same options and default full-pipeline behavior):
+Top-level shortcut for `ebx template install` (same options — including `--dir` — and default full-pipeline behavior):
 
 ```bash
 ebx install owner/repo --acr-namespace my-ns

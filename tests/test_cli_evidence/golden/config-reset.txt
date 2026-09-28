@@ -1,2 +1,2 @@
-Configuration reset to defaults.
+Configuration reset to defaults (including api_key).
 [exit_code:0]

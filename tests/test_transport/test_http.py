@@ -355,7 +355,8 @@ class TestRequestTimeoutPropagation:
             patch.object(httpx.AsyncClient, "__init__", patched_init),
             patch.object(httpx.AsyncClient, "post", fake_post),
             patch.object(
-                httpx.AsyncClient, "__aenter__",
+                httpx.AsyncClient,
+                "__aenter__",
                 AsyncMock(return_value=MagicMock(post=fake_post)),
             ),
             patch.object(httpx.AsyncClient, "__aexit__", AsyncMock(return_value=False)),
@@ -400,7 +401,8 @@ class TestRequestTimeoutPropagation:
             patch.object(httpx.AsyncClient, "__init__", patched_init),
             patch.object(httpx.AsyncClient, "post", fake_post),
             patch.object(
-                httpx.AsyncClient, "__aenter__",
+                httpx.AsyncClient,
+                "__aenter__",
                 AsyncMock(return_value=MagicMock(post=fake_post)),
             ),
             patch.object(httpx.AsyncClient, "__aexit__", AsyncMock(return_value=False)),

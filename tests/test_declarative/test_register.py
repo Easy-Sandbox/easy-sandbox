@@ -312,9 +312,7 @@ class TestRunRegistered:
     def test_run_basic(self, mock_sandbox_cls: MagicMock) -> None:
         """Run a registered command end-to-end (mocked sandbox HTTP)."""
         mock_sb = AsyncMock()
-        mock_sb.custom = AsyncMock(
-            return_value=CommandResult(value="hello=1", source="server")
-        )
+        mock_sb.custom = AsyncMock(return_value=CommandResult(value="hello=1", source="server"))
         mock_sb.kill = AsyncMock()
         mock_sandbox_cls.create = AsyncMock(return_value=mock_sb)
 

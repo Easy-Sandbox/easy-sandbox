@@ -294,12 +294,17 @@ class OutputManager:
     def use_rich_spinner(self) -> bool:
         """Whether rich spinners are appropriate for the current session.
 
-        Only enabled in interactive TTY mode: disabled by ``--quiet``,
-        ``--json``, ``--no-color`` (which includes non-TTY stdout), or when
-        stderr is not connected to a terminal.
+        Only enabled in interactive TTY mode: disabled by ``--verbose``,
+        ``--quiet``, ``--json``, ``--no-color`` (which includes non-TTY
+        stdout), or when stderr is not connected to a terminal.
+
+        In verbose mode spinners are suppressed because DEBUG log lines
+        written to stderr would interleave with the Rich live-display,
+        producing garbled output like ``⠋ Waiting...DEBUG: https://...``.
         """
         return not (
-            self.quiet
+            self.verbose
+            or self.quiet
             or self.json_mode
             or self.no_color
             or not (hasattr(sys.stderr, "isatty") and sys.stderr.isatty())
@@ -334,11 +339,18 @@ class OutputManager:
         """Like :meth:`spinner`, but yields an updater callable.
 
         The yielded ``update(text)`` callable refreshes the spinner text (used
-        to show poll status / elapsed time).  In degraded (non-TTY) mode the
-        updater is a no-op since callers emit their own progress messages.
+        to show poll status / elapsed time).  In verbose mode the updater
+        prints each status change as a plain line on stderr so that poll
+        progress remains visible alongside DEBUG logs.  In other degraded
+        modes (quiet / JSON / non-TTY) the updater is a no-op.
         """
         if not self.use_rich_spinner:
-            yield lambda _text: None  # no-op in non-TTY
+            if self.verbose:
+                # Print poll updates as plain lines so progress is visible
+                # alongside DEBUG logs without conflicting with a spinner.
+                yield lambda text: click.echo(f"... {text}", err=True)
+            else:
+                yield lambda _text: None  # no-op in non-TTY / quiet / json
             return
         try:
             from rich.console import Console

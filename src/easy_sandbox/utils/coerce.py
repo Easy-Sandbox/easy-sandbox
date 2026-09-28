@@ -125,8 +125,7 @@ def coerce_kwargs(
     undeclared = sorted(k for k in raw if k not in declared_names)
     if undeclared:
         raise ValueError(
-            f"Unexpected argument(s): {undeclared}; "
-            f"declared: {sorted(declared_names) or '(none)'}"
+            f"Unexpected argument(s): {undeclared}; declared: {sorted(declared_names) or '(none)'}"
         )
 
     # --- Coerce declared arguments ---

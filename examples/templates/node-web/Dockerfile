@@ -33,5 +33,6 @@ WORKDIR /workspace
 COPY commands.py .
 
 EXPOSE 3000
+EXPOSE 9000
 
 CMD ["python3", "commands.py"]

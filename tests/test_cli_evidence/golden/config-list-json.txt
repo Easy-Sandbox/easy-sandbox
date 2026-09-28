@@ -1,12 +1,13 @@
 {
-  "api_key": "(not set)",
-  "api_url": "https://api.cn-hangzhou.e2b.fc.aliyuncs.com (default)",
-  "domain": "cn-hangzhou.e2b.fc.aliyuncs.com (default)",
-  "http_timeout": "30.0 (default)",
-  "llm_api_key": " (default)",
-  "llm_base_url": " (default)",
-  "llm_model": " (default)",
-  "max_retries": "3 (default)",
-  "region": "cn-hangzhou (default)"
+  "api_key": null,
+  "api_url": "https://api.cn-hangzhou.e2b.fc.aliyuncs.com",
+  "domain": "cn-hangzhou.e2b.fc.aliyuncs.com",
+  "http2": true,
+  "http_timeout": 30.0,
+  "llm_api_key": null,
+  "llm_base_url": null,
+  "llm_model": null,
+  "max_retries": 3,
+  "region": "cn-hangzhou"
 }
 [exit_code:0]

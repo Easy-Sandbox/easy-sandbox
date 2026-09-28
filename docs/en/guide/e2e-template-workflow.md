@@ -56,6 +56,7 @@ If you'd rather not author a template from scratch, use `ebx install` (alias of 
 | `--memory` | Memory in MB (default: from `template.yaml` or 2048) |
 | `-y`, `--yes` | Skip the confirmation prompt |
 | `--download-only` | Only download to the local cache (skip build and deploy) |
+| `--dir PATH` | Download template source to a custom directory instead of `~/.ebx/templates` |
 
 ### Reference syntax
 
@@ -198,6 +199,8 @@ ebx install Easy-Sandbox/awesome-templates//python-hello --acr-namespace my-ns
 
 The fastest way to start is the built-in scaffold. `ebx init` (alias of `ebx template init`) generates a ready-to-edit template directory, so you no longer have to hand-write `template.yaml` / `Dockerfile` / `commands.py` from memory.
 
+When the `DIRECTORY` argument is omitted, the scaffold creates a new subdirectory `./<name>` in the current working directory. The `<name>` is resolved by priority: `--name` > scaffold case name (the `-t` value) > template name from `--from`.
+
 List the available scaffold cases:
 
 ```bash
@@ -223,7 +226,7 @@ Next steps:
   ebx install ./my-template --acr-namespace <ns>
 ```
 
-The top-level `ebx init` shortcut accepts the same options:
+The top-level `ebx init` shortcut accepts the same options and has the same DIRECTORY auto-creation behaviour:
 
 ```text
 Usage: ebx init [OPTIONS] [DIRECTORY]

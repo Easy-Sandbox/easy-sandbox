@@ -9,6 +9,7 @@ Layer: L3 (API) — may import L0 (models, utils) and L1 (transport).
 
 from __future__ import annotations
 
+import secrets
 import time
 from typing import TYPE_CHECKING, Any
 
@@ -40,6 +41,45 @@ def _require_sdk() -> None:
             _SDK_INSTALL_HINT,
             suggestion='pip install "easy-sandbox[alicloud]"',
         ) from exc
+
+
+# ---------------------------------------------------------------------------
+# Envd target-image derivation
+# ---------------------------------------------------------------------------
+
+
+def _derive_target_image(image: str) -> str:
+    """Derive a distinct target image ref from a source image.
+
+    When envd-inject is enabled the platform's ``copy.image`` (destination)
+    MUST differ from ``sandboxConfig.image`` (source).  This helper appends
+    a random ``-fcsandbox-<hex>`` suffix to the tag so the two never collide.
+
+    The parser handles ``host:port/path:tag`` correctly — a colon followed
+    by a ``/`` is a port separator, not a tag delimiter.
+    """
+    suffix = secrets.token_hex(3)  # 6 hex chars
+    name_part, sep, tag = image.rpartition(":")
+    # A real tag has no "/" after the colon; a port would be followed by
+    # "/path", so if "/" appears in *tag* the colon was a port separator.
+    if sep and "/" not in tag:
+        return f"{name_part}:{tag}-fcsandbox-{suffix}"
+    return f"{image}:fcsandbox-{suffix}"
+
+
+def _resolve_target_image(source: str, target: str | None) -> str:
+    """Return a target image guaranteed to differ from *source*.
+
+    When *target* is ``None`` **or** equals *source*, a derived image ref
+    with a random suffix is returned via :func:`_derive_target_image`.
+    Otherwise *target* is returned as-is.
+
+    This ensures the platform contract that ``copy.image`` must differ
+    from ``sandboxConfig.image``.
+    """
+    if target is None or target == source:
+        return _derive_target_image(source)
+    return target
 
 
 # ---------------------------------------------------------------------------
@@ -362,6 +402,7 @@ def _update_existing_template(
     registry_vpc_id: str | None,
     registry_vswitch_id: str | None,
     registry_security_group_id: str | None,
+    target_image: str | None = None,
 ) -> dict[str, Any]:
     """Update an existing template by name (fallback for 409)."""
     from alibabacloud_fcsandbox20260509 import models as sdk_models
@@ -418,9 +459,10 @@ def _update_existing_template(
     # Build build config
     build_config = None
     if envd_inject:
+        resolved_target = _resolve_target_image(image, target_image)
         copy_action = sdk_models.PublicUpdateTemplateCopyAction(
             enabled=True,
-            image=image,
+            image=resolved_target,
             registry_type=effective_registry_type,
             acr_instance_id=acr_instance_id,
             registry_config=copy_registry_config,
@@ -503,6 +545,7 @@ def create_official_template(
     registry_vpc_id: str | None = None,
     registry_vswitch_id: str | None = None,
     registry_security_group_id: str | None = None,
+    target_image: str | None = None,
 ) -> dict[str, Any]:
     """Create a sandbox template via the official Alibaba Cloud CreateTemplate API.
 
@@ -602,6 +645,10 @@ def create_official_template(
         sandbox_config=sandbox_config,
     )
 
+    # Pre-compute the resolved target image so both the create path and the
+    # 409→update fallback use the exact same value (no double-derivation).
+    resolved_target = _resolve_target_image(image, target_image)
+
     # Build build config (envd inject)
     # When envdInject is enabled, the API requires copy.enabled=True as well.
     build_config = None
@@ -629,7 +676,7 @@ def create_official_template(
             )
         copy_action = sdk_models.CreateTemplateCopyAction(
             enabled=True,
-            image=image,
+            image=resolved_target,
             registry_type=effective_registry_type,
             acr_instance_id=acr_instance_id,
             registry_config=copy_registry_config,
@@ -699,6 +746,7 @@ def create_official_template(
                 registry_vpc_id=registry_vpc_id,
                 registry_vswitch_id=registry_vswitch_id,
                 registry_security_group_id=registry_security_group_id,
+                target_image=resolved_target,
             )
 
         from easy_sandbox.models.errors import TemplateBuildError
@@ -751,6 +799,7 @@ def build_create_template_request_map(
     acr_instance_id: str | None = None,
     registry_username: str | None = None,
     registry_password: str | None = None,
+    target_image: str | None = None,
 ) -> dict[str, Any]:
     """Build the CreateTemplateRequest as a dict (for testing / debugging).
 
@@ -804,9 +853,10 @@ def build_create_template_request_map(
                     password=registry_password or "",
                 ),
             )
+        resolved_target = _resolve_target_image(image, target_image)
         copy_action = sdk_models.CreateTemplateCopyAction(
             enabled=True,
-            image=image,
+            image=resolved_target,
             registry_type=registry_type
             if registry_type
             else ("acree" if acr_instance_id else None),

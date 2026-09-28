@@ -994,10 +994,7 @@ class TestTemplateBuildCommand:
         """template.yaml name + resources.cpu/memory feed the build defaults."""
         (tmp_path / "Dockerfile").write_text("FROM ubuntu:22.04\n")
         (tmp_path / "template.yaml").write_text(
-            "name: my-template\n"
-            "resources:\n"
-            "  cpu: 4\n"
-            "  memory: 4096\n"
+            "name: my-template\nresources:\n  cpu: 4\n  memory: 4096\n"
         )
         monkeypatch.delenv("ACR_NAMESPACE", raising=False)
 
@@ -1180,61 +1177,43 @@ class TestTemplateInitCommand:
         assert "node" in result.output
         assert "minimal" in result.output
 
-    def test_python_generates_expected_files(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_python_generates_expected_files(self, runner: CliRunner, tmp_path: Path) -> None:
         """-t python generates template.yaml, Dockerfile, commands.py, README.md."""
         target = tmp_path / "pyproj"
-        result = runner.invoke(
-            cli, ["template", "init", str(target), "-t", "python"]
-        )
+        result = runner.invoke(cli, ["template", "init", str(target), "-t", "python"])
         assert result.exit_code == 0, result.output
         expected = {"template.yaml", "Dockerfile", "commands.py", "README.md"}
         actual = {f.name for f in target.iterdir() if f.is_file()}
         assert expected == actual
 
-    def test_node_generates_expected_files(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_node_generates_expected_files(self, runner: CliRunner, tmp_path: Path) -> None:
         """-t node generates template.yaml, Dockerfile, commands.py, README.md."""
         target = tmp_path / "nodeproj"
-        result = runner.invoke(
-            cli, ["template", "init", str(target), "-t", "node"]
-        )
+        result = runner.invoke(cli, ["template", "init", str(target), "-t", "node"])
         assert result.exit_code == 0, result.output
         expected = {"template.yaml", "Dockerfile", "commands.py", "README.md"}
         actual = {f.name for f in target.iterdir() if f.is_file()}
         assert expected == actual
 
-    def test_minimal_generates_expected_files(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_minimal_generates_expected_files(self, runner: CliRunner, tmp_path: Path) -> None:
         """-t minimal generates template.yaml, Dockerfile, README.md (no commands.py)."""
         target = tmp_path / "minproj"
-        result = runner.invoke(
-            cli, ["template", "init", str(target), "-t", "minimal"]
-        )
+        result = runner.invoke(cli, ["template", "init", str(target), "-t", "minimal"])
         assert result.exit_code == 0, result.output
         expected = {"template.yaml", "Dockerfile", "README.md"}
         actual = {f.name for f in target.iterdir() if f.is_file()}
         assert expected == actual
         assert not (target / "commands.py").exists()
 
-    def test_init_shortcut_delegates(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_init_shortcut_delegates(self, runner: CliRunner, tmp_path: Path) -> None:
         """'ebx init -t python <dir>' delegates to template init."""
         target = tmp_path / "shortcut"
-        result = runner.invoke(
-            cli, ["init", "-t", "python", str(target)]
-        )
+        result = runner.invoke(cli, ["init", "-t", "python", str(target)])
         assert result.exit_code == 0, result.output
         assert (target / "template.yaml").exists()
         assert (target / "commands.py").exists()
 
-    def test_from_path(
-        self, runner: CliRunner, tmp_path: Path
-    ) -> None:
+    def test_from_path(self, runner: CliRunner, tmp_path: Path) -> None:
         """--from local path copies files into target directory."""
         source = tmp_path / "src"
         source.mkdir()
@@ -1243,13 +1222,16 @@ class TestTemplateInitCommand:
 
         target = tmp_path / "dest"
 
-        with patch(
-            "easy_sandbox.utils.registry.RegistryClient.resolve",
-            new_callable=AsyncMock,
-        ) as mock_resolve, patch(
-            "easy_sandbox.utils.registry.RegistryClient.fetch",
-            new_callable=AsyncMock,
-        ) as mock_fetch:
+        with (
+            patch(
+                "easy_sandbox.utils.registry.RegistryClient.resolve",
+                new_callable=AsyncMock,
+            ) as mock_resolve,
+            patch(
+                "easy_sandbox.utils.registry.RegistryClient.fetch",
+                new_callable=AsyncMock,
+            ) as mock_fetch,
+        ):
             ref = MagicMock()
             ref.is_builtin = False
             ref.registry_type = "local"
@@ -1276,9 +1258,7 @@ class TestInstallFullPipeline:
         """Create a minimal template directory for install tests."""
         tdir = tmp_path / "tpl"
         tdir.mkdir()
-        (tdir / "template.yaml").write_text(
-            "name: test-tpl\nresources:\n  cpu: 1\n  memory: 512\n"
-        )
+        (tdir / "template.yaml").write_text("name: test-tpl\nresources:\n  cpu: 1\n  memory: 512\n")
         (tdir / "Dockerfile").write_text("FROM ubuntu:22.04\n")
         return tdir
 
@@ -1303,8 +1283,11 @@ class TestInstallFullPipeline:
             result = runner.invoke(
                 cli,
                 [
-                    "template", "install", str(tdir),
-                    "--registry-type", "local",
+                    "template",
+                    "install",
+                    str(tdir),
+                    "--registry-type",
+                    "local",
                     "--yes",
                 ],
             )
@@ -1350,3 +1333,545 @@ class TestInstallFullPipeline:
         assert result.exit_code != 0
         assert "--download-only" in result.output
         assert "Cannot build" in result.output or "Missing" in result.output
+
+
+class TestGenerationFromYaml:
+    """Tests for generation read from template.yaml."""
+
+    def test_generation_from_yaml(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Generation value from template.yaml should apply when CLI default."""
+        from easy_sandbox.cli.commands.template import _read_yaml_defaults
+
+        tdir = tmp_path / "gen"
+        tdir.mkdir()
+        (tdir / "template.yaml").write_text(
+            "name: test-gen\ngeneration: 2\nresources:\n  cpu: 1\n  memory: 512\n"
+        )
+        defaults = _read_yaml_defaults(str(tdir))
+        assert defaults["generation"] == 2
+
+    def test_generation_cli_overrides_yaml(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """CLI --generation flag overrides yaml value."""
+        tdir = tmp_path / "gen2"
+        tdir.mkdir()
+        (tdir / "template.yaml").write_text(
+            "name: test-gen2\ngeneration: 2\nresources:\n  cpu: 1\n"
+        )
+        (tdir / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+        monkeypatch.setenv("ACR_NAMESPACE", "test-ns")
+        monkeypatch.setenv("ALICLOUD_ACCESS_KEY_ID", "ak-test")
+        monkeypatch.setenv("ALICLOUD_ACCESS_KEY_SECRET", "sk-test")
+
+        with patch(
+            "easy_sandbox.cli.commands.template._do_deploy",
+            return_value={
+                "TemplateID": "tpl-gen",
+                "BuildID": "bld-1",
+                "ACR Image": "registry/ns/repo:latest",
+                "Status": "ready",
+            },
+        ) as mock_deploy:
+            result = runner.invoke(
+                cli,
+                [
+                    "template",
+                    "build",
+                    str(tdir),
+                    "--generation",
+                    "1",
+                    "--yes",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        # When CLI explicitly passes --generation 1, it should use 1
+        # (even though yaml says 2)
+        assert mock_deploy.called
+        assert mock_deploy.call_args.kwargs["generation"] == 1
+
+
+class TestStartReadyWarning:
+    """Tests for start/ready command generation warning."""
+
+    def test_warning_when_generation_not_2(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """start-cmd with generation=1 emits warning."""
+        tdir = tmp_path / "warn"
+        tdir.mkdir()
+        (tdir / "template.yaml").write_text("name: test-warn\n")
+        (tdir / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+        monkeypatch.setenv("ACR_NAMESPACE", "test-ns")
+        monkeypatch.setenv("ALICLOUD_ACCESS_KEY_ID", "ak-test")
+        monkeypatch.setenv("ALICLOUD_ACCESS_KEY_SECRET", "sk-test")
+
+        with patch(
+            "easy_sandbox.cli.commands.template._do_deploy",
+            return_value={
+                "TemplateID": "tpl-w",
+                "BuildID": "bld-1",
+                "ACR Image": "img:latest",
+                "Status": "ready",
+            },
+        ):
+            result = runner.invoke(
+                cli,
+                [
+                    "template",
+                    "build",
+                    str(tdir),
+                    "--start-cmd",
+                    "/start.sh",
+                    "--generation",
+                    "1",
+                    "--yes",
+                ],
+            )
+
+        # Warning should be printed (to stderr, but CliRunner may merge)
+        assert result.exit_code == 0, result.output
+        # _do_deploy is mocked here so the warning inside it won't fire.
+        # The actual warning is tested in test_do_deploy_warns_start_cmd_gen1.
+
+    def test_do_deploy_warns_start_cmd_gen1(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """_do_deploy emits warning for start_cmd with generation != 2."""
+        tdir = tmp_path / "warn2"
+        tdir.mkdir()
+        (tdir / "template.yaml").write_text("name: test-w2\n")
+        (tdir / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+        monkeypatch.setenv("ALICLOUD_ACCESS_KEY_ID", "ak")
+        monkeypatch.setenv("ALICLOUD_ACCESS_KEY_SECRET", "sk")
+
+        # Patch all the heavy side effects inside _do_deploy
+        with (
+            patch("easy_sandbox.cli.commands.template._build_image", return_value="img:latest"),
+            patch(
+                "easy_sandbox.cli.commands.template._push_image",
+                return_value=("acr/img:latest", {"tempUserName": "u", "authorizationToken": "t"}),
+            ),
+            patch(
+                "easy_sandbox.api.fc_template.create_official_template",
+                return_value={"templateID": "tpl-w2", "statusCode": 200},
+            ),
+            patch(
+                "easy_sandbox.api.fc_template.wait_for_template_ready",
+                return_value={"status": {"state": "ready"}},
+            ),
+            patch("easy_sandbox.cli.commands.template.get_output") as mock_out_fn,
+        ):
+            mock_out = MagicMock()
+            mock_out.verbose = False
+            mock_out.use_rich_spinner = False
+            mock_out_fn.return_value = mock_out
+
+            import io
+
+            stderr = io.StringIO()
+            monkeypatch.setattr("sys.stderr", stderr)
+
+            from easy_sandbox.cli.commands.template import _do_deploy
+
+            _do_deploy(
+                str(tdir),
+                acr_namespace="ns",
+                start_cmd="/start.sh",
+                generation=1,
+            )
+
+            warning_text = stderr.getvalue()
+            assert "--start-cmd" in warning_text
+            assert "generation 2" in warning_text
+
+
+class TestInitDefaultDirectory:
+    """Tests for init creating ./<name> subdirectory by default."""
+
+    def test_init_no_dir_creates_subdir(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """init -t python with no DIRECTORY creates ./python/ in cwd."""
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cli, ["template", "init", "-t", "python"])
+        assert result.exit_code == 0, result.output
+        subdir = tmp_path / "python"
+        assert subdir.is_dir()
+        assert (subdir / "template.yaml").exists()
+        assert (subdir / "Dockerfile").exists()
+        assert (subdir / "commands.py").exists()
+        # cwd should NOT be polluted
+        assert not (tmp_path / "template.yaml").exists()
+
+    def test_init_no_dir_with_name(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """init -t python --name myapp creates ./myapp/."""
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cli, ["template", "init", "-t", "python", "--name", "myapp"])
+        assert result.exit_code == 0, result.output
+        subdir = tmp_path / "myapp"
+        assert subdir.is_dir()
+        assert (subdir / "template.yaml").exists()
+        # cwd not polluted
+        assert not (tmp_path / "template.yaml").exists()
+
+    def test_init_explicit_dir_still_works(self, runner: CliRunner, tmp_path: Path) -> None:
+        """init -t python <explicit-dir> writes into that directory."""
+        target = tmp_path / "custom"
+        result = runner.invoke(cli, ["template", "init", str(target), "-t", "python"])
+        assert result.exit_code == 0, result.output
+        assert (target / "template.yaml").exists()
+
+    def test_init_name_precedence_name_over_case(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--name overrides case name for the default directory."""
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cli, ["template", "init", "-t", "node", "--name", "webapp"])
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "webapp").is_dir()
+        assert not (tmp_path / "node").exists()
+
+    def test_init_name_precedence_case_over_default(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Case name (e.g. 'minimal') is used when --name is absent."""
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cli, ["template", "init", "-t", "minimal"])
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "minimal").is_dir()
+
+    def test_init_shortcut_no_dir(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """'ebx init -t python' also creates ./python/ subdir."""
+        monkeypatch.chdir(tmp_path)
+        result = runner.invoke(cli, ["init", "-t", "python"])
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "python" / "template.yaml").exists()
+
+
+class TestInitFromDefaultDirectory:
+    """Tests for init --from creating ./<name> subdirectory by default."""
+
+    def test_init_from_no_dir_uses_yaml_name(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--from omitting DIRECTORY and --name: creates ./<template.yaml name>/."""
+        source = tmp_path / "src"
+        source.mkdir()
+        (source / "template.yaml").write_text("name: from-yaml-name\n")
+        (source / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+
+        monkeypatch.chdir(tmp_path)
+
+        with (
+            patch(
+                "easy_sandbox.utils.registry.RegistryClient.resolve",
+                new_callable=AsyncMock,
+            ) as mock_resolve,
+            patch(
+                "easy_sandbox.utils.registry.RegistryClient.fetch",
+                new_callable=AsyncMock,
+            ) as mock_fetch,
+        ):
+            ref = MagicMock()
+            ref.is_builtin = False
+            ref.registry_type = "local"
+            ref.local_path = str(source)
+            ref.owner = "test"
+            ref.repo = "test"
+            ref.path = "test"
+            mock_resolve.return_value = ref
+            mock_fetch.return_value = str(source)
+
+            result = runner.invoke(
+                cli,
+                ["template", "init", "--from", str(source)],
+            )
+
+        assert result.exit_code == 0, result.output
+        subdir = tmp_path / "from-yaml-name"
+        assert subdir.is_dir()
+        assert (subdir / "template.yaml").exists()
+        assert (subdir / "Dockerfile").exists()
+
+    def test_init_from_no_yaml_uses_ref_basename(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--from with no template.yaml: uses ref basename as dir name."""
+        source = tmp_path / "src"
+        source.mkdir()
+        (source / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+
+        monkeypatch.chdir(tmp_path)
+
+        with (
+            patch(
+                "easy_sandbox.utils.registry.RegistryClient.resolve",
+                new_callable=AsyncMock,
+            ) as mock_resolve,
+            patch(
+                "easy_sandbox.utils.registry.RegistryClient.fetch",
+                new_callable=AsyncMock,
+            ) as mock_fetch,
+        ):
+            ref = MagicMock()
+            ref.is_builtin = False
+            ref.registry_type = "local"
+            ref.local_path = str(source)
+            ref.owner = "test"
+            ref.repo = "my-ref-repo"
+            ref.path = "owner/my-ref-repo"
+            mock_resolve.return_value = ref
+            mock_fetch.return_value = str(source)
+
+            result = runner.invoke(
+                cli,
+                ["template", "init", "--from", str(source)],
+            )
+
+        assert result.exit_code == 0, result.output
+        subdir = tmp_path / "my-ref-repo"
+        assert subdir.is_dir()
+        assert (subdir / "Dockerfile").exists()
+
+
+class TestBuildYamlGeneration:
+    """Tests for build reading generation from template.yaml."""
+
+    def test_build_yaml_generation_2_no_flag(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """build without --generation but template.yaml has generation:2."""
+        tdir = tmp_path / "gen2"
+        tdir.mkdir()
+        (tdir / "template.yaml").write_text(
+            "name: test-gen2\ngeneration: 2\nresources:\n  cpu: 1\n  memory: 512\n"
+        )
+        (tdir / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+        monkeypatch.setenv("ACR_NAMESPACE", "test-ns")
+        monkeypatch.setenv("ALICLOUD_ACCESS_KEY_ID", "ak-test")
+        monkeypatch.setenv("ALICLOUD_ACCESS_KEY_SECRET", "sk-test")
+
+        with patch(
+            "easy_sandbox.cli.commands.template._do_deploy",
+            return_value={
+                "TemplateID": "tpl-gen2",
+                "BuildID": "bld-1",
+                "ACR Image": "registry/ns/repo:latest",
+                "Status": "ready",
+            },
+        ) as mock_deploy:
+            result = runner.invoke(
+                cli,
+                [
+                    "template",
+                    "build",
+                    str(tdir),
+                    "--yes",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert mock_deploy.called
+        assert mock_deploy.call_args.kwargs["generation"] == 2
+
+
+class TestBuildTargetImagePassthrough:
+    """Tests for --envd-inject --target-image passthrough."""
+
+    def test_build_envd_inject_target_image(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """build --envd-inject --target-image X passes target_image=X to create."""
+        tdir = tmp_path / "timg"
+        tdir.mkdir()
+        (tdir / "template.yaml").write_text("name: test-timg\n")
+        (tdir / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+        monkeypatch.setenv("ACR_NAMESPACE", "test-ns")
+        monkeypatch.setenv("ALICLOUD_ACCESS_KEY_ID", "ak-test")
+        monkeypatch.setenv("ALICLOUD_ACCESS_KEY_SECRET", "sk-test")
+
+        fake_config = MagicMock()
+        fake_config.access_key_id = "ak-test"
+        fake_config.access_key_secret = "sk-test"
+        fake_config.region = "cn-hangzhou"
+        fake_config.api_key = ""
+        fake_config.api_url = ""
+
+        with (
+            patch(
+                "easy_sandbox.transport.config.load_config",
+                return_value=fake_config,
+            ),
+            patch(
+                "easy_sandbox.api.docker_builder.DockerBuilder",
+            ) as mock_builder_cls,
+            patch(
+                "easy_sandbox.api.fc_template.create_official_template",
+            ) as mock_create,
+            patch(
+                "easy_sandbox.api.fc_template.wait_for_template_ready",
+                return_value={"status": {"state": "ready"}},
+            ),
+        ):
+            builder = mock_builder_cls.return_value
+            builder.check_docker.return_value = True
+            builder.inject_sdk_wheel.return_value = []
+            builder.build.return_value = "test-timg:latest"
+            builder.login_acr_with_aksk.return_value = {
+                "tempUserName": "u",
+                "authorizationToken": "t",
+            }
+            builder.tag.return_value = None
+            builder.push.return_value = None
+            mock_create.return_value = {"templateID": "tpl-ti", "statusCode": 200}
+            result = runner.invoke(
+                cli,
+                [
+                    "template",
+                    "build",
+                    str(tdir),
+                    "--envd-inject",
+                    "--target-image",
+                    "custom-target:v1",
+                    "--yes",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        mock_create.assert_called_once()
+        assert mock_create.call_args.kwargs["target_image"] == "custom-target:v1"
+        assert mock_create.call_args.kwargs["envd_inject"] is True
+
+
+class TestInstallDirOption:
+    """Tests for install --dir option."""
+
+    def test_install_dir_download_only(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--dir downloads into the specified directory, not the cache."""
+        source = tmp_path / "src"
+        source.mkdir()
+        (source / "template.yaml").write_text("name: dir-test\n")
+        (source / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+
+        dest = tmp_path / "out"
+
+        result = runner.invoke(
+            cli,
+            [
+                "template",
+                "install",
+                str(source),
+                "--registry-type",
+                "local",
+                "--download-only",
+                "--dir",
+                str(dest),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert (dest / "template.yaml").exists()
+        assert (dest / "Dockerfile").exists()
+
+    def test_install_dir_nonempty_errors(self, runner: CliRunner, tmp_path: Path) -> None:
+        """--dir pointing to a non-empty directory raises an error."""
+        source = tmp_path / "src"
+        source.mkdir()
+        (source / "template.yaml").write_text("name: dir-test\n")
+        (source / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+
+        dest = tmp_path / "occupied"
+        dest.mkdir()
+        (dest / "existing.txt").write_text("conflict\n")
+
+        result = runner.invoke(
+            cli,
+            [
+                "template",
+                "install",
+                str(source),
+                "--registry-type",
+                "local",
+                "--download-only",
+                "--dir",
+                str(dest),
+            ],
+        )
+
+        assert result.exit_code != 0
+        assert "not empty" in result.output
+
+    def test_install_shortcut_dir_option(self, runner: CliRunner, tmp_path: Path) -> None:
+        """'ebx install --dir' shortcut also works."""
+        source = tmp_path / "src"
+        source.mkdir()
+        (source / "template.yaml").write_text("name: sc-test\n")
+        (source / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+
+        dest = tmp_path / "scdir"
+
+        result = runner.invoke(
+            cli,
+            [
+                "install",
+                str(source),
+                "--registry-type",
+                "local",
+                "--download-only",
+                "--dir",
+                str(dest),
+            ],
+        )
+
+        assert result.exit_code == 0, result.output
+        assert (dest / "template.yaml").exists()
+
+    def test_install_dir_deploy_passes_template_dir(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """--dir <dest> (non download-only) should pass template_dir=<dest> to _do_deploy."""
+        source = tmp_path / "src"
+        source.mkdir()
+        (source / "template.yaml").write_text("name: deploy-dir\n")
+        (source / "Dockerfile").write_text("FROM ubuntu:22.04\n")
+        monkeypatch.setenv("ACR_NAMESPACE", "test-ns")
+        monkeypatch.setenv("ALICLOUD_ACCESS_KEY_ID", "ak-test")
+        monkeypatch.setenv("ALICLOUD_ACCESS_KEY_SECRET", "sk-test")
+
+        dest = tmp_path / "destdir"
+
+        with patch(
+            "easy_sandbox.cli.commands.template._do_deploy",
+            return_value={
+                "TemplateID": "tpl-dir",
+                "BuildID": "bld-1",
+                "ACR Image": "reg/ns/repo:latest",
+                "Status": "ready",
+            },
+        ) as mock_deploy:
+            result = runner.invoke(
+                cli,
+                [
+                    "template",
+                    "install",
+                    str(source),
+                    "--registry-type",
+                    "local",
+                    "--dir",
+                    str(dest),
+                    "--yes",
+                ],
+            )
+
+        assert result.exit_code == 0, result.output
+        assert mock_deploy.called
+        # The first positional arg to _do_deploy is template_dir
+        assert str(dest) == mock_deploy.call_args.args[0]

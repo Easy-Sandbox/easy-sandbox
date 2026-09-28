@@ -61,6 +61,12 @@ After installation, it resides at `~/.ebx/templates/<template-name>/template.yam
 | `cpu_count` | `int` | ❌ | `None` | Default CPU core count |
 | `memory_mb` | `int` | ❌ | `None` | Default memory in MB |
 
+### Sandbox Generation
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `generation` | `int` | ❌ | `1` | Sandbox generation: `1` = first-gen (rund), `2` = second-gen (MicroVM, Beta). When set, CLI commands (`template deploy`, `template build`, `template create`) use this value unless overridden by the `--generation` flag. |
+
 ### Capability Declarations
 
 | Field | Type | Required | Default | Description |

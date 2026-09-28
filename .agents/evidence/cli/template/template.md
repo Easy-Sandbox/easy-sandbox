@@ -2,27 +2,16 @@
 
 # CLI Evidence: Template
 
-### template cache
-
-```
-$ ebx template cache
-No templates cached.
-Exit code: 0
-```
-
-### template cache --clear
-
-```
-$ ebx template cache --clear
-Cleared 0 cached item(s).
-Exit code: 0
-```
-
 ### template list（后端）
 
 ```
 $ ebx template list
-<MagicMock id='4474157648'>
+┏━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━┓
+┃ TemplateID ┃ Alias       ┃ Status ┃
+┡━━━━━━━━━━━━╇━━━━━━━━━━━━━╇━━━━━━━━┩
+│ tmpl-001   │ python-base │ ready  │
+│ tmpl-002   │ node-web    │ ready  │
+└────────────┴─────────────┴────────┘
 Exit code: 0
 ```
 
@@ -30,7 +19,10 @@ Exit code: 0
 
 ```
 $ ebx template info tmpl-001
-<MagicMock id='4474154448'>
+templateID  tmpl-001
+alias       python-base
+status      ready
+dockerfile  FROM python:3.11-slim
 Exit code: 0
 ```
 

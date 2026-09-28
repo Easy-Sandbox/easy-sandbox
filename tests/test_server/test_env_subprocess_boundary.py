@@ -98,9 +98,9 @@ def _parse_sse_events(raw: str) -> list[dict[str, Any]]:
     current_data: str | None = None
     for line in raw.split("\n"):
         if line.startswith("event: "):
-            current_event = line[len("event: "):]
+            current_event = line[len("event: ") :]
         elif line.startswith("data: "):
-            current_data = line[len("data: "):]
+            current_data = line[len("data: ") :]
         elif line == "" and current_event is not None and current_data is not None:
             events.append({"event": current_event, "data": json.loads(current_data)})
             current_event = None
@@ -176,13 +176,16 @@ class TestShellInheritsEnv:
 
         # Set via POST /env.
         status, body = _request(
-            server_port, "POST", "/env", body={"vars": {var_name: var_value}},
+            server_port,
+            "POST",
+            "/env",
+            body={"vars": {var_name: var_value}},
         )
         assert status == 200
         assert var_name in body["updated"]
 
         # Read via POST /shell (subprocess.run — inherits os.environ).
-        cmd = f'{sys.executable} -c "import os; print(os.environ.get(\'{var_name}\', \'\'))"'
+        cmd = f"{sys.executable} -c \"import os; print(os.environ.get('{var_name}', ''))\""
         status, body = _request(server_port, "POST", "/shell", body={"command": cmd})
         assert status == 200
         assert body["exit_code"] == 0
@@ -197,12 +200,15 @@ class TestShellInheritsEnv:
 
         # Overwrite with a new value.
         status, body = _request(
-            server_port, "POST", "/env", body={"vars": {var_name: "new"}},
+            server_port,
+            "POST",
+            "/env",
+            body={"vars": {var_name: "new"}},
         )
         assert status == 200
 
         # Subprocess must see the overwritten value.
-        cmd = f'{sys.executable} -c "import os; print(os.environ.get(\'{var_name}\', \'\'))"'
+        cmd = f"{sys.executable} -c \"import os; print(os.environ.get('{var_name}', ''))\""
         status, body = _request(server_port, "POST", "/shell", body={"command": cmd})
         assert status == 200
         assert "new" in body["stdout"]
@@ -226,14 +232,20 @@ class TestShellStreamInheritsEnv:
 
         # Set via POST /env.
         status, _ = _request(
-            server_port, "POST", "/env", body={"vars": {var_name: var_value}},
+            server_port,
+            "POST",
+            "/env",
+            body={"vars": {var_name: var_value}},
         )
         assert status == 200
 
         # Read via POST /shell/stream (SSE — Popen, inherits os.environ).
-        cmd = f'{sys.executable} -c "import os; print(os.environ.get(\'{var_name}\', \'\'))"'
+        cmd = f"{sys.executable} -c \"import os; print(os.environ.get('{var_name}', ''))\""
         status, raw = _request_raw(
-            server_port, "POST", "/shell/stream", body={"command": cmd},
+            server_port,
+            "POST",
+            "/shell/stream",
+            body={"command": cmd},
         )
         assert status == 200
 
@@ -253,9 +265,12 @@ class TestShellStreamInheritsEnv:
         _request(server_port, "POST", "/env", body={"vars": {var_name: "alpha"}})
         _request(server_port, "POST", "/env", body={"vars": {var_name: "beta"}})
 
-        cmd = f'{sys.executable} -c "import os; print(os.environ.get(\'{var_name}\', \'\'))"'
+        cmd = f"{sys.executable} -c \"import os; print(os.environ.get('{var_name}', ''))\""
         status, raw = _request_raw(
-            server_port, "POST", "/shell/stream", body={"command": cmd},
+            server_port,
+            "POST",
+            "/shell/stream",
+            body={"command": cmd},
         )
         assert status == 200
 

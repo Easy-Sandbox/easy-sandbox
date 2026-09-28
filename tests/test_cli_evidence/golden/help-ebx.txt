@@ -1,4 +1,4 @@
-Usage: cli [OPTIONS] COMMAND [ARGS]...
+Usage: cli [OPTIONS] [COMMAND] [ARGS]...
 
   ebx — Easy Sandbox CLI
 
@@ -9,12 +9,12 @@ Options:
   -q, --quiet                     Minimal output
   -v, --verbose                   Verbose output (DEBUG level)
   --no-color                      Disable colored output
-  --log-level [DEBUG|INFO|WARNING|ERROR]
+  --log-level [debug|info|warning|error]
                                   Set log level explicitly
   --ci                            CI/CD mode (quiet + no-color + json)
   -t, --timeout INTEGER           Default timeout in seconds
   -r, --region TEXT               Region (default: cn-hangzhou)
-  -p, --profile TEXT              [预留] Configuration profile
+  -p, --profile TEXT              [Reserved] Configuration profile
   --version                       Show the version and exit.
   --help                          Show this message and exit.
 
@@ -22,7 +22,7 @@ Commands:
   config    Configuration management.
   connect   Connect to a sandbox interactively (like SSH).
   create    Create a new sandbox.
-  deploy    部署项目到 sandbox。
+  deploy    Deploy a project to a sandbox.
   download  Download a file from the sandbox to local.
   exec      Execute a command in a sandbox.
   info      Get sandbox information.
@@ -33,6 +33,6 @@ Commands:
   mcp       MCP Server management — IDE integration.
   run       Run a named custom command or registered command.
   sandbox   Manage sandboxes.
-  template  模板管理。
+  template  Template management.
   upload    Upload a local file or directory to the sandbox.
 [exit_code:0]

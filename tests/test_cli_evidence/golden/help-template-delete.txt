@@ -3,10 +3,9 @@ Usage: cli template delete [OPTIONS] TEMPLATE_ID
   Delete a custom template from the platform.
 
   Removes the template identified by TEMPLATE_ID from the remote platform.  This
-  does NOT affect the local cache — use 'ebx template cache --clear' to clean
-  local copies.
+  does NOT affect the local cache (~/.ebx/templates/).
 
 Options:
-  --yes   Confirm the action without prompting.
-  --help  Show this message and exit.
+  -y, --yes  Skip confirmation prompt
+  --help     Show this message and exit.
 [exit_code:0]

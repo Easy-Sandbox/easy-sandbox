@@ -222,9 +222,7 @@ def _handle_remote_exception(
         )
         _sys.exit(EXIT_TIMEOUT)
 
-    if httpx is not None and isinstance(
-        exc_val, (httpx.ConnectError, httpx.NetworkError)
-    ):
+    if httpx is not None and isinstance(exc_val, (httpx.ConnectError, httpx.NetworkError)):
         fmt.print_error(
             f"Connection error: {exc_val}",
             code="E5001",
@@ -335,7 +333,7 @@ def _handle_remote_exception(
 @click.option("--ci", is_flag=True, help="CI/CD mode (quiet + no-color + json)")
 @click.option("--timeout", "-t", type=int, default=300, help="Default timeout in seconds")
 @click.option("--region", "-r", default=None, help="Region (default: cn-hangzhou)")
-@click.option("--profile", "-p", default=None, help="[预留] Configuration profile")
+@click.option("--profile", "-p", default=None, help="[Reserved] Configuration profile")
 @click.version_option(package_name="easy-sandbox")
 @click.pass_context
 def cli(

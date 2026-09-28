@@ -56,6 +56,7 @@ ACR_NAMESPACE=your-acr-namespace
 | `--memory` | 内存 MB（默认：来自 `template.yaml` 或 2048） |
 | `-y`, `--yes` | 跳过确认提示 |
 | `--download-only` | 仅下载到本地缓存（跳过构建和部署） |
+| `--dir PATH` | 将模板源码下载到自定义目录，而非默认的 `~/.ebx/templates` |
 
 ### 引用语法
 
@@ -198,6 +199,8 @@ ebx install Easy-Sandbox/awesome-templates//python-hello --acr-namespace my-ns
 
 最快的起步方式是内置脚手架。`ebx init`（`ebx template init` 的别名）会生成一个开箱即用的模板目录，你不再需要凭记忆手写 `template.yaml` / `Dockerfile` / `commands.py`。
 
+省略 `DIRECTORY` 参数时，脚手架会在当前工作目录下新建 `./<name>` 子目录。`<name>` 按优先级解析：`--name` > 脚手架案例名（`-t` 的值） > `--from` 拉取到的模板名。
+
 列出可用的脚手架案例：
 
 ```bash
@@ -223,7 +226,7 @@ Next steps:
   ebx install ./my-template --acr-namespace <ns>
 ```
 
-顶层快捷方式 `ebx init` 接受相同的选项：
+顶层快捷方式 `ebx init` 接受相同的选项，DIRECTORY 自动创建行为也一致：
 
 ```text
 Usage: ebx init [OPTIONS] [DIRECTORY]

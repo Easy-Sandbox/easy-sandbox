@@ -6,6 +6,7 @@ Options:
   --help  Show this message and exit.
 
 Commands:
+  deploy   Generate an Alibaba Cloud FC deployment artifact.
   install  Install MCP Server configuration to a target IDE.
   start    Start MCP Server in STDIO mode.
   status   Show MCP Server status and configuration.

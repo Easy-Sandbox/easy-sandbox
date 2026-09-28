@@ -1,6 +1,6 @@
 Usage: cli template [OPTIONS] COMMAND [ARGS]...
 
-  模板管理。
+  Template management.
 
 Options:
   --help  Show this message and exit.
@@ -10,7 +10,7 @@ Commands:
   create   Create a sandbox template from an existing container image.
   delete   Delete a custom template from the platform.
   deploy   Build, push, and create template in one step
-  info     查看模板详情。
+  info     View template details.
   init     Scaffold a new sandbox template project.
   install  Download a template and (by default) build + deploy it.
   list     List your custom templates on the platform.

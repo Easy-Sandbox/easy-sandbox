@@ -36,4 +36,4 @@ python scripts/capture_cli_evidence.py --command create
 - [`cli/upload.md`](cli/upload.md)
 - [`cli/version.md`](cli/version.md)
 
-**Total cases:** 77 run, 0 skipped
+**Total cases:** 75 run, 0 skipped

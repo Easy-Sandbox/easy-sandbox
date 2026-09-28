@@ -1,8 +1,8 @@
-✓ 推断结果：
-    模板: code-interpreter
-    CPU: 2 核  |  内存: 4096 MB
-    置信度: 0.88
-... 创建中...
+✓ Inference result:
+    Template: code-interpreter
+    CPU: 2 cores  |  Memory: 4096 MB
+    Confidence: 0.88
+... Creating...
 ID        sbx-XXXXX
 Status    running
 Template  code-interpreter

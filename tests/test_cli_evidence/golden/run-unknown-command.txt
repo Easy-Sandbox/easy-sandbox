@@ -1,4 +1,6 @@
-Unknown command 'deploy'. Not found in sandbox custom commands or local @sandbox.register registry.
+[E3005] Command 'deploy' not found. Checked sources: template custom_commands, sandbox server. Available template commands: dev, test. Server: skipped after a previous connection failure; is the SandboxServer running?.
+  Suggestion: Check the command name, the template's custom_commands, and whether the SandboxServer is running (sandbox.server.start()).
 [exit_code:2]
 [stderr]
-Unknown command 'deploy'. Not found in sandbox custom commands or local @sandbox.register registry.
+[E3005] Command 'deploy' not found. Checked sources: template custom_commands, sandbox server. Available template commands: dev, test. Server: skipped after a previous connection failure; is the SandboxServer running?.
+  Suggestion: Check the command name, the template's custom_commands, and whether the SandboxServer is running (sandbox.server.start()).

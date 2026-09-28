@@ -64,6 +64,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - `commands.run()`, `commands.stream()`, and `commands.start()` now auto-wrap commands containing unquoted shell operators (`|`, `;`, `&&`, `||`, `>`, `<`, `(...)`, `$(...)`) in `sh -c`. Variable expansion (`$VAR`), backticks, and globs still require explicit `sh -c '...'`.
 - **`ebx template build-local`**: Default mode switched to **official CreateTemplate API** (`--official-api`). Legacy v3/v2 behaviour now requires explicit `--legacy-api` flag.
 - **Official template path prerequisites**: `ebx template create` and `ebx template build-local` (default mode) now require the `alicloud` extra (`pip install "easy-sandbox[cli,alicloud]"` or `pip install "easy-sandbox[alicloud]"`) and Alibaba Cloud AK/SK credentials.
+- When `envdInject` is enabled and `--target-image` is omitted, `copy.image` is now auto-derived with a `-fcsandbox-<hex>` random suffix to satisfy the platform requirement that `copy.image` must differ from `sandboxConfig.image`. For a stable tag, pass `--target-image` explicitly.
 
 ### Migration
 - Existing automation scripts using `build-local` without `--legacy-api` will now invoke the official API. To preserve old behaviour, add `--legacy-api` to the command.

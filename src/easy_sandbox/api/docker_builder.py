@@ -689,7 +689,7 @@ class DockerBuilder:
         internet_access: bool | None = None,
         start_cmd: str | None = None,
         ready_cmd: str | None = None,
-        envd_inject: bool = True,
+        envd_inject: bool = False,
         generation: int = 1,
         team_id: str | None = None,
         region: str = "cn-hangzhou",
@@ -732,7 +732,7 @@ class DockerBuilder:
             internet_access: Internet access flag.
             start_cmd: Start command.
             ready_cmd: Readiness check command.
-            envd_inject: Enable envd injection (default ``True`` for template deploy).
+            envd_inject: Enable envd injection (default ``False``).
             generation: Sandbox generation (default 1).
             team_id: Team ID (auto-resolved if not given).
             region: Region ID (default ``cn-hangzhou``).

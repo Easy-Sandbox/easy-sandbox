@@ -77,12 +77,18 @@ def _exc_summary(exc: BaseException) -> str:
 # CLI subprocess helper (ebx is not on PATH → invoke the click group directly)
 # ---------------------------------------------------------------------------
 def run_cli(args: list[str], timeout: int = 180) -> tuple[int, str, str]:
-    """Run the ebx CLI in a subprocess and capture (returncode, stdout, stderr)."""
+    """Run the ebx CLI in a subprocess and capture (returncode, stdout, stderr).
+
+    stdin is closed (DEVNULL) so any interactive prompt in the CLI (e.g. the
+    build+deploy confirmation in ``template install``) can never block waiting
+    for input — the CLI's non-TTY guard fires instead of hanging.
+    """
     code = "import sys; from easy_sandbox.cli.main import cli; cli(sys.argv[1:])"
     try:
         proc = subprocess.run(
             [sys.executable, "-c", code, *args],
             cwd=str(PROJECT_ROOT),
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -154,8 +160,10 @@ def part_a() -> str | None:
     # A-01: GitHub remote install (only when budget/token allows)
     github_ref = "Easy-Sandbox/awesome-templates//python-hello"
     if have_budget:
+        # --yes: this is an automated run; skip the interactive build+deploy
+        # confirmation prompt (which would otherwise block on stdin).
         rc, out, err = run_cli(
-            ["-j", "template", "install", github_ref], timeout=180
+            ["-j", "template", "install", github_ref, "--yes"], timeout=180
         )
         tid = _parse_template_id(out)
         combined = (out + "\n" + err).strip()
@@ -187,7 +195,7 @@ def part_a() -> str | None:
     # A-02: local registry install (always run — validates local pipeline + POST /templates)
     local_path = "./examples/templates/python-hello"
     rc, out, err = run_cli(
-        ["-j", "template", "install", local_path, "--registry-type", "local"],
+        ["-j", "template", "install", local_path, "--registry-type", "local", "--yes"],
         timeout=180,
     )
     combined = (out + "\n" + err).strip()

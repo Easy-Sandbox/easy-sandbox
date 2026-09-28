@@ -189,41 +189,41 @@ graph TB
 
 ### 教程与指南
 
-| 指南 | 中文 | EN |
-|------|------|-----|
-| 快速入门 | [中文](docs/zh/guide/getting-started.md) | [EN](docs/en/guide/getting-started.md) |
-| CLI 教程 | [中文](docs/zh/guide/cli-tutorial.md) | [EN](docs/en/guide/cli-tutorial.md) |
-| SDK 使用 | [中文](docs/zh/guide/sdk-usage.md) | [EN](docs/en/guide/sdk-usage.md) |
-| 认证配置 | [中文](docs/zh/guide/authentication.md) | [EN](docs/en/guide/authentication.md) |
-| 环境变量 | [中文](docs/zh/guide/environment-variables.md) | [EN](docs/en/guide/environment-variables.md) |
-| 使用模板 | [中文](docs/zh/guide/using-templates.md) | [EN](docs/en/guide/using-templates.md) |
-| 编写模板 | [中文](docs/zh/guide/authoring-templates.md) | [EN](docs/en/guide/authoring-templates.md) |
-| 部署与构建 | [中文](docs/zh/guide/deploy-and-build.md) | [EN](docs/en/guide/deploy-and-build.md) |
-| 声明式用法 | [中文](docs/zh/guide/declarative-usage.md) | [EN](docs/en/guide/declarative-usage.md) |
-| MCP 集成 | [中文](docs/zh/guide/mcp-integration.md) | [EN](docs/en/guide/mcp-integration.md) |
-| 会话持久化 | [中文](docs/zh/guide/session-persistence.md) | [EN](docs/en/guide/session-persistence.md) |
-| 从 E2B 迁移 | [中文](docs/zh/guide/migrate-from-e2b.md) | [EN](docs/en/guide/migrate-from-e2b.md) |
-| 故障排查 | [中文](docs/zh/guide/troubleshooting.md) | [EN](docs/en/guide/troubleshooting.md) |
+| 指南 | 链接 |
+|------|------|
+| 快速入门 | [快速入门](docs/zh/guide/getting-started.md) |
+| CLI 教程 | [CLI 教程](docs/zh/guide/cli-tutorial.md) |
+| SDK 使用 | [SDK 使用](docs/zh/guide/sdk-usage.md) |
+| 认证配置 | [认证配置](docs/zh/guide/authentication.md) |
+| 环境变量 | [环境变量](docs/zh/guide/environment-variables.md) |
+| 使用模板 | [使用模板](docs/zh/guide/using-templates.md) |
+| 编写模板 | [编写模板](docs/zh/guide/authoring-templates.md) |
+| 部署与构建 | [部署与构建](docs/zh/guide/deploy-and-build.md) |
+| 声明式用法 | [声明式用法](docs/zh/guide/declarative-usage.md) |
+| MCP 集成 | [MCP 集成](docs/zh/guide/mcp-integration.md) |
+| 会话持久化 | [会话持久化](docs/zh/guide/session-persistence.md) |
+| 从 E2B 迁移 | [从 E2B 迁移](docs/zh/guide/migrate-from-e2b.md) |
+| 故障排查 | [故障排查](docs/zh/guide/troubleshooting.md) |
 
 ### 参考手册
 
-| 文档 | 中文 | EN |
-|------|------|-----|
-| API 参考 | [中文](docs/zh/reference/api-reference.md) | [EN](docs/en/reference/api-reference.md) |
-| CLI 参考 | [中文](docs/zh/reference/cli-reference.md) | [EN](docs/en/reference/cli-reference.md) |
-| 配置说明 | [中文](docs/zh/reference/configuration.md) | [EN](docs/en/reference/configuration.md) |
-| 错误码 | [中文](docs/zh/reference/error-codes.md) | [EN](docs/en/reference/error-codes.md) |
-| Template YAML 规范 | [中文](docs/zh/reference/template-yaml-spec.md) | [EN](docs/en/reference/template-yaml-spec.md) |
+| 文档 | 链接 |
+|------|------|
+| API 参考 | [API 参考](docs/zh/reference/api-reference.md) |
+| CLI 参考 | [CLI 参考](docs/zh/reference/cli-reference.md) |
+| 配置说明 | [配置说明](docs/zh/reference/configuration.md) |
+| 错误码 | [错误码](docs/zh/reference/error-codes.md) |
+| Template YAML 规范 | [Template YAML 规范](docs/zh/reference/template-yaml-spec.md) |
 
 ### 设计与架构
 
-| 文档 | 中文 | EN |
-|------|------|-----|
-| 设计索引 | [中文](docs/zh/DESIGN.md) | [EN](docs/en/DESIGN.md) |
-| 架构设计 | [中文](docs/zh/design/architecture.md) | [EN](docs/en/design/architecture.md) |
-| SDK API 设计 | [中文](docs/zh/design/sdk-api-design.md) | [EN](docs/en/design/sdk-api-design.md) |
-| CLI 设计 | [中文](docs/zh/design/cli-design.md) | [EN](docs/en/design/cli-design.md) |
-| 模板系统 | [中文](docs/zh/design/template-system.md) | [EN](docs/en/design/template-system.md) |
+| 文档 | 链接 |
+|------|------|
+| 设计索引 | [设计索引](docs/zh/DESIGN.md) |
+| 架构设计 | [架构设计](docs/zh/design/architecture.md) |
+| SDK API 设计 | [SDK API 设计](docs/zh/design/sdk-api-design.md) |
+| CLI 设计 | [CLI 设计](docs/zh/design/cli-design.md) |
+| 模板系统 | [模板系统](docs/zh/design/template-system.md) |
 
 ### 其他资源
 
@@ -233,7 +233,7 @@ graph TB
 | 贡献指南 | [CONTRIBUTING.md](.github/CONTRIBUTING.md) |
 | 许可证 | [Apache-2.0](LICENSE) |
 | 示例代码 | [examples/](examples/) |
-| 路线图 | [中文](docs/zh/roadmap.md) \| [EN](docs/en/roadmap.md) |
+| 路线图 | [路线图](docs/zh/roadmap.md) |
 
 ## 贡献
 

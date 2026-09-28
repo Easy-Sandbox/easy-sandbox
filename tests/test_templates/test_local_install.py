@@ -176,7 +176,7 @@ class TestLocalInstall:
         with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir):
             result = runner.invoke(
                 cli,
-                ["install", str(template_dir), "--registry-type", "local"],
+                ["install", str(template_dir), "--registry-type", "local", "--download-only"],
             )
 
         assert result.exit_code == 0, _combined_output(result)
@@ -197,7 +197,7 @@ class TestLocalInstall:
         with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir):
             result = runner.invoke(
                 cli,
-                ["install", str(template_dir), "--registry-type", "local"],
+                ["install", str(template_dir), "--registry-type", "local", "--download-only"],
             )
 
         assert result.exit_code == 0, _combined_output(result)
@@ -219,7 +219,7 @@ class TestLocalInstall:
         cache_dir = tmp_path / "ebx-cache"
 
         with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir):
-            result = runner.invoke(cli, ["install", relative])
+            result = runner.invoke(cli, ["install", relative, "--download-only"])
 
         assert result.exit_code == 0, _combined_output(result)
         assert "Using local template from" in result.output
@@ -239,6 +239,7 @@ class TestLocalInstall:
                     "local",
                     "--alias",
                     f"custom-{template_dir.name}",
+                    "--download-only",
                 ],
             )
 
@@ -256,13 +257,20 @@ class TestLocalInstall:
 
         with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir):
             shortcut = runner.invoke(
-                cli, ["install", str(template_dir), "--registry-type", "local"]
+                cli, ["install", str(template_dir), "--registry-type", "local", "--download-only"]
             )
         cache_dir2 = tmp_path / "ebx-cache-2"
         with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir2):
             long_form = runner.invoke(
                 cli,
-                ["template", "install", str(template_dir), "--registry-type", "local"],
+                [
+                    "template",
+                    "install",
+                    str(template_dir),
+                    "--registry-type",
+                    "local",
+                    "--download-only",
+                ],
             )
 
         assert shortcut.exit_code == 0, _combined_output(shortcut)
@@ -277,7 +285,14 @@ class TestLocalInstall:
         with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir):
             result = runner.invoke(
                 cli,
-                ["--json", "install", str(template_dir), "--registry-type", "local"],
+                [
+                    "--json",
+                    "install",
+                    str(template_dir),
+                    "--registry-type",
+                    "local",
+                    "--download-only",
+                ],
             )
 
         assert result.exit_code == 0, _combined_output(result)
@@ -438,6 +453,7 @@ class TestMockedGithubInstall:
                     "github",
                     "--registry-url",
                     GITHUB_URL,
+                    "--download-only",
                 ],
             )
 
@@ -467,8 +483,12 @@ class TestMockedGithubInstall:
         ref = f"{GITHUB_REF}//{template_dir.name}@{GITHUB_TAG}"
 
         with _mocked_github(tarball, cache_dir) as downloader:
-            first = runner.invoke(cli, ["install", ref, "--registry-type", "github"])
-            second = runner.invoke(cli, ["install", ref, "--registry-type", "github"])
+            first = runner.invoke(
+                cli, ["install", ref, "--registry-type", "github", "--download-only"]
+            )
+            second = runner.invoke(
+                cli, ["install", ref, "--registry-type", "github", "--download-only"]
+            )
 
         assert first.exit_code == 0, _combined_output(first)
         assert second.exit_code == 0, _combined_output(second)
@@ -484,7 +504,9 @@ class TestMockedGithubInstall:
         ref = f"{GITHUB_REF}//{template_dir.name}"
 
         with _mocked_github(tarball, cache_dir) as downloader:
-            result = runner.invoke(cli, ["install", ref, "--registry-type", "github"])
+            result = runner.invoke(
+                cli, ["install", ref, "--registry-type", "github", "--download-only"]
+            )
 
         assert result.exit_code == 0, _combined_output(result)
         # no ref → tarball endpoint without a ref segment
@@ -505,7 +527,15 @@ class TestMockedGithubInstall:
         with _mocked_github(tarball, cache_dir):
             result = runner.invoke(
                 cli,
-                ["install", ref, "--registry-type", "github", "--alias", "gh-alias"],
+                [
+                    "install",
+                    ref,
+                    "--registry-type",
+                    "github",
+                    "--alias",
+                    "gh-alias",
+                    "--download-only",
+                ],
             )
 
         assert result.exit_code == 0, _combined_output(result)
@@ -562,7 +592,7 @@ class TestSandboxYamlAliasInstall:
         with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir):
             result = runner.invoke(
                 cli,
-                ["install", str(tmpl_dir), "--registry-type", "local"],
+                ["install", str(tmpl_dir), "--registry-type", "local", "--download-only"],
             )
 
         assert result.exit_code == 0, _combined_output(result)
@@ -603,7 +633,7 @@ class TestSandboxYamlAliasInstall:
         with patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", cache_dir):
             result = runner.invoke(
                 cli,
-                ["install", str(tmpl_dir), "--registry-type", "local"],
+                ["install", str(tmpl_dir), "--registry-type", "local", "--download-only"],
             )
 
         assert result.exit_code == 0, _combined_output(result)
@@ -634,6 +664,13 @@ class TestMockedGithubInstallFailures:
         assert result.exit_code != 0
 
 
+# Platform-reserved names: directory name differs from template.yaml ``name``.
+_PLATFORM_NAME_OVERRIDES: dict[str, str] = {
+    "codex": "openai-codex",
+    "openclaw": "openclaw-agent",
+}
+
+
 class TestTarballFixture:
     """The offline GitHub fixture must faithfully represent the catalog."""
 
@@ -661,4 +698,5 @@ class TestTarballFixture:
             extracted = root / folder.name / "template.yaml"
             assert extracted.is_file()
             tmpl = load_template_from_yaml(extracted)
-            assert tmpl.name == folder.name
+            expected_name = _PLATFORM_NAME_OVERRIDES.get(folder.name, folder.name)
+            assert tmpl.name == expected_name

@@ -1,4 +1,4 @@
-name: codex
+name: openai-codex
 version: "1.0.0"
 description: "OpenAI Codex CLI Agent 运行环境 - 支持 AI 驱动的代码生成和执行"
 author: "Easy-Sandbox"

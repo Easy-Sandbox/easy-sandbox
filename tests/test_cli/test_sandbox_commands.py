@@ -100,9 +100,7 @@ class TestCreate:
 
         assert result.exit_code == 0
 
-    def test_create_enforces_timeout_floor_when_default(
-        self, runner: CliRunner
-    ) -> None:
+    def test_create_enforces_timeout_floor_when_default(self, runner: CliRunner) -> None:
         """Cold starts are slow: create enforces 120s floor over the 30s default."""
         mock_sb = _make_sandbox()
         create_mock = AsyncMock(return_value=mock_sb)
@@ -122,9 +120,7 @@ class TestCreate:
         assert result.exit_code == 0
         assert create_mock.call_args.kwargs["request_timeout"] == 120.0
 
-    def test_create_respects_large_configured_timeout(
-        self, runner: CliRunner
-    ) -> None:
+    def test_create_respects_large_configured_timeout(self, runner: CliRunner) -> None:
         """When the user sets http_timeout > 120s, the larger value is used."""
         mock_sb = _make_sandbox()
         create_mock = AsyncMock(return_value=mock_sb)

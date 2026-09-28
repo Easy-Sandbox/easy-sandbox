@@ -80,16 +80,28 @@ async def main() -> None:
         print("✓ 依赖安装完成")
 
         # ── 3. 后台启动服务 ──────────────────────────────────────────
-        # 使用 start() 方法启动后台进程（不阻塞等待）
+        # 使用 start() 方法启动后台进程（不阻塞等待）。
+        # 重要：envd 进程生命周期与 WebSocket 流绑定——必须持续消费
+        # StreamReader，否则连接关闭后进程会被终止。这里用一个后台
+        # 任务异步消费输出，保持进程存活。
         reader = await sandbox.commands.start(
             "node server.js",
             cwd="/app",
             timeout=300,
         )
+
+        async def _keep_alive() -> None:
+            """Drain the reader to keep the WS connection (and process) alive."""
+            async for chunk in reader:
+                # 可选：打印服务端日志便于调试
+                if chunk.data.strip():
+                    print(f"   [node] {chunk.data.strip()}")
+
+        server_task = asyncio.create_task(_keep_alive())
         print("✓ Express 服务启动中...")
 
-        # 等待服务就绪
-        await asyncio.sleep(3)
+        # 等待服务就绪（冷启动可能较慢）
+        await asyncio.sleep(5)
 
         # ── 4. 计算公网访问地址 ──────────────────────────────────────
         url = sandbox.network.get_url(3000)
@@ -121,6 +133,9 @@ async def main() -> None:
             timeout=10,
         )
         print(f"\n📥 GET /api/echo 响应:\n   {result.stdout.strip()}")
+
+        # 取消后台任务，避免编辑时告警
+        server_task.cancel()
 
     print("\n✓ 沙箱已自动销毁，服务已停止")
 

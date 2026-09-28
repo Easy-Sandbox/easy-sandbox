@@ -6,7 +6,7 @@
 
 ```
 $ ebx upload sbx-ev-001 PLACEHOLDER /app/script.py
-Uploaded /var/folders/cb/925wcj8128gf6p6bn1hp1cgc0000gn/T/tmp9gr42oc5.py -> /app/script.py
+Uploaded /var/folders/cb/925wcj8128gf6p6bn1hp1cgc0000gn/T/tmpymqgoits.py -> /app/script.py
 Exit code: 0
 ```
 
@@ -14,6 +14,6 @@ Exit code: 0
 
 ```
 $ ebx upload sbx-ev-001 PLACEHOLDER /app/data/
-Uploaded 2 files from /var/folders/cb/925wcj8128gf6p6bn1hp1cgc0000gn/T/tmpca3wb5qt -> /app/data/
+Uploaded 2 files from /var/folders/cb/925wcj8128gf6p6bn1hp1cgc0000gn/T/tmpfb53lgbn -> /app/data/
 Exit code: 0
 ```

@@ -153,13 +153,13 @@ def install(ctx: click.Context, target: str) -> None:
         click.echo()
         click.echo("Registered tools:")
         tool_names = [
-            ("create_sandbox", "创建云端沙箱"),
-            ("run_code", "执行代码"),
-            ("run_command", "执行命令"),
-            ("read_file", "读取文件"),
-            ("write_file", "写入文件"),
-            ("list_files", "列出文件"),
-            ("kill_sandbox", "销毁沙箱"),
+            ("create_sandbox", "Create a cloud sandbox"),
+            ("run_code", "Execute code"),
+            ("run_command", "Execute a command"),
+            ("read_file", "Read a file"),
+            ("write_file", "Write a file"),
+            ("list_files", "List files"),
+            ("kill_sandbox", "Destroy a sandbox"),
         ]
         for name, desc in tool_names:
             click.echo(f"  • {name:<18s} — {desc}")

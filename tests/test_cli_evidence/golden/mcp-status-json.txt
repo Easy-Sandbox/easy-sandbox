@@ -13,7 +13,7 @@
   ],
   "auth_configured": false,
   "installed_cursor": true,
-  "installed_claude": false,
+  "installed_claude": true,
   "installed_vscode": true
 }
 [exit_code:0]

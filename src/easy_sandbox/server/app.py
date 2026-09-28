@@ -199,7 +199,9 @@ class SandboxRequestHandler(BaseHTTPRequestHandler):
             response = route.handler(request)
         except Exception as exc:  # noqa: BLE001
             logging.getLogger(__name__).exception(
-                "Unhandled exception in handler %s: %s", route.name, exc,
+                "Unhandled exception in handler %s: %s",
+                route.name,
+                exc,
             )
             self._send_json(
                 500,

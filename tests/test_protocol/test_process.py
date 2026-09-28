@@ -265,9 +265,7 @@ class TestEnvdPayloadIsolation:
     _SERVER_INJECTED_VAR = "_EBX_BOUNDARY_SERVER_ONLY"
     _SERVER_INJECTED_VALUE = "should_not_appear_in_payload"
 
-    async def test_start_env_param_only_in_payload(
-        self, envd_url: str, envd_token: Any
-    ) -> None:
+    async def test_start_env_param_only_in_payload(self, envd_url: str, envd_token: Any) -> None:
         """When env= is provided, payload contains exactly those vars."""
         # Simulate what POST /env does: set a var in this process's os.environ.
         import os
@@ -277,9 +275,7 @@ class TestEnvdPayloadIsolation:
         try:
             captured_payload: dict[str, Any] = {}
 
-            def spy_envd_stream(
-                *args: Any, **kwargs: Any
-            ) -> AsyncIterator[dict[str, Any]]:
+            def spy_envd_stream(*args: Any, **kwargs: Any) -> AsyncIterator[dict[str, Any]]:
                 captured_payload.update(kwargs.get("payload", {}))
 
                 async def _gen() -> AsyncIterator[dict[str, Any]]:
@@ -293,9 +289,7 @@ class TestEnvdPayloadIsolation:
 
             proto = ProcessProtocol(mock_http)
             per_call_env = {"MY_CALL_VAR": "hello"}
-            await proto.start(
-                envd_url, envd_token, cmd="echo", args=["test"], env=per_call_env
-            )
+            await proto.start(envd_url, envd_token, cmd="echo", args=["test"], env=per_call_env)
 
             # The payload's process.envVars must contain ONLY the per-call env.
             process_obj = captured_payload["process"]
@@ -321,9 +315,7 @@ class TestEnvdPayloadIsolation:
         try:
             captured_payload: dict[str, Any] = {}
 
-            def spy_envd_stream(
-                *args: Any, **kwargs: Any
-            ) -> AsyncIterator[dict[str, Any]]:
+            def spy_envd_stream(*args: Any, **kwargs: Any) -> AsyncIterator[dict[str, Any]]:
                 captured_payload.update(kwargs.get("payload", {}))
 
                 async def _gen() -> AsyncIterator[dict[str, Any]]:

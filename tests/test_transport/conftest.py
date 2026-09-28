@@ -42,9 +42,7 @@ _LEAKY_ENV_VARS = (
 
 
 @pytest.fixture(autouse=True)
-def isolate_transport_config(
-    monkeypatch: pytest.MonkeyPatch, tmp_path
-) -> Iterator[None]:
+def isolate_transport_config(monkeypatch: pytest.MonkeyPatch, tmp_path) -> Iterator[None]:
     """Prevent transport-config tests from reading the real ``.env``/config.toml.
 
     Points ``.env`` and ``config.toml`` discovery at an empty temp directory and

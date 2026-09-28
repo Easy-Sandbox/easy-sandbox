@@ -1,9 +1,70 @@
-Usage: cli template build [OPTIONS]
+Usage: cli template build [OPTIONS] TEMPLATE_DIR
 
-  从 Dockerfile 构建模板（旧 API，已知后端不再支持实际构建）。
+  Build Docker image locally, push to ACR, and create a sandbox template.
+
+  Supports two modes:
+
+  --official-api (default):
+    local docker build → ACR push → official CreateTemplate API (envdInject).
+    Requires AK/SK credentials and 'easy-sandbox[alicloud]' extra.
+
+  --legacy-api:
+    local docker build → ACR push → legacy v3/v2 platform API.
+    Use --legacy-api to keep the old behaviour.
+
+  Requires Docker daemon running and ACR credentials.
+
+  Examples:
+    ebx template build ./examples/templates/python-hello \
+      --acr-namespace my-ns --acr-repo python-hello
+    ebx template build ./my-template \
+      --acr-namespace prod --acree-instance-id cri-xxx
+    ebx template build ./my-template \
+      --acr-namespace prod --disk-size 10240 --internet-access
+    ebx template build ./my-template \
+      --acr-namespace prod --legacy-api
 
 Options:
-  -f, --dockerfile PATH  [required]
-  -a, --alias TEXT       模板别名
-  --help                 Show this message and exit.
+  --acr-registry TEXT             ACR registry host
+  --acr-namespace TEXT            ACR namespace (env: ACR_NAMESPACE, or set in
+                                  .env file)
+  --acr-repo TEXT                 ACR repository name (defaults to template.yaml
+                                  name or dir name)
+  --acr-username TEXT             ACR login username (defaults to AccessKey from
+                                  .env)
+  --acr-password TEXT             ACR login password (defaults to AccessSecret
+                                  from .env)
+  --acree-instance-id TEXT        ACR EE instance ID (cri-...)
+  --vpc-id TEXT                   VPC ID for ACR EE
+  --vswitch-ids TEXT              Comma-separated VSwitch IDs
+  --security-group-id TEXT        Security group ID
+  -a, --alias TEXT                Template alias
+  -t, --tag TEXT                  Docker image tag
+  --platform TEXT                 Target platform
+  --cpu INTEGER                   CPU cores (default: from template.yaml
+                                  resources.cpu, fallback 2)
+  --memory INTEGER                Memory in MB (default: from template.yaml
+                                  resources.memory, fallback 2048)
+  --start-cmd TEXT                Container start command
+  --ready-cmd TEXT                Container readiness check command
+  --timeout INTEGER               Build timeout in seconds
+  -f, --dockerfile PATH           Custom Dockerfile path
+  --disk-size INTEGER             Disk size in MB (official API only)
+  --internet-access / --no-internet-access
+                                  Internet access (default: platform decides;
+                                  official API only)
+  --official-api / --legacy-api   Use official CreateTemplate API (default) or
+                                  legacy v3/v2
+  --team-id TEXT                  Team ID for official API (or env TEAM_ID /
+                                  E2B_TEAM_ID)
+  --envd-inject / --no-envd-inject
+                                  Enable envd injection (default False)
+  --generation INTEGER            Sandbox generation (default: template.yaml
+                                  'generation', otherwise 1). 1=first-gen
+                                  (rund), 2=second-gen MicroVM.
+  --target-image TEXT             Destination image ref for envd copy (auto-
+                                  derived with random suffix if omitted)
+  -y, --yes                       Skip confirmation prompt
+  -v, --verbose                   Verbose output (DEBUG level)
+  --help                          Show this message and exit.
 [exit_code:0]

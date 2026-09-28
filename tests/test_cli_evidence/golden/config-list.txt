@@ -1,6 +1,7 @@
 api_key       (not set)
 api_url       https://api.cn-hangzhou.e2b.fc.aliyuncs.com (default)
 domain        cn-hangzhou.e2b.fc.aliyuncs.com (default)
+http2         True (default)
 http_timeout  30.0 (default)
 llm_api_key    (default)
 llm_base_url   (default)

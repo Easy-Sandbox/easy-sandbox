@@ -1,7 +1,7 @@
-"""项目部署命令。
+"""Project deployment commands.
 
 Supports two modes:
-1. NL deploy (qwen-code): ``ebx deploy ./my-project "部署这个 FastAPI 项目"``
+1. NL deploy (qwen-code): ``ebx deploy ./my-project "deploy this FastAPI project"``
 2. Traditional deploy: ``ebx deploy ./my-project --traditional``
 """
 
@@ -54,13 +54,25 @@ def _detect_project(path: Path) -> tuple[str, str]:
 @click.argument("path", default=".")
 @click.argument("instruction", default="", required=False)
 @click.option(
-    "--instruction", "-i", "instruction_opt", default=None, help="NL 部署指令（与位置参数二选一）"
+    "--instruction",
+    "-i",
+    "instruction_opt",
+    default=None,
+    help="NL deploy instruction (alternative to positional arg)",
 )
-@click.option("--max-wall-time", default="10m", help="qwen-code 最大执行时间 (如 '10m', '600s')")
-@click.option("--max-tool-calls", default=100, type=int, help="qwen-code 最大工具调用次数")
-@click.option("--alias", "-a", default=None, help="模板别名（传统模式）")
-@click.option("--watch", is_flag=True, help="监听文件变化自动重新部署（传统模式）")
-@click.option("--traditional", is_flag=True, help="使用传统 build+run 模式而非 AI 部署")
+@click.option("--max-wall-time", default="10m", help="qwen-code max wall time (e.g. '10m', '600s')")
+@click.option("--max-tool-calls", default=100, type=int, help="qwen-code max tool calls")
+@click.option("--alias", "-a", default=None, help="Template alias (traditional mode)")
+@click.option(
+    "--watch",
+    is_flag=True,
+    help="Watch for file changes and auto-redeploy (traditional mode)",
+)
+@click.option(
+    "--traditional",
+    is_flag=True,
+    help="Use traditional build+run mode instead of AI deploy",
+)
 @click.pass_context
 @handle_errors
 def deploy_shortcut(
@@ -74,15 +86,15 @@ def deploy_shortcut(
     watch: bool,
     traditional: bool,
 ) -> None:
-    """部署项目到 sandbox。
+    """Deploy a project to a sandbox.
 
     \b
-    NL 模式（默认）:
-      ebx deploy ./my-project "这是一个 FastAPI 项目，需要 Redis"
-      ebx deploy ./my-project -i "部署到端口 8080"
+    NL mode (default):
+      ebx deploy ./my-project "this is a FastAPI project that needs Redis"
+      ebx deploy ./my-project -i "deploy to port 8080"
 
     \b
-    传统模式:
+    Traditional mode:
       ebx deploy ./my-project --traditional
     """
     fmt = get_formatter(ctx)
@@ -100,9 +112,11 @@ def deploy_shortcut(
     if not effective_instruction and not traditional:
         project_type, _ = _detect_project(project_path)
         if project_type != "unknown":
-            effective_instruction = f"自动检测并部署这个 {project_type} 项目"
+            effective_instruction = f"Auto-detect and deploy this {project_type} project"
         else:
-            effective_instruction = "分析项目结构，安装依赖，构建并启动服务"
+            effective_instruction = (
+                "Analyze project structure, install dependencies, build and start the service"
+            )
 
     # Traditional mode (no AI agent)
     if traditional:

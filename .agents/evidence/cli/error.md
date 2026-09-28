@@ -36,9 +36,6 @@ Exit code: 4
 
 ```
 $ ebx create --template base
-/Users/anycodes/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/contextlib.py:79: RuntimeWarning: coroutine 'RegistryClient.resolve' was never awaited
-  def inner(*args, **kwds):
-RuntimeWarning: Enable tracemalloc to get the object allocation traceback
 [E2002] Sandbox quota exceeded
   Suggestion: Destroy idle sandboxes or request a quota increase.
 Exit code: 6
@@ -47,9 +44,6 @@ Exit code: 6
 **stderr:**
 
 ```
-/Users/anycodes/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/lib/python3.11/contextlib.py:79: RuntimeWarning: coroutine 'RegistryClient.resolve' was never awaited
-  def inner(*args, **kwds):
-RuntimeWarning: Enable tracemalloc to get the object allocation traceback
 [E2002] Sandbox quota exceeded
   Suggestion: Destroy idle sandboxes or request a quota increase.
 ```

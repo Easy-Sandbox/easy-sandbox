@@ -5,5 +5,6 @@ Usage: cli exec [OPTIONS] SANDBOX_ID COMMAND
 Options:
   -t, --timeout INTEGER  Timeout in seconds
   --cwd TEXT             Working directory (empty = container default)
+  -v, --verbose          Verbose output (DEBUG level)
   --help                 Show this message and exit.
 [exit_code:0]

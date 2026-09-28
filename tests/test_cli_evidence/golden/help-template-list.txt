@@ -2,11 +2,14 @@ Usage: cli template list [OPTIONS]
 
   List your custom templates on the platform.
 
-  Shows templates you have built or installed on the platform via 'ebx template
-  build' or 'ebx template install'.  This does NOT query a central registry.  To
-  discover community templates, visit GitHub and install with 'ebx template
-  install <owner/repo>'.
+  Shows templates you have built or cached locally via 'ebx template build' or
+  'ebx template install'.  This does NOT query a central registry.  To discover
+  community templates, visit GitHub and install with 'ebx template install
+  <owner/repo>'. Pass ``--official-api`` to list templates registered via the
+  official Alibaba Cloud FCSandbox CreateTemplate API.
 
 Options:
-  --help  Show this message and exit.
+  --official-api  Query templates via the official Alibaba Cloud FCSandbox API
+                  (AK/SK).
+  --help          Show this message and exit.
 [exit_code:0]

@@ -77,7 +77,7 @@ class TestCreateNLInference:
             result = runner.invoke(cli, ["create", "运行 python"])
 
         assert result.exit_code == 0
-        assert "推断结果" in result.output
+        assert "Inference result" in result.output
         assert "code-interpreter" in result.output
         assert "sbx-nl-001" in result.output
 
@@ -124,7 +124,7 @@ class TestCreateNLInference:
 
         assert result.exit_code == 0
         # Should NOT contain inference output
-        assert "推断结果" not in result.output
+        assert "Inference result" not in result.output
         assert "sbx-nl-001" in result.output
 
     def test_create_description_with_explicit_template_prefers_template(
@@ -141,7 +141,7 @@ class TestCreateNLInference:
 
         assert result.exit_code == 0
         # Inference should NOT be triggered when --template is given
-        assert "推断结果" not in result.output
+        assert "Inference result" not in result.output
 
     def test_create_with_upload(self, runner: CliRunner, tmp_path) -> None:
         """ebx create "分析 CSV" --upload <file> → show upload info."""
@@ -185,7 +185,7 @@ class TestCreateNLInference:
 
         assert result.exit_code == 0
         assert "browser-automation" in result.output
-        assert "已上传" in result.output
+        assert "Uploaded" in result.output
 
     def test_create_no_description_no_template_uses_base(self, runner: CliRunner) -> None:
         """ebx create (no args) → uses default 'base' template."""
@@ -199,7 +199,7 @@ class TestCreateNLInference:
 
         assert result.exit_code == 0
         # No inference output
-        assert "推断结果" not in result.output
+        assert "Inference result" not in result.output
 
     def test_create_json_output_with_description(self, runner: CliRunner) -> None:
         """ebx --json create "运行 python" → JSON output, no inference text."""
@@ -230,7 +230,7 @@ class TestCreateNLInference:
 
         assert result.exit_code == 0
         # In JSON mode, no human-readable inference text
-        assert "推断结果" not in result.output
+        assert "Inference result" not in result.output
 
     def test_create_inference_shows_confidence(self, runner: CliRunner) -> None:
         """Inference output should include confidence score."""
@@ -260,5 +260,5 @@ class TestCreateNLInference:
             result = runner.invoke(cli, ["create", "用 playwright 爬取网页"])
 
         assert result.exit_code == 0
-        assert "置信度" in result.output
+        assert "Confidence" in result.output
         assert "0.88" in result.output

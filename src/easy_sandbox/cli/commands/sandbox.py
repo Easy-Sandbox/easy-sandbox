@@ -102,7 +102,7 @@ def create(
                     with open(_cfg_path, "rb") as _f:
                         _cfg_full = tomllib.load(_f)
                     _cfg_transport = _cfg_full.get("transport", _cfg_full)
-                    # LLM 配置从 transport 节读取（与 config set 写入位置一致）
+                    # LLM config read from transport section (consistent with config set)
                     llm_api_key = llm_api_key or _cfg_transport.get("llm_api_key")
                     llm_model = llm_model or _cfg_transport.get("llm_model")
                     llm_base_url = llm_base_url or _cfg_transport.get("llm_base_url")
@@ -121,14 +121,14 @@ def create(
 
         if not fmt.use_json:
             out = get_output(ctx)
-            out.info("\u2713 推断结果：")
-            out.info(f"    模板: {infer_result.template}")
-            out.info(f"    CPU: {infer_result.cpu} 核  |  内存: {infer_result.memory} MB")
-            out.info(f"    置信度: {infer_result.confidence}")
+            out.info("\u2713 Inference result:")
+            out.info(f"    Template: {infer_result.template}")
+            out.info(f"    CPU: {infer_result.cpu} cores  |  Memory: {infer_result.memory} MB")
+            out.info(f"    Confidence: {infer_result.confidence}")
             if not out.use_rich_spinner:
                 # The spinner below already announces creation in TTY mode;
                 # only print the plain progress line in degraded modes.
-                out.progress("创建中...")
+                out.progress("Creating...")
 
     # Parse env vars from "KEY=VALUE" format
     envs: dict[str, str] = {}
@@ -186,7 +186,7 @@ def create(
                 dest = f"{remote_base}/{local.name}"
                 await sbx.files.write(dest, content)
                 if not fmt.use_json:
-                    get_output(ctx).info(f"↑ 已上传 {upload} → {dest}")
+                    get_output(ctx).info(f"↑ Uploaded {upload} → {dest}")
             elif local.is_dir():
                 count = 0
                 for file in local.rglob("*"):
@@ -196,7 +196,7 @@ def create(
                         await sbx.files.write(dest, file.read_bytes())
                         count += 1
                 if not fmt.use_json:
-                    get_output(ctx).info(f"↑ 已上传 {count} 个文件 → {remote_base}/")
+                    get_output(ctx).info(f"↑ Uploaded {count} file(s) → {remote_base}/")
         return sbx
 
     out = get_output(ctx)
