@@ -6,6 +6,7 @@ normalize() function that masks non-deterministic fragments.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import tempfile
@@ -281,12 +282,35 @@ def _mcp_install_cursor():
 def _mcp_status():
     @contextmanager
     def _ctx() -> Iterator[dict[str, Any]]:
+        # ``mcp status`` iterates the module-level ``_IDE_CONFIG_MAP`` whose
+        # values are function references captured at import time, so patching
+        # the ``_get_*_config_path`` names is ineffective — the command would
+        # read the runner's real IDE configs and the golden output would
+        # depend on the environment. Patch the map itself and stage valid
+        # installed-config files in a temp dir so ``installed_*`` is
+        # deterministically True everywhere, matching the committed golden.
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
+            # cursor/claude store servers under "mcpServers"; vscode under
+            # "mcp.servers" (see the ``status`` key-selection logic).
+            (tmp / "cursor.json").write_text(
+                json.dumps({"mcpServers": {"easy-sandbox": {"command": "ebx"}}})
+            )
+            (tmp / "claude.json").write_text(
+                json.dumps({"mcpServers": {"easy-sandbox": {"command": "ebx"}}})
+            )
+            (tmp / "vscode.json").write_text(
+                json.dumps({"mcp.servers": {"easy-sandbox": {"command": "ebx"}}})
+            )
+            # Key order fixes the ``installed_*`` field order (print_dict and
+            # the JSON formatter both emit data in insertion order).
+            fake_map = {
+                "cursor": lambda: tmp / "cursor.json",
+                "claude": lambda: tmp / "claude.json",
+                "vscode": lambda: tmp / "vscode.json",
+            }
             with (
-                patch(f"{_MCP_CMD}._get_cursor_config_path", return_value=tmp / "c.json"),
-                patch(f"{_MCP_CMD}._get_claude_config_path", return_value=tmp / "cl.json"),
-                patch(f"{_MCP_CMD}._get_vscode_config_path", return_value=tmp / "vs.json"),
+                patch(f"{_MCP_CMD}._IDE_CONFIG_MAP", fake_map),
                 patch(f"{_MCP_CMD}._read_api_key", return_value=None),
             ):
                 yield {}
