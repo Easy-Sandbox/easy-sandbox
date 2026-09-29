@@ -21,19 +21,6 @@ python scripts/capture_cli_evidence.py --command create
 
 ## Files
 
-- [`cli/config/config.md`](cli/config/config.md)
-- [`cli/create.md`](cli/create.md)
-- [`cli/download.md`](cli/download.md)
-- [`cli/error.md`](cli/error.md)
-- [`cli/exec.md`](cli/exec.md)
-- [`cli/help.md`](cli/help.md)
-- [`cli/info.md`](cli/info.md)
-- [`cli/kill.md`](cli/kill.md)
-- [`cli/list.md`](cli/list.md)
-- [`cli/mcp/mcp.md`](cli/mcp/mcp.md)
-- [`cli/run.md`](cli/run.md)
-- [`cli/template/template.md`](cli/template/template.md)
-- [`cli/upload.md`](cli/upload.md)
 - [`cli/version.md`](cli/version.md)
 
-**Total cases:** 75 run, 0 skipped
+**Total cases:** 1 run, 0 skipped

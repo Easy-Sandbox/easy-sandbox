@@ -24,33 +24,39 @@ easy-sandbox/
 │   ├── protocol/              # Protocol abstractions: sandbox, filesystem, process, terminal, port, code_interpreter
 │   ├── api/                   # High-level API: Sandbox, files, code, commands, network, image, capability, session_manager, template
 │   ├── cli/                   # Click-based CLI (`ebx`), formatters, command modules
-│   │   └── commands/          # Subcommands: auth, config_cmd, deploy, mcp, sandbox, secret, session, skill, template
+│   │   └── commands/          # Subcommands: config_cmd, deploy, mcp, sandbox, sandbox_files, sandbox_process, sandbox_system, template
 │   ├── agent/                 # AI agent tooling: builtin agents, MCP server, tool definitions, inference
 │   ├── compat/                # E2B compatibility layer (drop-in replacement)
 │   ├── declarative/           # @sandbox decorator, config, serializer
 │   ├── extensions/            # Alibaba Cloud extensions: OSS, VPC, custom domains
 │   ├── integrations/          # Framework adapters (planned — directory currently empty; see ADR 2026-09-23)
+│   ├── server/                # SandboxServer SDK: HTTP routes, registry, browser, PTY, devtools
 │   ├── session/               # Session persistence: local (LocalSessionStore)
 │   └── utils/                 # Async bridge, secret store, logging, registry, retry
 ├── tests/                     # Mirrors src/ structure (test_api/, test_cli/, test_models/, …)
 ├── docs/
 │   ├── en/
 │   │   ├── design/            # Public design documents (English)
-│   │   ├── guide/             # User tutorials & how-to guides (planned)
-│   │   ├── reference/         # CLI/API/error-code/config reference (planned)
-│   │   ├── explanation/       # Conceptual explanations (planned)
+│   │   ├── guide/             # User tutorials & how-to guides
+│   │   ├── reference/         # CLI/API/error-code/config reference
+│   │   ├── explanation/       # Conceptual explanations
 │   │   └── DESIGN.md          # Design topic index (links to design/)
 │   └── zh/
 │       ├── design/            # Public design documents (Chinese mirror)
-│       ├── guide/             # User tutorials & how-to guides (planned)
-│       ├── reference/         # CLI/API/error-code/config reference (planned)
-│       ├── explanation/       # Conceptual explanations (planned)
+│       ├── guide/             # User tutorials & how-to guides
+│       ├── reference/         # CLI/API/error-code/config reference
+│       ├── explanation/       # Conceptual explanations
 │       └── DESIGN.md          # Design topic index (links to design/)
 ├── examples/
+│   ├── agents/                # AI agent integration examples
+│   ├── compat-demos/          # E2B/Modal compatibility demos
+│   ├── quickstart/            # Quick start demos (5 demos)
 │   └── templates/             # Sandbox template examples (python-hello, codex, qoder, …)
-├── .agents/notes/             # Architecture Decision Records (ADR) — see below
-├── .agents/evidence/          # Golden-file CLI evidence (auto-generated, gitignored)
-├── .agents/research/          # Research & competitor analysis notes (gitignored)
+├── .agents/
+│   ├── notes/                 # Architecture Decision Records (ADR) — see below
+│   ├── design/                # Design documents and analysis
+│   ├── evidence/              # Golden-file CLI evidence (auto-generated, gitignored)
+│   └── research/              # Research & competitor analysis notes (gitignored)
 ├── scripts/                   # Utility scripts (evidence capture, etc.)
 ├── benchmarks/                # Performance benchmarks
 ├── Makefile                   # Dev commands
@@ -72,6 +78,7 @@ graph TB
         Decl["Declarative — @sandbox decorator"]
         Compat["Compat — E2B compatibility shim"]
         Ext["Extensions — OSS, VPC, domain extensions"]
+        Server["Server — SandboxServer SDK, HTTP routes"]
         Sess["Session — Persistence"]
     end
     subgraph Core["Core Layers"]
@@ -88,6 +95,7 @@ graph TB
     Decl --> L3
     Compat --> L3
     Ext --> L3
+    Server --> L0U
     Sess --> L3
     L3 --> L2 --> L1
     L1 --> L0M
@@ -142,8 +150,10 @@ All SDK errors live in [`models/errors.py`](src/easy_sandbox/models/errors.py). 
 | E4xxx   | Filesystem     | `FileOperationError`     |
 | E5xxx   | Network        | `NetworkError`           |
 | E6xxx   | Session        | `SessionError`           |
+| E70xx   | Deploy/Build   | `SandboxError` (`DeployError` covers E7000–E7003; E7010–E7011 inherit `SandboxError` directly) |
+| E702x   | Docker/ACR     | `SandboxError` (E7020–E7022 inherit it directly) |
 
-Every exception carries: `code`, `message`, `suggestion`, `docs_url`.
+Every exception carries: `code`, `message`, `suggestion`, `docs_url` (populated when documentation is available).
 
 ### Capability Model
 

@@ -5,10 +5,21 @@ Usage: cli mcp start [OPTIONS]
   This is typically called by the IDE, not manually. The server reads JSON-RPC
   messages from stdin and writes responses to stdout.
 
+  Examples:
+    ebx mcp start
+    ebx mcp start --template base
+    ebx mcp start --template python-hello         --api-url https://api.cn-hangzhou.e2b.fc.aliyuncs.com
+
+  Related commands:
+    ebx mcp install --target cursor  Register the STDIO command in an IDE
+    ebx mcp status                   Check authentication and IDE setup
+    ebx config set api_key VALUE     Persist the API key
+
 Options:
-  --template TEXT  Default sandbox template.
+  --template TEXT  Default sandbox template ID or alias (default: code-
+                   interpreter-v1).
   --api-key TEXT   API key override.
   --api-url TEXT   API URL override.
   --domain TEXT    Domain override.
-  --help           Show this message and exit.
+  -h, --help       Show this message and exit.
 [exit_code:0]

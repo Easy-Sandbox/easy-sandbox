@@ -47,7 +47,7 @@ def runner() -> CliRunner:
 
 
 class TestTemplateDefinition:
-    """Load template.yaml → parse → validate Dockerfile output."""
+    """Load template.yaml → parse → validate fields."""
 
     def test_parse_python_hello_template(self):
         """examples/templates/python-hello/template.yaml should parse correctly."""
@@ -56,25 +56,19 @@ class TestTemplateDefinition:
         template = SandboxTemplate.model_validate(data)
 
         assert template.name == "python-hello"
-        assert template.base == "ubuntu:22.04"
-        assert "python3" in template.system_packages
         assert "shell" in template.capabilities
         assert "ports" in template.capabilities
         assert template.ports == [9000]
         assert "run" in template.custom_commands
         assert "test" in template.custom_commands
 
-    def test_dockerfile_generation(self):
-        """to_dockerfile() should produce valid Dockerfile lines."""
+    def test_legacy_build_fields_ignored(self):
+        """Legacy build fields are silently ignored by extra='ignore'."""
         data = yaml.safe_load(_PYTHON_HELLO_YAML.read_text())
         template = SandboxTemplate.model_validate(data)
-        dockerfile = template.to_dockerfile()
-
-        assert dockerfile.startswith("FROM ubuntu:22.04")
-        assert "apt-get" in dockerfile
-        assert "python3" in dockerfile
-        # ENV directives
-        assert "ENV LANG=C.UTF-8" in dockerfile
+        # Legacy fields should not be present on the model
+        assert not hasattr(template, "base")
+        assert not hasattr(template, "system_packages")
 
     def test_custom_commands_parsed(self):
         """Custom commands in the template should have correct args and fields."""

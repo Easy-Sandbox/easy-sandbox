@@ -1,8 +1,11 @@
-"""Offline validation suite for the ``examples/templates/`` catalog.
+"""Offline validation suite for the ``examples/templates/`` fixtures.
 
-The template catalog is intentionally minimal: one ``README.md`` acting as the
-sole index plus one folder per template.  These tests are the hard gate before
-anything is published — they are fully offline and only depend on ``pyyaml``,
-``pydantic``, ``click`` and ``pytest``, so the very same checks can run in the
-CI of a standalone ``awesome-easy-sandbox-templates`` repository.
+``examples/templates/`` no longer holds a publishable template collection — it
+keeps only a minimal ``python-hello`` **fixture** so the install/server
+pipelines stay testable without network access.  The single source of truth for
+official & community templates (content, the machine-readable index, releases
+and CI) is the dedicated repository ``Easy-Sandbox/awesome-templates``; its own
+*test suite* lives there.  These tests are fully offline and only depend on
+``pyyaml``, ``pydantic``, ``click`` and ``pytest``, so they run in any CI
+without network access.
 """

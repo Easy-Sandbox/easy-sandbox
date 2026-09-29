@@ -83,15 +83,14 @@ Each topic below has its own dedicated design document with complete specificati
 |-------|----------|---------|
 | **CLI Command System** | [cli-design.md](design/cli-design.md) | Command tree (45 commands), global options, natural language creation, OutputManager, AI-friendly design |
 | **Template System** | [template-system.md](design/template-system.md) | Template tiers, GitHub tarball distribution, `template.yaml` specification, custom commands, CLI template subcommands |
-| **Templates Catalog** | [templates-catalog.md](design/templates-catalog.md) | Official and community template listings, awesome-templates index |
+| **Templates Catalog** | [templates-catalog.md](design/templates-catalog.md) | Single source of truth (SSOT): the awesome-templates catalog repo, the remote index client, caching/degradation behaviour, and the main-repo fixture boundary |
 
 ### AI & Agent Integration
 
 | Topic | Document | Summary |
 |-------|----------|---------|
-| **MCP Server** | [mcp-server.md](design/mcp-server.md) | MCP tools (P0/P1/P2), STDIO + Streamable HTTP transports, FC deployment architecture, session binding |
-| **Built-in Agents** | [built-in-agents.md](design/built-in-agents.md) | Sandbox-embedded AI CLI tools (Codex, Claude Code, Qoder, etc.), agent wrappers |
-| **Skills System** | [skills-system.md](design/skills-system.md) | Skills registration, installation, sharing ecosystem |
+| **MCP Server** | [mcp-server.md](design/mcp-server.md) | 7 P0 MCP tools, STDIO + Streamable HTTP transports, FC deployment artifact, session binding |
+| **Built-in Agents** | [built-in-agents.md](design/built-in-agents.md) | Sandbox-side `AgentModule` sugar over `commands.run()`; agents ship in dedicated templates — the base image preinstalls no agent CLI (see [BYO Agent Integration](guide/byo-agent-integration.md)) |
 
 ### Server & Infrastructure
 
@@ -109,13 +108,12 @@ Each topic below has its own dedicated design document with complete specificati
 | CLI (45 commands) | **Implemented** | See [cli-design.md](design/cli-design.md) |
 | MCP Server (STDIO) | **Implemented** | 7 P0 tools |
 | MCP Server (Streamable HTTP) | **Implemented** | `mcp_http.py` |
+| `ebx mcp deploy` (FC artifact generation) | **Implemented** | Generates deploy artifact; manual FC deployment steps printed. See [mcp-server.md](design/mcp-server.md#7-fc-deployment) |
 | Template build/push/create pipeline | **Implemented** | Via official CreateTemplate API |
-| `ebx mcp deploy` (FC deployment) | **Not yet implemented** | See [mcp-server.md](design/mcp-server.md#7-fc-deployment) |
 | E2B compatibility layer | **Implemented** | `easy_sandbox.compat` |
 | Persistent sandbox | **Future** | Requires underlying platform support |
 | SandboxPool (warm pool) | **Future** | Requires underlying platform support |
 | NAS mount / SLS log integration | **Future** | Planned extension modules |
-| Skills ecosystem | **Partially implemented** | Registration working; distribution planned |
 
 ---
 
@@ -125,6 +123,7 @@ Each topic below has its own dedicated design document with complete specificati
 |----------|----------|
 | Architecture Decision Records (ADR) | [`.agents/notes/`](../../.agents/notes/README.md) |
 | CLI golden-file evidence | [`.agents/evidence/`](../../.agents/evidence/) |
+| BYO agent integration guide | [`docs/en/guide/byo-agent-integration.md`](guide/byo-agent-integration.md) |
 | User guides | [`docs/en/guide/`](guide/) |
 | API/CLI reference | [`docs/en/reference/`](reference/) |
 | Chinese (中文) design index | [`docs/zh/DESIGN.md`](../zh/DESIGN.md) |

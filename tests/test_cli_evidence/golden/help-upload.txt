@@ -8,6 +8,11 @@ Usage: cli upload [OPTIONS] SANDBOX_ID LOCAL_PATH REMOTE_PATH
 
       ebx upload abc123 ./data/ /app/data/
 
+  Related commands:
+    ebx download SANDBOX_ID REMOTE_PATH LOCAL_PATH
+    ebx sandbox files list SANDBOX_ID --path /app
+    ebx exec SANDBOX_ID CMD
+
 Options:
-  --help  Show this message and exit.
+  -h, --help  Show this message and exit.
 [exit_code:0]

@@ -11,11 +11,17 @@ import httpx
 import yaml
 
 from easy_sandbox.models.errors import (
+    GitHubRateLimitError,
     NetworkError,
     SandboxError,
     TemplateNotFoundError,
 )
 from easy_sandbox.models.template import SandboxTemplate, TemplateRef
+from easy_sandbox.utils.github_token import (
+    FINE_GRAINED_PAT_URL,
+    rate_limit_message,
+    rate_limit_suggestion,
+)
 from easy_sandbox.utils.logging import get_logger
 
 logger = get_logger("utils.registry")
@@ -191,20 +197,28 @@ class RegistryClient:
         owner: str | None,
         repo: str | None,
         gh_ref: str | None,
+        subdir: str | None = None,
     ) -> SandboxError:
         """将 GitHub tarball API 的 HTTP 错误转换为用户友好的 SDK 异常。
 
         tarball 端点会先命中 api.github.com，再 302 到 codeload；两阶段共用
         同一套映射（follow_redirects 后返回的最终响应）：
-        - 403 且触发速率限制 → 提示配置 token 认证；
-        - 403 其它 → 提示可能为私有仓库；
+        - 403 且触发速率限制 → GitHubRateLimitError（统一引导文案，含官方
+          fine-grained PAT 预填 URL；CLI 据此可触发一次性交互配置）；
+        - 403 其它 → 提示可能为私有仓库（推荐持久化 github_token）；
+        - 401 → 提示 token 无效/过期（含创建与清除命令）；
         - 404 → TemplateNotFoundError（提示校验 owner/repo//subdir[@ref] 与 ref 存在性）；
         - 5xx/其它 → NetworkError。
         """
         resp = exc.response
         status = resp.status_code
         if owner and repo:
-            target = f"{owner}/{repo}" + (f"@{gh_ref}" if gh_ref else "")
+            # Preserve the full user-facing ref shape: owner/repo//subdir@ref
+            target = f"{owner}/{repo}"
+            if subdir:
+                target += f"//{subdir.strip('/')}"
+            if gh_ref:
+                target += f"@{gh_ref}"
         else:
             target = "the template archive"
 
@@ -215,19 +229,29 @@ class RegistryClient:
             except Exception:  # pragma: no cover - defensive
                 body_text = ""
             if remaining == "0" or "rate limit" in body_text.lower():
-                return NetworkError(
-                    "GitHub API rate limit exceeded (anonymous requests are limited to 60/hour).",
-                    suggestion=(
-                        "Authenticate to raise the limit to 5000/hour: set the "
-                        "GITHUB_TOKEN environment variable or pass --token. "
-                        f"Example: ebx template install {target} --token <your-token>"
-                    ),
+                return GitHubRateLimitError(
+                    rate_limit_message(operation=f"fetching {target}"),
+                    suggestion=rate_limit_suggestion(),
                 )
             return NetworkError(
                 f"GitHub API returned 403 Forbidden for '{target}'.",
                 suggestion=(
-                    "The repository may be private. Pass --token <your-token> "
-                    "to access private repositories."
+                    "The repository may be private. Store a token that can read it "
+                    "with 'ebx config set github_token' (masked input), or pass "
+                    "--token <value> as a one-off override - note that --token may "
+                    "leak into shell history and process listings."
+                ),
+            )
+
+        if status == 401:
+            return NetworkError(
+                f"GitHub rejected the configured token (HTTP 401) for '{target}'.",
+                suggestion=(
+                    "The token may be invalid, expired, or malformed. Create a "
+                    "fine-grained token with contents:read "
+                    f"({FINE_GRAINED_PAT_URL}) and store it with "
+                    "'ebx config set github_token', or clear the stored value "
+                    "with 'ebx config set github_token \"\"'."
                 ),
             )
 
@@ -277,7 +301,7 @@ class RegistryClient:
             try:
                 resp.raise_for_status()
             except httpx.HTTPStatusError as exc:
-                raise self._translate_tarball_error(exc, owner, repo, gh_ref) from exc
+                raise self._translate_tarball_error(exc, owner, repo, gh_ref, subdir) from exc
 
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
             tmp.write(resp.content)

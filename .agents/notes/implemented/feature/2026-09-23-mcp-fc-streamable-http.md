@@ -30,6 +30,8 @@ Session affinity requires an FC runtime that supports `Mcp-Session-Id` header ro
 
 The HTTP transport uses `MCP_PROTOCOL_VERSION = "2025-06-18"` (Streamable HTTP). The existing STDIO transport retains `"2024-11-05"`. Both coexist without conflict.
 
+**2026-09-29 correction (per-transport version negotiation):** the shared `SandboxMCPServer._handle_initialize()` originally hard-coded the STDIO constant, so HTTP `initialize` responded `2024-11-05` while `GET /health` declared `2025-06-18` (found in real E2E; see `.agents/evidence/2026-09-29-mcp-e2e.md`). Fix: `SandboxMCPServer` now accepts a `supported_protocol_versions` sequence (default `(2024-11-05,)`, preserving STDIO); the HTTP `SessionStore` passes `(2025-06-18,)`. `initialize` echoes a supported requested `protocolVersion` and falls back to the preferred (first) supported version for missing/unsupported requests — the MCP spec rule that the server responds with another version it supports (the client may disconnect). STDIO behavior is unchanged; HTTP health and initialize now report the same version.
+
 ## API Design
 
 ### ASGI App Factory
@@ -92,6 +94,11 @@ asgi_app: Any = _LazyApp()
     - Auth enforcement (POST, GET, DELETE)
     - DELETE session cleanup
     - Invalid JSON, invalid session, missing header error cases
+  - Protocol version negotiation (`TestProtocolVersionNegotiation`, `TestHttpProtocolVersionNegotiation`):
+    - HTTP health/initialize consistency (both report 2025-06-18)
+    - STDIO unchanged: default server always negotiates 2024-11-05 for supported, unsupported, and missing requested versions
+    - Supported requested versions are echoed; unsupported/missing ones fall back to the transport's preferred version
+    - Empty `supported_protocol_versions` is rejected with `ValueError`
 - **CLI tests** (`tests/test_cli/test_mcp_commands.py`):
   - `deploy --help` output
   - `--output-dir` artifact generation
@@ -113,6 +120,7 @@ asgi_app: Any = _LazyApp()
 6. `ebx mcp deploy --output-dir` generates `requirements.txt`, `app.py`, and `config.yaml`, plus manual FC deployment steps
 7. Existing STDIO mode (`ebx mcp start`) retains its transport behavior; malformed non-object JSON is now rejected with a JSON-RPC error instead of crashing
 8. `GET /mcp` explicitly returns 501 until Phase 2 SSE notifications are implemented
+9. (2026-09-29) HTTP `initialize` negotiates `2025-06-18`, consistent with `GET /health`; STDIO retains `2024-11-05`; supported requested versions are echoed, missing/unsupported ones fall back to the transport's preferred version
 
 ### Follow-up
 

@@ -14,7 +14,7 @@ Endpoints:
 from __future__ import annotations
 
 import os
-import subprocess  # noqa: S404
+import subprocess
 import time
 from typing import Any
 
@@ -148,7 +148,7 @@ def handle_code_run(request: ServerRequest) -> ServerResponse:
 
     start_ns = time.monotonic_ns()
     try:
-        proc = subprocess.run(  # noqa: S603
+        proc = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
@@ -168,7 +168,7 @@ def handle_code_run(request: ServerRequest) -> ServerResponse:
             f"Runtime not found for language {language!r}",
             error_type="FileNotFoundError",
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ServerResponse.error(500, str(exc), error_type=type(exc).__name__)
 
     elapsed_ms = (time.monotonic_ns() - start_ns) / 1_000_000
@@ -258,7 +258,7 @@ def handle_git_status(request: ServerRequest) -> ServerResponse:
         return err
 
     try:
-        proc = subprocess.run(  # noqa: S603
+        proc = subprocess.run(
             ["git", "-C", path, "status", "--porcelain", "-b"],
             capture_output=True,
             text=True,
@@ -277,7 +277,7 @@ def handle_git_status(request: ServerRequest) -> ServerResponse:
             "git status timed out",
             error_type="TimeoutError",
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ServerResponse.error(500, str(exc), error_type=type(exc).__name__)
 
     if proc.returncode != 0:
@@ -372,14 +372,14 @@ def handle_git_diff(request: ServerRequest) -> ServerResponse:
         stat_cmd.extend(["--", file_filter])
 
     try:
-        diff_proc = subprocess.run(  # noqa: S603
+        diff_proc = subprocess.run(
             diff_cmd,
             capture_output=True,
             text=True,
             timeout=30,
             shell=False,
         )
-        stat_proc = subprocess.run(  # noqa: S603
+        stat_proc = subprocess.run(
             stat_cmd,
             capture_output=True,
             text=True,
@@ -398,7 +398,7 @@ def handle_git_diff(request: ServerRequest) -> ServerResponse:
             "git diff timed out",
             error_type="TimeoutError",
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ServerResponse.error(500, str(exc), error_type=type(exc).__name__)
 
     if diff_proc.returncode != 0:

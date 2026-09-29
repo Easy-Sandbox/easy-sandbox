@@ -1,415 +1,278 @@
 # Templates Catalog Design
 
-> `examples/templates/` is the **official template collection** for Easy Sandbox, deliberately designed
-> as a minimal form of "one README + a bunch of template folders" so that the entire collection can be
-> extracted **as-is** into a standalone repository `awesome-easy-sandbox-templates`. This document
-> defines the directory's structural contract, publishing workflow, linking between the main repository
-> and the standalone repository, and offline validation methods that work in both contexts.
+> The template catalog follows a **single source of truth (SSOT)** architecture:
+> official & community template content, the machine-readable index
+> (`awesome-templates.yaml`), releases and CI all converge on the dedicated
+> repository [`Easy-Sandbox/awesome-templates`](https://github.com/Easy-Sandbox/awesome-templates).
+> This repository **no longer maintains a publishable template collection** — it
+> keeps only a minimal `python-hello` **offline fixture** under
+> `examples/templates/`, explicitly marked as a fixture.
 >
-> Related documents: [Template System Design](./template-system.md) (template tiers and distribution mechanism),
-> [CLI Design](./cli-design.md) (`ebx install` / `ebx run` / `ebx exec`),
-> [Capability Model](./template-system.md#关键设计要点) (capabilities gating, see the capability model entry under "Key Design Points"; authoritative definition in ADR `2026-09-03-capability-model.md`).
+> Related documents: [Template System Design](./template-system.md) (template
+> tiers and distribution), [CLI Design](./cli-design.md)
+> (`ebx template search` / `install` / `deploy`).
 
 ---
 
-## 1. Why "README + Folders"
-
-There are two approaches for the template collection's indexing scheme:
-
-| Approach | Form | Problem |
-|----------|------|---------|
-| Structured manifest | `registry.json` / `index.json` / multi-layer manifest | Manifest and template files require **dual maintenance**, inevitably drifting; paths must be rewritten when extracting to a standalone repo; contributors must first learn the manifest format |
-| **Minimal directory** (this approach) | `README.md` + one folder per template | The index is **for humans**, consistency is ensured by tests rather than manual synchronization |
-
-Reasons for choosing the minimal form:
-
-1. **Template folders are self-describing**. `template.yaml` is the single source of truth,
-   `Dockerfile` is an independently buildable equivalent artifact, `README.md` is the human documentation.
-   Any additional index file is a projection of these three, and projections risk distortion.
-2. **Extraction to a standalone repo is zero-cost**. `git filter-repo` or simply `cp -r` works,
-   with no path references to rewrite — because **no file references absolute locations**.
-3. **Lowest contribution barrier**. Adding a new template = copy a folder, modify three files, add a row to the overview table.
-4. **Consistency can be machine-enforced**. See [§5 Offline Validation](#5-offline-validation-running-the-same-checks-in-a-standalone-repo).
-
-### 1.1 Directory Contract
+## 1. Architecture Overview
 
 ```
-examples/templates/                 ← Becomes standalone repo root when extracted
-├── README.md                       ← Sole index (template overview table + install/usage/contribution guide + schema)
-├── browser-automation/
-│   ├── template.yaml       ← Required: authoritative definition
-│   ├── Dockerfile                  ← Required: build artifact equivalent to YAML
-│   └── README.md                   ← Required: template documentation
-├── claude-code/
-├── codex/
-├── deepseek-harness/
-├── hermes-agent/
-├── node-web/
-├── openclaw/
-├── python-hello/
-├── qoder/
-└── qwen-code/
+┌─────────────────────────────────────────────────────────────────┐
+│  Easy-Sandbox/awesome-templates (single source of truth)        │
+│  ├── awesome-templates.yaml   ← machine-readable index          │
+│  │                              (data source for search/install)│
+│  ├── README.md / CONTRIBUTING.md  ← human index + contribution  │
+│  ├── <template>/              ← content (template.yaml +        │
+│  │                               Dockerfile + README.md         │
+│  │                               [+ commands.py])               │
+│  ├── tests/                   ← offline folder/index checks     │
+│  │                              (308 test cases)                │
+│  └── .github/workflows/ci.yml ← Py3.10–3.13 matrix CI           │
+└─────────────────────────────────────────────────────────────────┘
+          ▲ raw.githubusercontent.com (CDN, no API rate limit)
+          │ fetch_index(): cache in ~/.ebx/index/ + ETag revalidation
+┌─────────┴───────────────────────────────────────────────────────┐
+│  main repository easy-sandbox                                    │
+│  ├── src/easy_sandbox/utils/template_index.py  ← index client    │
+│  ├── src/easy_sandbox/cli/commands/template.py ← search/install  │
+│  ├── examples/templates/python-hello/          ← minimal fixture │
+│  └── tests/ (test_templates / test_utils / test_cli) ← offline   │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-Hard constraints:
+**Ownership split**:
 
-- **Folder name == `template.yaml`'s `name` == default `alias` after installation**.
-  All three must be consistent; otherwise `api/capability.py::resolve_capabilities()` cannot
-  look up the template by name in `~/.ebx/templates/`, and capabilities will silently fall back to
-  `DEFAULT_CAPABILITIES` (only logging a warning, not raising an error) — the hardest class of bugs to diagnose.
-- Naming in kebab-case: no spaces, no underscores, no uppercase.
-- All three required files must be present and non-empty.
-- The index table lives in `README.md`; **no additional json/yaml manifest files are introduced**.
+| Asset | Home | Notes |
+|-------|------|-------|
+| Official/community template content | Source-of-truth repo | Each folder: `template.yaml` + `Dockerfile` + `README.md` (plus `commands.py` when server-side commands are needed) |
+| Machine-readable index | Source-of-truth repo root `awesome-templates.yaml` | The only data source for `search` / `install`; **no** file of that name exists in this repository |
+| Releases & versions | Source-of-truth git tags/branches | The entry `ref` field pins a revision; no GitHub Release required |
+| Directory consistency checks | Source-of-truth `tests/` + CI | Index ↔ folders ↔ README table reconciled field by field |
+| Offline dev fixture | This repo's `examples/templates/python-hello/` | Used by offline unit/integration tests only; **never** add publishable templates here |
+| Index client & degraded behaviour | This repo's `utils/template_index.py` | Caching, conditional requests, rate-limit/offline fallback |
 
-### 1.2 Index Table Fields
+### 1.1 Why not "a mirrored copy + periodic sync"
 
-The "Template Overview" table in `README.md` has 7 columns, all sourced from YAML:
+An earlier design kept a full template copy in the main repository and
+published it via `git subtree push`. That design had two structural problems:
 
-| Column | Data Source |
-|--------|-------------|
-| Template | Folder name (links to `./<name>/`) |
-| Description | `description` |
-| Keywords | `tags` (order-sensitive) |
-| Base Image | `base` |
-| Resources | `resources.cpu` / `resources.memory` / `ports` |
-| Capabilities | `capabilities` (order-sensitive; `*` annotation see below) |
-| Custom Commands | `custom_commands` keys + their respective `args`, formatted as `` `run(task*)` ``, `*` = `required: true` |
+1. **Double writes always drift**: the Qwen parameter contract
+   (`max_turns` → `max_session_turns`) once diverged between the two copies —
+   a direct consequence of duplicated content.
+2. **Users got a stale copy**: a template list baked into the CLI can only
+   refresh with SDK releases, so community templates had to wait for a new
+   version before they could be discovered.
 
-"Order-sensitive" is deliberate: tests perform **list equality** rather than set equality,
-so the table truly reflects the declaration order in YAML rather than masking differences with sorting.
+After convergence: content has exactly one write path (PRs to the
+source-of-truth repo), discovery has exactly one path (the remote index), and
+SDK release cadence is fully decoupled from template evolution.
 
 ---
 
-## 2. Publishing Workflow (Definition of Done)
-
-The template collection's publishing is a **four-stage pipeline**; any stage not passing means it's not done:
-
-```
-①  Offline validation + local install E2E all green
-        │   python -m pytest tests/test_templates/ -q
-        ▼
-②  User pushes to GitHub (push git tag / branch, no Release needed)
-        │   (manual step, Agent does not execute git push)
-        ▼
-③  Real ebx install <owner>/<repo>//<template> --registry-type github end-to-end passes
-        │   (real network, real GitHub API, real ~/.ebx/templates cache)
-        ▼
-④  Done
-```
-
-### 2.1 Stage ①: Local Install Test (Agent's Hard Gate)
-
-`tests/test_templates/test_local_install.py` drives the real CLI via `CliRunner`:
-
-```bash
-python -m pytest tests/test_templates/ -q
-```
-
-It exercises the **real code path**: `RegistryClient.resolve()` → `RegistryClient.fetch()` →
-`load_template_from_yaml()` → `SandboxTemplate.to_dockerfile()` → construct
-`POST /templates` request body. Only two boundaries are stubbed:
-
-| Stubbed Boundary | Reason |
-|------------------|--------|
-| `transport.config.load_config` / `transport.auth.create_auth_provider` / `transport.http.HttpClient` | Requires real backend and credentials |
-| `httpx.AsyncClient.get` | Requires real network (GitHub tarball bytes) |
-
-Note that `_download_and_extract()` is **not** stubbed — tarball top-level directory stripping and `//subdir`
-subdirectory extraction, plus path traversal protection, are all executed for real using an in-memory
-GitHub-style .tar.gz replica built by `build_repo_tarball()`. Thus the entire chain "ref resolution → download → extract
-→ cache → load → generate Dockerfile → submit build" goes through real code except for the HTTP bytes themselves.
-
-The entire module also installs a `socket.getaddrinfo` / `socket.create_connection` tripwire
-(autouse fixture); any unexpected DNS resolution causes tests to fail immediately — "fully offline" is an **executable**
-commitment, not just a comment.
-
-> The tripwire deliberately does **not** patch `socket.socket`: asyncio's self-pipe (`socketpair()`)
-> depends on it, and patching it would crash `asyncio.run()` inside `run_sync()`.
-> `getaddrinfo` and `create_connection` are the choke points for all outbound HTTP.
-
-### 2.2 Stage ②: Manual Push (tag / branch is sufficient)
-
-Executed by the user; Agent does not touch it:
-
-```bash
-# Standalone repo form
-git remote add templates git@github.com:<owner>/awesome-easy-sandbox-templates.git
-git subtree push --prefix=examples/templates templates main
-git tag v1.0.0 && git push origin v1.0.0     # Push a git tag
-```
-
-**No GitHub Release needed**: `RegistryClient` uses the GitHub tarball API
-(`/repos/{owner}/{repo}/tarball[/{ref}]`) to fetch by tag/branch/sha; GitHub
-automatically resolves ref to tag/branch/sha. Without `@ref`, it fetches the default branch. Whether
-using only the default branch, just pushing git tags, or even using bare commit SHAs — all work with `ebx install`.
-
-### 2.3 Stage ③: Real GitHub End-to-End
-
-After publishing, a **real network** verification must be performed to cover what Stage ① cannot
-(real API response structure, real tarball top-level prefix, real authentication, real cache directory):
-
-```bash
-# Clear cache to ensure we're not hitting leftovers from Stage ①
-ebx template cache --clear
-
-# Single template (standard usage for this collection)
-ebx install <owner>/awesome-easy-sandbox-templates//node-web \
-  --registry-type github --registry-url https://github.com
-
-# Pin version
-ebx install <owner>/awesome-easy-sandbox-templates//node-web@v1.0.0 \
-  --registry-type github
-
-# Verify cache landed
-ebx template cache
-ls ~/.ebx/templates/<owner>/awesome-easy-sandbox-templates/v1.0.0/node-web
-
-# Verify capabilities / custom_commands are actually parsed (not falling back to defaults)
-ebx create --template node-web
-ebx run <sandbox_id> start
-ebx exec <sandbox_id> "node -v"
-ebx kill <sandbox_id> -y
-```
-
-`ebx run <sandbox_id> start` succeeding proves that `custom_commands` were correctly parsed from the
-cached YAML — the most informative single assertion across the entire chain.
-
-### 2.4 Why Whole-Repo Ref (Without `//`) Does Not Work
-
-```bash
-ebx install <owner>/awesome-easy-sandbox-templates --registry-type github
-```
-
-This resolves the **repository root** to the cache directory, but the root only contains `README.md` and
-template folders without its own `template.yaml`, causing install to fail with
-`No template.yaml found in ...`.
-
-This is **by design**, not a defect: this collection is a multi-template repository, and `//<template>` is the correct usage.
-`test_github_install_whole_repo_without_subdir_fails` pins this behavior,
-and the installation section in `README.md` explicitly documents the subdirectory syntax. Whole-repo ref is only valid when
-"one repository = one template."
-
----
-
-## 3. Linking Between Main Repo and Standalone Repo
-
-Both forms coexist, distinguished by **reference format** rather than file content:
-
-### 3.1 Staying in the Main Repository (Current State)
-
-```bash
-ebx install ./examples/templates/node-web --registry-type local
-```
-
-Main repository association points:
-
-| Location | Association Method | Breaks on Extraction? |
-|----------|-------------------|----------------------|
-| `README.md` (root) → `examples/templates/` | Relative link | Must change to point to standalone repo URL |
-| `examples/README.md` directory tree | Relative path description | Must remove that section |
-| `src/easy_sandbox/agent/infer.py::TEMPLATE_CATALOG` | References **by template name**, no paths | ❌ Does not break |
-| `examples/templates/README.md` schema links | `../../src/...` relative links | Must change to main repo blob URL |
-| `tests/test_templates/` | `parents[2] / "examples" / "templates"` | Adjust per §5.3 |
-
-Key design: **`TEMPLATE_CATALOG` references templates by name only, not by path**.
-So after the template directory is extracted, natural language inference (`ebx create "…"`) still works —
-it recommends a template name, and users then `ebx install <owner>/<repo>//<name>` themselves.
-
-### 3.2 After Extraction to Standalone Repo
-
-The main repository retains only a **pointer**, no longer holding content:
-
-````markdown
-<!-- Main repo README.md -->
-## Templates
-
-Ready-to-use sandbox templates are in the standalone repository
-[awesome-easy-sandbox-templates](https://github.com/<owner>/awesome-easy-sandbox-templates):
-
-```bash
-ebx install <owner>/awesome-easy-sandbox-templates//node-web --registry-type github
-```
-````
-
-Synchronization strategy (choose one):
-
-| Method | Description | Best For |
-|--------|-------------|----------|
-| `git subtree push --prefix=examples/templates` | Main repo remains the sole editing entry point; standalone repo is a published artifact | Frequent template changes, maintained by core team |
-| `git submodule` / delete main repo copy entirely | Standalone repo is the sole entry point; main repo only keeps links | Accepting community PRs, template ecosystem expanding |
-
-**Current recommendation: subtree push**: `tests/test_templates/` depends on the main repo's
-`easy_sandbox` package (real loader, real CLI); submodule-izing would split offline validation into two separate suites.
-
-### 3.3 Version Alignment
-
-The standalone repo's git tag/ref and each template's `template.yaml` `version` field
-are **two independent dimensions**:
-
-- git tag/ref (`v1.0.0`) = snapshot version of the entire collection, used for `@ref` pinning and cache subdirectories.
-- Template `version` = semantic version of an individual template, used for display and compatibility decisions.
-
-The cache path is organized by ref (`~/.ebx/templates/<owner>/<repo>/<ref|default>/`),
-so inconsistencies across these two dimensions do not cause cache cross-contamination.
-
----
-
-## 4. Boundary Between `ebx run` and `ebx exec`
-
-The existence of the template collection makes this boundary meaningful, which is why it's documented in the design doc rather than just the README:
-
-| | `ebx run <id> <command_name>` | `ebx exec <id> "<shell>"` |
-|---|---|---|
-| Command source | Declared in template `custom_commands` | Ad-hoc by the caller |
-| Parameter model | `--arg k=v` fills `{placeholder}`, auto-escaped via `shlex.quote` | None, entirely manual |
-| `cwd` / `env` / `timeout` | Declared in template; caller doesn't repeat | `--cwd` / `--timeout` explicitly passed; `env` cannot be passed |
-| Discoverability | `sandbox.list_commands()` can enumerate | Not enumerable |
-| Failure modes | Command name not found / required arg missing / placeholder unfilled → explicit `ValueError` | Shell syntax errors, non-zero exit codes |
-| Dependencies | Requires successful capabilities resolution (see §1.1 naming constraints) | Only needs `shell` capability |
-
-Design intent: `custom_commands` is the template author's **declarative encapsulation** of "how this environment should be used,"
-consolidating error-prone details like `cwd`/`env`/`timeout`/escaping from every call site into a single template declaration.
-`ebx exec` is reserved for one-off exploration and debugging. The two are not substitutes for each other.
-
----
-
-## 5. Offline Validation: Running the Same Checks in a Standalone Repo
-
-### 5.1 Validation Checklist
-
-`tests/test_templates/test_template_catalog.py` performs parameterized assertions per template:
-
-| # | Contract | Description |
-|---|----------|-------------|
-| a | YAML can be parsed by the **real loader** | `utils.registry.load_template_from_yaml()` → `SandboxTemplate`, not re-implementing parsing logic |
-| b1 | Required fields are complete | `name` / `version` / `description` / `base` / `author` / `tags` explicitly declared (the model has defaults, but published templates must state them) |
-| b2 | Capabilities are valid | All fall within `STANDARD_CAPABILITIES`; explicitly declared; no duplicates; `ports` capability and top-level `ports:` list are mutually sufficient and necessary |
-| b3 | custom_commands structure is valid | Command name in kebab/identifier format; `cmd` non-empty; `timeout > 0`; `cwd` absolute path; `env` is `str→str`; `{placeholder}` and `args` have **bidirectional** coverage; `required: true` must not have `default`, non-required **must** have `default` |
-| c | Three required files exist and are non-empty | `template.yaml` / `Dockerfile` / `README.md`; also catches spelling variants like `sandbox_template.yaml`, `dockerfile` |
-| d | Reconciliation with `TEMPLATE_CATALOG` | No orphans, no missing (see §5.2) |
-| e | `README.md` index table matches YAML field by field | description/keywords/base/cpu/memory/ports/capabilities/custom commands; plus capabilities distribution matrix; plus install and schema sections existence |
-| f | `Dockerfile`'s `FROM` == YAML `base` | Prevents handwritten Dockerfile and YAML telling different stories |
-
-### 5.2 Reconciliation Rules (Contract d)
-
-`TEMPLATE_CATALOG` (`src/easy_sandbox/agent/infer.py`) and disk folders
-are not 1:1, so two explicit whitelists pin "intentional asymmetries,"
-leaving any remaining discrepancy as a bug:
-
-```python
-# Provided by platform built-in images / online catalog; intentionally has no local folder
-PLATFORM_ONLY_TEMPLATES = {"base"}
-
-# Example/test fixtures only, not participating in natural language inference
-EXAMPLE_ONLY_TEMPLATES = {"python-hello"}
-```
-
-Four assertions:
-
-1. Every entry in `TEMPLATE_CATALOG` must either have a corresponding folder or be in `PLATFORM_ONLY_TEMPLATES` (**no missing**).
-2. Every folder must either be in `TEMPLATE_CATALOG` or in `EXAMPLE_ONLY_TEMPLATES` (**no orphans**).
-3. Names in `PLATFORM_ONLY_TEMPLATES` **must not** appear as folders (to avoid shadowing platform built-in templates;
-   `utils.registry.BUILTIN_TEMPLATES` treats bare name `base` as built-in and skips fetching).
-4. Entries with corresponding folders must have `cpu` / `memory` / `ports` consistent with the YAML's
-   `resources` / `ports` (the inference engine's resource defaults must not conflict with the template's actual declarations).
-
-> Deliberately **not** asserting "catalog keywords must contain YAML tags."
-> Keywords are **human phrasing** for natural language matching (`node.js`, `web service`, `build websites`),
-> while tags are **canonical identifiers** for retrieval (`nodejs`, `web`, `api`); the two are inherently different.
-> Forcing alignment would push `infer.py` to include keywords nobody would ever say, degrading inference quality.
-
-### 5.3 Running the Same Checks in a Standalone Repo
-
-`tests/test_templates/` only depends on `pydantic` + `pyyaml` + `click` + `pytest` +
-`easy_sandbox` package itself, with no dependency on any other main repo assets. When extracting:
-
-**Step 1 — Copy Tests**
-
-```bash
-mkdir -p tests/test_templates
-cp <main-repo>/tests/__init__.py tests/__init__.py
-cp <main-repo>/tests/test_templates/*.py tests/test_templates/
-```
-
-(`tests/__init__.py` and `tests/test_templates/__init__.py` must both exist;
-the test modules use package-relative imports `from .conftest import ...`.)
-
-**Step 2 — Change Path Constant**
-
-Only one location in `tests/test_templates/conftest.py` needs modification:
-
-```python
-# Main repo: tests/test_templates/conftest.py → parents[2] is the repo root
-REPO_ROOT = Path(__file__).resolve().parents[2]
-TEMPLATES_DIR = REPO_ROOT / "examples" / "templates"
-
-# Standalone repo: template folders are at the repo root
-REPO_ROOT = Path(__file__).resolve().parents[2]
-TEMPLATES_DIR = REPO_ROOT                      # ← Only change this line
-```
-
-**Step 3 — Install SDK**
-
-Standalone repo CI needs `easy-sandbox[cli]` (tests use the real loader and real CLI):
+## 2. Machine-Readable Index (`awesome-templates.yaml`)
 
 ```yaml
-# .github/workflows/validate.yml
-name: validate-templates
-on: [push, pull_request]
-jobs:
-  validate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - run: pip install "easy-sandbox[cli]>=0.1" pytest
-      - run: python -m pytest tests/test_templates/ -q
+schema_version: 1
+templates:
+  - name: node-web                       # required; unique; kebab-case
+    description: "Node.js web service runtime"  # human-readable (search hit source)
+    repo: https://github.com/Easy-Sandbox/awesome-templates  # required; github.com only
+    path: node-web                       # in-repo subdir; omit if the whole repo is one template
+    ref: v1.0.0                          # optional; pins a tag/branch/sha
+    tags: [nodejs, web, express, api]    # searchable tags
+    author: Easy-Sandbox
+    capabilities: [shell, files, code, ports]
+    status: official                     # official | community | experimental
 ```
 
-**Step 4 — Disable Two Assertions Requiring Main Repo Context**
+Conventions:
 
-Contract d (`TEMPLATE_CATALOG` reconciliation) depends on `easy_sandbox.agent.infer`;
-with the SDK installed, it runs without modification.
-Contract e's references to `../../src/...` relative links only appear in README text;
-tests do not validate link reachability, so no modification is needed either.
-
-> Conclusion: **The standalone repo runs the same test files, changing only the `TEMPLATES_DIR` line.**
-
-### 5.4 Quick Local Validation
-
-```bash
-# Full suite (~400 parameterized cases, 2-3 seconds)
-python -m pytest tests/test_templates/ -q
-
-# Directory contract only
-python -m pytest tests/test_templates/test_template_catalog.py -q
-
-# Install end-to-end only
-python -m pytest tests/test_templates/test_local_install.py -q
-
-# Validate a specific template only
-python -m pytest tests/test_templates/ -q -k node-web
-
-# Manual offline load (bypassing CLI)
-python -c "
-from pathlib import Path
-from easy_sandbox.utils.registry import load_template_from_yaml
-t = load_template_from_yaml(Path('examples/templates/node-web/template.yaml'))
-print(t.name, t.base, t.capabilities, list(t.custom_commands))
-print(t.to_dockerfile())
-"
-```
+- **`schema_version`**: index format version, currently `1`. Missing means 1
+  (backward compatible); a version newer than the client supports fails
+  **loudly** with an upgrade hint instead of being misinterpreted.
+- **`repo`**: only `github.com` `owner/repo` slugs or full URLs are accepted
+  (normalised at parse time).
+- **`path` / `ref` combination**: entries compose into a Terraform-style
+  `owner/repo//path@ref` reference (`TemplateIndexEntry.install_ref`) handed
+  straight to `RegistryClient.resolve()`; with no `path` it degrades to
+  `owner/repo`.
+- **`name` uniqueness**: duplicate entries fail at parse time so results never
+  depend on ordering.
+- Contract enforcement lives in the source-of-truth `tests/test_index.py`:
+  exactly one entry per folder, fields matching `template.yaml` item by item,
+  and `install_ref` parseable by the registry client.
 
 ---
 
-## 6. What We Don't Do (Explicit Boundaries)
+## 3. Remote Index Client Behaviour (`utils/template_index.py`)
 
-| Not Doing | Reason |
-|-----------|--------|
-| No `registry.json` / `index.json` / multi-layer manifest | Dual maintenance inevitably drifts; indexing is ensured by README + tests |
-| No real docker image builds in tests | Requires docker daemon, breaks offline and CI reproducibility; `Dockerfile` only checks `FROM` matches YAML |
-| No real platform `POST /templates` calls in tests | Requires credentials and quotas; build boundaries are all stubbed |
-| Agent does not execute `git push` / create Releases | Publishing is a human decision point, see §2.2 |
-| No renaming / moving existing template folders | `TEMPLATE_CATALOG` and multiple documents reference by name; renaming is a breaking change |
-| No forcing `TEMPLATE_CATALOG` keywords to align with YAML tags | See the explanation at the end of §5.2 |
+### 3.1 Default location & overrides
+
+| Item | Value |
+|------|-------|
+| Default index URL | `https://raw.githubusercontent.com/Easy-Sandbox/awesome-templates/main/awesome-templates.yaml` |
+| Env override | `EBX_TEMPLATE_INDEX_URL` (HTTP(S) URL or local file path) |
+| CLI override | `ebx template search/install --index-url <URL-or-path>` |
+| Auth | `--token` > `GITHUB_TOKEN` > stored `github_token` (`ebx config set github_token`; private mirrors, higher rate limits) |
+
+Choosing `raw.githubusercontent.com` over `api.github.com` is deliberate: raw
+files are served by a CDN and are **not** subject to the 60 req/hour anonymous
+API limit; local file paths make enterprise mirrors and fully offline
+deployments first-class.
+
+### 3.2 Caching & conditional requests
+
+- Cache lives in `~/.ebx/index/` (kept separate from `~/.ebx/templates/` so it
+  can never be mistaken for an installed template): the index body plus
+  `awesome-templates.meta.json` (`source_url` / `etag` / `fetched_at`).
+- TTL `INDEX_MAX_AGE_SECONDS = 3600`: a fresh cache **makes no network call**
+  (the common `search`/`install` path costs zero network).
+- Once expired, an `If-None-Match` conditional request is sent; `304` only
+  refreshes the metadata timestamp and reuses the cached body.
+- `--refresh` / `force=True` bypasses the cache.
+- A corrupt (unparseable) cache is discarded and re-fetched — garbage is never
+  fed into the degraded path.
+
+### 3.3 Degraded-mode matrix (explicit and predictable)
+
+| Scenario | With cache | Without cache |
+|----------|------------|---------------|
+| Network unreachable (DNS/timeout/refused) | Stale cache + `stale=True` + warning ("using cached index") | `NetworkError` suggesting network / `GITHUB_TOKEN` / `--index-url` checks |
+| GitHub rate limit (403 with `X-RateLimit-Remaining: 0`, or 429) | Same as above + warning pointing at `GITHUB_TOKEN` / `ebx config set github_token` | `GitHubRateLimitError` (E5000) with the verified fine-grained PAT URL, `ebx config set github_token` / `GITHUB_TOKEN` remediation, the `--token` leak warning, and a mirror hint; an interactive terminal is also offered a masked one-shot setup + exactly one retry |
+| `404` | Falls into the generic network-error path | `NetworkError` suggesting verifying the index URL (`--index-url`) |
+| Server errors (5xx) | Stale cache + warning | `NetworkError` |
+| Other non-2xx | Stale cache + warning | `NetworkError` reporting the concrete status |
+| `schema_version` too new | No degradation | `TemplateParseError` with `pip install -U easy-sandbox` |
+| Missing `templates` list / invalid YAML | No degradation | `TemplateParseError` (includes the source URL) |
+
+Degradation is surfaced uniformly through `TemplateIndex.stale` + `notice`: the
+CLI prints the warning before the results and keeps exit code 0 — a stale index
+is still usable, just visibly stale.
+
+---
+
+## 4. CLI Behaviour (`ebx template search` / `install`)
+
+### 4.1 `ebx template search <query>`
+
+- Queries the remote index; substring match across `name` / `description` /
+  `tags` / `author`; `--tag` / `--status` exact filters; `--refresh` forces a
+  re-fetch; `-j` emits JSON.
+- Prints a table (Name / Description / Tags / Status) plus the install hint
+  `Install one with: ebx template install <name> (index: <source_url>)`.
+- On degradation the `notice` warning is printed before the results.
+
+### 4.2 Bare-name resolution order for `ebx template install <name>`
+
+```
+<name> is a local path?       → use it directly (no network, no index)
+<name> is a builtin?          → BUILTIN_TEMPLATES = {base, code-interpreter-v1}
+                                (platform images, no fetch, no index call)
+<name> looks like owner/repo[//path][@ref]? → straight to RegistryClient (no index)
+otherwise (bare name)         → query the remote index:
+                                hit  → install_ref (possibly ref-pinned) → normal install
+                                miss and cache is not stale → one forced refresh,
+                                  giving freshly published templates a chance
+                                still a miss → TemplateNotFoundError with a
+                                  suggestion to run 'ebx template search' or
+                                  install directly from owner/repo//subdir
+```
+
+On an index hit the CLI prints
+`Resolved '<name>' via the template index: <owner>/<repo>//<path>[@ref]`, so the
+eventual source and version are auditable.
+
+### 4.3 Version pinning & per-ref cache layout
+
+A pinned `ref` (declared by the entry or passed explicitly with `@ref`) ends up
+in the cache path `~/.ebx/templates/<owner>/<repo>/<ref|default>/<path>`, so
+different refs never bleed into each other. Entries without a `ref` follow the
+source-of-truth default branch — "track latest" and "pin a version" are both
+explicit choices.
+
+---
+
+## 5. Main-Repository Fixture Contract (`examples/templates/`)
+
+`examples/templates/` is a **test-asset directory**, not a template catalog:
+
+- Only `python-hello` may exist (`EXPECTED_FIXTURE_TEMPLATES`); any additional
+  folder fails
+  `tests/test_templates/test_template_catalog.py::TestFixtureBoundary` immediately.
+- Three explicit markers prevent it from being mistaken for a publishable
+  template:
+  1. directory-level `README.md` stating "this directory is NOT the publishing
+     source" + a link to the source of truth + the remote install commands;
+  2. a `FIXTURE` banner comment at the top of `python-hello/template.yaml`;
+  3. a fixture notice block in `python-hello/README.md`.
+- The fixture itself must still pass every template contract (real loader
+  parse, valid capabilities, Dockerfile `FROM`, custom_commands
+  placeholder↔args bidirectional coverage) — it is the executable sample of the
+  template specification.
+- `python-hello` is also referenced by integration tests and golden files (CLI
+  help, workflow E2E), so it is **never deleted or renamed**.
+
+---
+
+## 6. Test Strategy (offline-first)
+
+### 6.1 Main repository (fully offline, no network)
+
+| Suite | Coverage |
+|-------|----------|
+| `tests/test_utils/test_template_index.py` | Index parsing/validation, `install_ref` construction, cache lifecycle (fresh short-circuit / force / 304), degraded matrix (offline / rate limit / 404 / 5xx / corrupt cache), token and env overrides |
+| `tests/test_cli/test_template_index_commands.py` | `search` output/filters/JSON/degraded notice/option passthrough; `install` bare-name index resolution, `@ref` pinning, builtin names never touching the index, friendly not-found with forced refresh |
+| `tests/test_templates/test_template_catalog.py` | Fixture boundary (uniqueness/markers/README contract) + fixture YAML/Dockerfile/custom_commands contracts |
+| `tests/test_templates/test_local_install.py` | The real CLI install pipeline (local tarball stubs, `socket` tripwire guaranteeing zero egress) |
+
+Network interception is done exclusively via `pytest-httpx` (`httpx_mock`) or
+`fetch_index` stubs; the full unit suite runs in network-less environments
+(CI sandboxes, enterprise intranets).
+
+### 6.2 Source-of-truth repository (self-testing, evolves with content)
+
+`tests/test_catalog.py` (32 cases) + `tests/test_index.py` (11 cases) +
+`tests/test_commands_e2e.py` (10 cases): directory contracts, index
+reconciliation, README table compared field by field, and the qwen-code
+`max_session_turns` contract guard. CI runs on a Python 3.10–3.13 matrix
+against `requirements-dev.txt` (`easy-sandbox[cli]` git main + pytest + pyyaml).
+
+> Division of labour: **content correctness** belongs to the source-of-truth
+> repo (a template change must update the index and README table in the same
+> PR); **client behaviour** belongs to this repository (caching, degradation,
+> resolution order). Neither side depends on the other's repository layout —
+> they couple only through the public contract of the index file format.
+
+---
+
+## 7. Publishing & Contribution Flow
+
+1. **Contribute**: open a PR against the source-of-truth repo
+   (`CONTRIBUTING.md` defines the template anatomy, capability-group rules and
+   local dev workflow). The PR must update `awesome-templates.yaml` and the
+   README table in lock-step; the offline CI must be green.
+2. **Release**: merging to `main` is the release (the index updates atomically
+   with the content); tag `v1.0.0` for stable references, which users pin via
+   `@v1.0.0`. **No GitHub Release needed** — `RegistryClient` resolves
+   tags/branches/shas through the tarball API.
+3. **Consume**: users discover via `ebx template search` and install with
+   `ebx template install <name>`; a freshly published template is found
+   immediately thanks to the single forced refresh on a cache miss, no TTL wait.
+4. **Rollback**: point the entry `ref` at a known-good version; to pull a
+   template urgently, remove its entry (invisible to new users; installed
+   caches are unaffected).
+
+---
+
+## 8. Non-Goals (explicit boundaries)
+
+| Not doing | Why |
+|-----------|-----|
+| Mirroring template content back into this repository | Double writes are the root problem this design eliminates |
+| Keeping a copy of `awesome-templates.yaml` here | The index's single source of truth is the catalog repo; this repo only ships the client |
+| Requiring an SDK release for a template update | The index mechanism already decouples the two release cadences |
+| Hitting GitHub for real in unit tests | Offline-first is a hard constraint; networked checks are integration/manual |
+| Automatic cross-repo sync (subtree/submodule/cron) | The catalog repo is the single entry point — no sync action, hence no sync drift |
+| An Agent executing `git push` | Publishing is a human decision point |
+| Deleting/renaming the `python-hello` fixture | Integration tests and golden files reference it by path; deletion breaks them |
+| Reverting the `max_session_turns` contract | The parameter name established by task 181 is guarded by tests on both sides (catalog `test_commands_e2e.py`) |

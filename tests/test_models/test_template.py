@@ -12,99 +12,43 @@ class TestSandboxTemplate:
         tmpl = SandboxTemplate(name="test")
         assert tmpl.name == "test"
         assert tmpl.version == "1.0.0"
-        assert tmpl.base == "ubuntu:22.04"
-        assert tmpl.system_packages == []
-        assert tmpl.python_packages == []
-        assert tmpl.node_packages == []
-        assert tmpl.commands == []
         assert tmpl.env == {}
-        assert tmpl.copy_files == {}
+        assert tmpl.ports == []
+        assert tmpl.capabilities is None
+        assert tmpl.custom_commands == {}
 
     def test_full_template(self) -> None:
         tmpl = SandboxTemplate(
             name="data-science",
             version="2.0.0",
             description="Data science template",
-            base="python:3.11",
-            system_packages=["git", "curl"],
-            python_packages=["pandas", "numpy"],
-            node_packages=["typescript"],
-            commands=["echo hello"],
             env={"LANG": "C.UTF-8"},
-            copy_files={"requirements.txt": "/app/requirements.txt"},
             cpu_count=2,
             memory_mb=4096,
             author="test-author",
             license="MIT",
             tags=["data", "python"],
+            capabilities=["shell", "files", "code"],
         )
         assert tmpl.name == "data-science"
         assert tmpl.version == "2.0.0"
         assert tmpl.cpu_count == 2
         assert tmpl.memory_mb == 4096
         assert tmpl.tags == ["data", "python"]
+        assert tmpl.capabilities == ["shell", "files", "code"]
 
-    def test_to_dockerfile_minimal(self) -> None:
-        tmpl = SandboxTemplate(name="test")
-        dockerfile = tmpl.to_dockerfile()
-        assert dockerfile == "FROM ubuntu:22.04"
-
-    def test_to_dockerfile_system_packages(self) -> None:
-        tmpl = SandboxTemplate(name="test", system_packages=["git", "curl"])
-        dockerfile = tmpl.to_dockerfile()
-        assert "FROM ubuntu:22.04" in dockerfile
-        assert "apt-get update && apt-get install -y git curl" in dockerfile
-        assert "rm -rf /var/lib/apt/lists/*" in dockerfile
-
-    def test_to_dockerfile_python_packages(self) -> None:
-        tmpl = SandboxTemplate(name="test", python_packages=["pandas", "numpy"])
-        dockerfile = tmpl.to_dockerfile()
-        assert "pip install --no-cache-dir pandas numpy" in dockerfile
-
-    def test_to_dockerfile_node_packages(self) -> None:
-        tmpl = SandboxTemplate(name="test", node_packages=["typescript"])
-        dockerfile = tmpl.to_dockerfile()
-        assert "npm install -g typescript" in dockerfile
-
-    def test_to_dockerfile_commands(self) -> None:
-        tmpl = SandboxTemplate(name="test", commands=["echo hello", "mkdir /data"])
-        dockerfile = tmpl.to_dockerfile()
-        assert "RUN echo hello" in dockerfile
-        assert "RUN mkdir /data" in dockerfile
-
-    def test_to_dockerfile_env(self) -> None:
-        tmpl = SandboxTemplate(name="test", env={"LANG": "C.UTF-8"})
-        dockerfile = tmpl.to_dockerfile()
-        assert "ENV LANG=C.UTF-8" in dockerfile
-
-    def test_to_dockerfile_copy_files(self) -> None:
+    def test_extra_fields_ignored(self) -> None:
+        """Legacy build fields (base, system_packages, etc.) are silently ignored."""
         tmpl = SandboxTemplate(
             name="test",
-            copy_files={"app.py": "/app/app.py"},
+            base="python:3.11",  # type: ignore[call-arg]
+            system_packages=["git"],  # type: ignore[call-arg]
+            python_packages=["flask"],  # type: ignore[call-arg]
         )
-        dockerfile = tmpl.to_dockerfile()
-        assert "COPY app.py /app/app.py" in dockerfile
-
-    def test_to_dockerfile_full(self) -> None:
-        tmpl = SandboxTemplate(
-            name="full-test",
-            base="python:3.11",
-            system_packages=["git"],
-            python_packages=["flask"],
-            node_packages=["prettier"],
-            commands=["echo done"],
-            env={"APP_ENV": "prod"},
-            copy_files={"src": "/app"},
-        )
-        dockerfile = tmpl.to_dockerfile()
-        lines = dockerfile.split("\n")
-        assert lines[0] == "FROM python:3.11"
-        assert any("apt-get" in line for line in lines)
-        assert any("pip install" in line for line in lines)
-        assert any("npm install" in line for line in lines)
-        assert any("RUN echo done" in line for line in lines)
-        assert any("ENV APP_ENV=prod" in line for line in lines)
-        assert any("COPY src /app" in line for line in lines)
+        assert tmpl.name == "test"
+        # extra fields are silently dropped by model_config = {"extra": "ignore"}
+        assert not hasattr(tmpl, "base")
+        assert not hasattr(tmpl, "system_packages")
 
 
 class TestTemplateRef:

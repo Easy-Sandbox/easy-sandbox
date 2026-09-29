@@ -1,7 +1,5 @@
 # 编写模板
 
-> **项目更名说明**：本项目已从 Serverless Sandbox 更名为 **Easy Sandbox**。PyPI 包名: `easy-sandbox`（`pip install easy-sandbox`），CLI 命令: `ebx`，Python 导入: `easy_sandbox`。
-
 本文档介绍如何创建自定义 Easy Sandbox 模板，包括目录结构、字段参考、能力声明、自定义命令和发布流程。
 
 ---
@@ -28,17 +26,10 @@ my-template/
 name: my-python-template
 version: "1.0.0"
 description: "Python 数据分析环境，预装 pandas 和 matplotlib"
-
-base: python:3.11-slim
-
-system_packages:
-  - curl
-  - git
-
-python_packages:
-  - pandas
-  - matplotlib
-  - numpy
+author: "Your Name"
+tags:
+  - python
+  - data-analysis
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -63,13 +54,7 @@ ports:
 | `name` | `str` | ✅ | — | 模板名称 |
 | `version` | `str` | ❌ | `"1.0.0"` | 语义版本号 |
 | `description` | `str` | ❌ | `""` | 模板描述 |
-| `base` | `str` | ❌ | `"ubuntu:22.04"` | 基础 Docker 镜像 |
-| `system_packages` | `list[str]` | ❌ | `[]` | apt 安装的系统包 |
-| `python_packages` | `list[str]` | ❌ | `[]` | pip 安装的 Python 包 |
-| `node_packages` | `list[str]` | ❌ | `[]` | npm 全局安装的 Node 包 |
-| `commands` | `list[str]` | ❌ | `[]` | 构建时执行的 Shell 命令 |
 | `env` | `dict[str, str]` | ❌ | `{}` | 环境变量 |
-| `copy_files` | `dict[str, str]` | ❌ | `{}` | 文件复制映射（src → dst） |
 | `cpu_count` | `int` | ❌ | `None` | 默认 CPU 核数 |
 | `memory_mb` | `int` | ❌ | `None` | 默认内存 MB |
 | `ports` | `list[int]` | ❌ | `[]` | 暴露的端口列表 |
@@ -184,7 +169,7 @@ sandbox.register.download()  # GET  /download
 
 ## Dockerfile 自定义
 
-当需要更精细的控制时，可以直接提供 `Dockerfile`：
+实际构建流程直接使用 `Dockerfile` + 语言原生依赖文件（`requirements.txt` / `package.json`）：
 
 ```dockerfile
 FROM python:3.11-slim
@@ -201,7 +186,7 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 ```
 
-`Dockerfile` 存在时优先于 `template.yaml` 中的构建步骤（`system_packages`、`python_packages`、`commands` 等）。
+模板目录中的 `Dockerfile` 是构建镜像的唯一来源。`template.yaml` 只定义运行时配置（能力、命令、环境变量、资源），不包含构建指令。
 
 ---
 
@@ -253,7 +238,7 @@ ebx template deploy ./my-template \
 | 官方 CreateTemplate API | ✅ 是 | AK/SK | `easy-sandbox[alicloud]` |
 | 旧 v3/v2 Platform API | 否（`--legacy-api`） | E2B API Key | 无额外依赖 |
 
-> **Region 注意**：官方 API 默认 region 为 `cn-hangzhou`，可通过 `--region` 全局选项设置。跨区域访问 ACR 可能需要配置 VPC 相关参数。
+> **Region 注意**：官方 API 使用的 region 来自 `ebx config set region`（未设置时为 `cn-hangzhou`）。单次部署可通过 `template deploy`/`build`/`create`/`push`/`list`/`info`/`install`/`delete` 的命令级 `--region`/`-r` 选项覆盖。跨区域访问 ACR 可能需要配置 VPC 相关参数。
 
 ### 仅从镜像创建模板
 

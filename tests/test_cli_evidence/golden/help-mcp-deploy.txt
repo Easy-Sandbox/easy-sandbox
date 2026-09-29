@@ -5,17 +5,32 @@ Usage: cli mcp deploy [OPTIONS]
   Creates a Streamable HTTP ASGI application artifact and prints manual FC
   deployment steps. Automatic FC API deployment is not implemented.
 
+  The artifact contains ``requirements.txt``, ``app.py`` (ASGI entry point), and
+  ``config.yaml`` (a YAML deployment manifest with FC function settings and
+  environment variables).
+
+  ``--region`` overrides the FC region for this invocation; without it the
+  region comes from ``ebx config set region`` / the ``SANDBOX_REGION``
+  environment variable and defaults to ``cn-hangzhou``.
+
   POST and DELETE /mcp are implemented. GET /mcp currently returns 501; SSE
   server notifications are planned for Phase 2.
 
-  Example:
+  Examples:
     ebx mcp deploy --generate-token --api-key $E2B_API_KEY
     ebx mcp deploy --auth-token-file ./token.txt --region cn-shanghai
     ebx mcp deploy --output-dir ./deploy-artifact
 
+  Related commands:
+    ebx mcp start                 Run the local STDIO server
+    ebx mcp status                Inspect MCP authentication state
+    ebx config set api_key VALUE  Configure sandbox authentication
+
 Options:
   --name TEXT                     FC function name for the artifact.
-  --region TEXT                   FC region.
+  -r, --region TEXT               Region override for this command (default:
+                                  'ebx config set region' value, else cn-
+                                  hangzhou)
   --template TEXT                 Default sandbox template for MCP sessions.
   --memory INTEGER                FC function memory (MB).
   --timeout INTEGER               FC function timeout (s).
@@ -30,5 +45,5 @@ Options:
   --custom-domain TEXT            Custom domain for the MCP endpoint.
   --output-dir PATH               Write the FC deployment artifact to this
                                   directory.
-  --help                          Show this message and exit.
+  -h, --help                      Show this message and exit.
 [exit_code:0]

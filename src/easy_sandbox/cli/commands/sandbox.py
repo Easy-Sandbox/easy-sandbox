@@ -4,13 +4,21 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import Any
+from contextlib import contextmanager
+from typing import TYPE_CHECKING, Any
 
 import click
 
 from easy_sandbox.cli.formatters import get_formatter
 from easy_sandbox.cli.main import handle_errors
 from easy_sandbox.cli.output import get_output
+from easy_sandbox.cli.region import region_option
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
+    from pathlib import Path
+
+    from easy_sandbox.agent.coding_agent import CodingAgentBackend
 
 # ---------------------------------------------------------------------------
 # create
@@ -23,9 +31,421 @@ from easy_sandbox.cli.output import get_output
 _CREATE_REQUEST_TIMEOUT_FLOOR = 120.0
 
 
+# ---------------------------------------------------------------------------
+# AI template generation helpers for `ebx create "<description>"`
+#
+# The pipeline talks to a pluggable coding-agent backend (see
+# :mod:`easy_sandbox.agent.coding_agent`); Qwen Code is the only shipped
+# backend today, so every default message below stays byte-identical to the
+# Qwen Code wording.
+# ---------------------------------------------------------------------------
+
+
+def _print_quick_setup(out: Any, *, backend: CodingAgentBackend, reason: str) -> None:
+    """Print the backend-provided Quick Setup for the AI template path.
+
+    *reason* is ``"not-installed"`` or ``"no-credentials"``.
+    """
+    out.info("")
+    for line in backend.quick_setup_lines(reason=reason):
+        out.info(line)
+
+
+def _ensure_coding_agent_binary(
+    ctx: click.Context, *, yes: bool, backend: CodingAgentBackend
+) -> Any:
+    """Return a usable coding-agent executable, offering installation if missing.
+
+    Interactive terminals are offered an automatic install of the official
+    standalone build (SHA256-verified); non-interactive shells without
+    ``--yes`` get the Quick Setup and a hard error instead of a hang.
+    """
+    binary = backend.find_binary()
+    if binary is not None:
+        return binary
+
+    out = get_output(ctx)
+    interactive = sys.stdin.isatty()
+    out.warning(f"{backend.display_name} CLI was not found on PATH or in ~/.ebx/bin.")
+    _print_quick_setup(out, backend=backend, reason="not-installed")
+
+    not_installed = backend.not_installed_error
+    if not yes and not interactive:
+        raise not_installed(
+            f"{backend.display_name} CLI is required for AI template generation "
+            "but is not installed.",
+            suggestion=(
+                "Install it with the official command from Quick Setup above, then retry — "
+                "or use 'ebx create --template <name>' to skip AI generation."
+            ),
+        )
+    if interactive and not yes:
+        proceed = click.confirm(
+            f"Install the official {backend.display_name} standalone build into ~/.ebx/bin now?",
+            default=True,
+        )
+        if not proceed:
+            raise not_installed(
+                f"Declined to install {backend.display_name}; AI template generation "
+                "cannot continue.",
+                suggestion=(
+                    "Install it manually (see Quick Setup above) and retry, or use "
+                    "'ebx create --template <name>'."
+                ),
+            )
+    with out.spinner(f"Installing {backend.display_name}"):
+        installed = backend.install()
+    out.success(f"Installed {backend.display_name}: {installed}")
+    return installed
+
+
+def _resolve_coding_agent_credentials(
+    ctx: click.Context, *, yes: bool, backend: CodingAgentBackend
+) -> Any:
+    """Resolve coding-agent credentials, prompting once when allowed.
+
+    Stored values (the backend's ``EBX_QWEN_CODE_API_KEY`` for Qwen Code)
+    win, then the ebx ``llm_api_key`` (officially compatible), then
+    variables already exported in the shell.
+    """
+    from easy_sandbox.cli.commands.config_cmd import (
+        load_config_dict,
+        read_env_var,
+        write_env_var,
+    )
+
+    transport = load_config_dict()
+    stored_key = os.environ.get(backend.env_var) or read_env_var(backend.env_var)
+    llm_key = os.environ.get("EBX_LLM_API_KEY") or transport.get("llm_api_key")
+    base_url = transport.get(backend.base_url_config_key)
+    model = transport.get(backend.model_config_key)
+
+    try:
+        return backend.resolve_credentials(
+            stored_api_key=stored_key,
+            llm_api_key=llm_key,
+            stored_base_url=base_url,
+            stored_model=model,
+        )
+    except backend.credential_error:
+        pass
+
+    out = get_output(ctx)
+    if yes or not sys.stdin.isatty():
+        raise backend.credential_error(
+            f"{backend.display_name} is installed but no model credentials were found.",
+            suggestion=(
+                f"Store a key with 'ebx config set {backend.config_key} <KEY>' (or export "
+                "OPENAI_API_KEY / DASHSCOPE_API_KEY), then retry. Guided setup: "
+                "'ebx config init'."
+            ),
+        )
+    _print_quick_setup(out, backend=backend, reason="no-credentials")
+    key = click.prompt(
+        backend.credential_prompt,
+        hide_input=True,
+        default="",
+        show_default=False,
+    )
+    if not key.strip():
+        raise backend.credential_error(
+            f"No {backend.display_name} API key provided; AI template generation cannot continue.",
+            suggestion=(
+                f"Store one with 'ebx config set {backend.config_key} <KEY>' and retry, "
+                "or use 'ebx create --template <name>'."
+            ),
+        )
+    write_env_var(backend.env_var, key.strip())
+    out.success(f"Stored {backend.config_key} in ~/.ebx/.env")
+    return backend.resolve_credentials(
+        stored_api_key=key.strip(),
+        llm_api_key=llm_key,
+        stored_base_url=base_url,
+        stored_model=model,
+    )
+
+
+@contextmanager
+def _phase_status(out: Any, message: str) -> Iterator[None]:
+    """Phase status for the clarification / generation flow.
+
+    Interactive TTY: an animated spinner on **stderr** (never stdout, and
+    never the model's research output or chain of thought).  Every other
+    mode (non-TTY, ``--json``, ``--verbose``): one machine-readable
+    progress line on stderr; quiet and CI stay silent.  stdout is never
+    touched in any mode.
+    """
+    if not out.use_rich_spinner and not out.quiet:
+        out.progress(message)
+    with out.spinner(message):
+        yield
+
+
+def _clarify_requirements(
+    ctx: click.Context,
+    description: str,
+    *,
+    yes: bool,
+    workdir: Path,
+    binary: Any,
+    env: dict[str, str],
+    backend: CodingAgentBackend,
+) -> Any:
+    """Complete *description* through the research-first clarification loop.
+
+    The research, the evaluation, and the questions all come from the
+    coding agent itself, on ONE native session: round 1 runs a plain
+    research round (``backend.research`` — the agent settles publicly
+    verifiable facts with its own tools before anything is asked)
+    followed by the structured assessment (``backend.assess`` with
+    ``--json-schema``); every following round resumes the same session
+    (``--resume``) with one user answer, so the model keeps the
+    description, the research summary, and every Q/A pair in its own
+    memory.
+
+    Easy Sandbox keeps only its own surface:
+
+    * the single question per round, numbered ``Question 1``,
+      ``Question 2``, … with **no total shown** — the internal round cap
+      is a safety bound, mentioned only when reached;
+    * the 80% threshold gate (our verdict, not the model's);
+    * delegation answers ("你自己决定" / "you decide") — the follow-up
+      prompt instructs the agent to settle the delegated choice itself;
+    * anti-repetition — asked questions are embedded in every follow-up
+      prompt, and an exactly-repeated question breaks the loop;
+    * non-interactive fail-fast with the missing details + example;
+    * degradation to direct generation when the assessment is
+      unavailable.
+
+    All phase status (assessing / re-assessing / generating) renders on
+    **stderr only** (spinner on TTY, machine-readable progress lines
+    otherwise); stdout stays clean and the model's research output is
+    never echoed.
+
+    Returns a :class:`~easy_sandbox.agent.clarify.ClarifyOutcome`; a
+    non-empty ``session_id`` means generation should resume that session.
+    """
+    from easy_sandbox.agent import clarify
+    from easy_sandbox.models.errors import DescriptionClarificationError
+
+    fmt = get_formatter(ctx)
+    out = get_output(ctx)
+
+    if yes:
+        return clarify.ClarifyOutcome(skipped=True)
+
+    interactive = sys.stdin.isatty() and not fmt.use_json
+    session_id = clarify.new_session_id()
+    asked: list[str] = []
+
+    def failure_hint(assessment: Any) -> str:
+        parts = [f"Missing details: {assessment.missing_summary()}."]
+        if assessment.example:
+            parts.append(f'Example description: "{assessment.example}".')
+        parts.append(
+            "Add them to DESCRIPTION, pass --yes/-y to generate from the current "
+            "description anyway, or use 'ebx create --template <name>'."
+        )
+        return " ".join(parts)
+
+    def warn_incomplete(assessment: Any) -> None:
+        out.warning(
+            f"Description is about {assessment.completeness:.0%} complete; "
+            f"missing: {assessment.missing_summary()}. Generating anyway."
+        )
+        if assessment.example:
+            out.info(f'Example description: "{assessment.example}"')
+
+    # ---- Round 1: research the public facts, then assess (one session) ----
+    with _phase_status(out, "Assessing description"):
+        research_ok = backend.research(
+            clarify.research_prompt(description),
+            workdir=workdir,
+            binary=binary,
+            env=env,
+            session_id=session_id,
+        )
+        if not research_ok:
+            out.warning(
+                f"{backend.display_name} could not research the public facts "
+                "behind the description; continuing with the assessment "
+                "(safe defaults apply where facts are missing)."
+            )
+        assessment = backend.assess(
+            clarify.assessment_prompt(description),
+            workdir=workdir,
+            binary=binary,
+            env=env,
+            resume=session_id if research_ok else None,
+            session_id=None if research_ok else session_id,
+        )
+    if assessment is None:
+        out.warning(
+            f"Could not assess the description completeness with "
+            f"{backend.display_name} (assessment unavailable); continuing "
+            "straight to generation."
+        )
+        return clarify.ClarifyOutcome(degraded=True)
+
+    if assessment.complete:
+        return clarify.ClarifyOutcome(session_id=session_id, assessment=assessment)
+
+    if not interactive:
+        # Non-TTY / JSON / CI: never block — fail fast with the missing
+        # details and a ready-to-use example.
+        raise DescriptionClarificationError(
+            f"The description is about {assessment.completeness:.0%} complete "
+            f"(minimum {clarify.CLARITY_THRESHOLD:.0%}) and this session cannot "
+            "ask clarifying questions.",
+            suggestion=failure_hint(assessment),
+        )
+
+    # ---- Interactive: one question per round, same native session ----
+    out.info(
+        f"Description is about {assessment.completeness:.0%} complete. "
+        "I'll ask for the missing details one question at a time — "
+        "press Enter to cancel."
+    )
+    rounds = 0
+    repeated = False
+    for round_number in range(1, clarify.MAX_CLARIFY_ROUNDS + 1):
+        question = assessment.question
+        if question is None:  # the model has nothing left to ask
+            break
+        if question in asked:  # defensive net behind the prompt rule
+            repeated = True
+            break
+        asked.append(question)
+        try:
+            answer = click.prompt(
+                f"Question {round_number}: {question}",
+                default="",
+                show_default=False,
+            )
+        except (click.Abort, EOFError):
+            raise DescriptionClarificationError(
+                "Clarification was interrupted (EOF) before the description was complete.",
+                suggestion=failure_hint(assessment),
+            ) from None
+        if not answer.strip():
+            raise DescriptionClarificationError(
+                "Clarification was cancelled; no template was generated.",
+                suggestion=failure_hint(assessment),
+            )
+        rounds = round_number
+        with _phase_status(out, "Re-assessing description"):
+            assessment = backend.assess(
+                clarify.answer_prompt(answer, asked=asked),
+                workdir=workdir,
+                binary=binary,
+                env=env,
+                resume=session_id,
+            )
+        if assessment is None:
+            out.warning(
+                "The clarification assessment became unavailable; continuing "
+                "straight to generation."
+            )
+            return clarify.ClarifyOutcome(session_id=session_id, degraded=True, rounds=rounds)
+        if assessment.complete:
+            out.info(f"Description is now about {assessment.completeness:.0%}; generating.")
+            break
+
+    if not assessment.complete:
+        if repeated:
+            out.warning(
+                "The agent repeated an already-answered question; generating "
+                "with the information collected."
+            )
+        elif rounds >= clarify.MAX_CLARIFY_ROUNDS:
+            out.info(
+                f"Reached the {clarify.MAX_CLARIFY_ROUNDS}-question safety "
+                "limit; generating with the information collected."
+            )
+        warn_incomplete(assessment)
+    return clarify.ClarifyOutcome(session_id=session_id, assessment=assessment, rounds=rounds)
+
+
+def _generate_and_deploy_template(
+    ctx: click.Context,
+    description: str,
+    *,
+    yes: bool,
+    acr_namespace: str | None,
+    verbose: bool,
+) -> str:
+    """Generate a template with the coding agent, build+deploy it, return its ref.
+
+    The description first goes through the single-question clarification
+    loop (:func:`_clarify_requirements`), which runs on the backend's
+    native session (Qwen Code by default); generation then resumes that
+    very session so the model keeps the clarification context in its own
+    memory.
+
+    Returns the template ID (or name) to pass to ``Sandbox.create``.
+    """
+    from easy_sandbox.agent.coding_agent import resolve_coding_agent_backend
+    from easy_sandbox.cli.commands.template import do_deploy, resolve_acr_namespace
+
+    fmt = get_formatter(ctx)
+    out = get_output(ctx)
+
+    backend = resolve_coding_agent_backend()
+    binary = _ensure_coding_agent_binary(ctx, yes=yes, backend=backend)
+    creds = _resolve_coding_agent_credentials(ctx, yes=yes, backend=backend)
+    workdir, template_name = backend.prepare_workdir(description)
+    outcome = _clarify_requirements(
+        ctx,
+        description,
+        yes=yes,
+        workdir=workdir,
+        binary=binary,
+        env=creds.as_env(),
+        backend=backend,
+    )
+
+    gen: Any
+    with _phase_status(out, "Generating template"):
+        gen = backend.generate(
+            description,
+            workdir=workdir,
+            template_name=template_name,
+            resume_session=outcome.session_id or None,
+            binary=binary,
+            env=creds.as_env(),
+            on_progress=None if out.use_rich_spinner else out.progress,
+        )
+    if not fmt.use_json:
+        out.info("")
+        out.info(f"\u2713 AI generated template: {gen.template_name}")
+        out.info(f"    Dockerfile:    {gen.dockerfile}")
+        out.info(f"    template.yaml: {gen.template_yaml}")
+
+    if not yes:
+        if not sys.stdin.isatty():
+            raise click.UsageError(
+                "Confirmation required to build and deploy the AI-generated template. "
+                "Use --yes/-y to skip in non-interactive mode."
+            )
+        click.confirm(f"Build and deploy template '{gen.template_name}' now?", abort=True)
+
+    namespace = resolve_acr_namespace(acr_namespace)
+    data = do_deploy(str(gen.workdir), acr_namespace=namespace, ctx=ctx, verbose=verbose)
+    template_ref = str(data.get("TemplateID") or "").strip()
+    if not template_ref or template_ref == "N/A":
+        template_ref = gen.template_name
+    return template_ref
+
+
 @click.command()
 @click.argument("description", required=False, default=None)
-@click.option("--template", "-T", default=None, help="Sandbox template")
+@click.option(
+    "--template",
+    "-T",
+    default=None,
+    help="Template ID or alias to launch (e.g. 'base', 'python-hello'). "
+    "Defaults to 'base' when omitted. Cannot be combined with DESCRIPTION.",
+)
 @click.option(
     "--upload",
     "-u",
@@ -33,7 +453,14 @@ _CREATE_REQUEST_TIMEOUT_FLOOR = 120.0
     default=None,
     help="Local file or directory to upload after creation",
 )
-@click.option("--timeout", "-t", "cmd_timeout", type=int, default=None, help="Timeout in seconds")
+@click.option(
+    "--timeout",
+    "-t",
+    "cmd_timeout",
+    type=int,
+    default=None,
+    help="Sandbox lifetime in seconds (positive integer; default: global --timeout)",
+)
 @click.option(
     "--request-timeout",
     type=float,
@@ -51,6 +478,22 @@ _CREATE_REQUEST_TIMEOUT_FLOOR = 120.0
 @click.option(
     "--metadata", "-m", multiple=True, help="Metadata key-value pair, format KEY=VALUE (repeatable)"
 )
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    default=False,
+    help="Skip interactive prompts (Qwen Code install, credentials, description "
+    "clarification, build/deploy confirmation). Required for AI generation in "
+    "non-interactive shells.",
+)
+@click.option(
+    "--acr-namespace",
+    envvar="ACR_NAMESPACE",
+    default=None,
+    help="ACR namespace for building the AI-generated template "
+    "(env: ACR_NAMESPACE, or set in .env file)",
+)
 @click.option("-v", "--verbose", "verbose_flag", is_flag=True, help="Verbose output (DEBUG level)")
 @click.pass_context
 @handle_errors
@@ -63,11 +506,50 @@ def create(
     request_timeout: float | None,
     env: tuple[str, ...],
     metadata: tuple[str, ...],
+    yes: bool,
+    acr_namespace: str | None,
     verbose_flag: bool,
 ) -> None:
     """Create a new sandbox.
 
-    Optionally provide a natural-language DESCRIPTION to auto-select template.
+    Exactly one route is taken, and it must be explicit:
+
+    \b
+      ebx create --template base  →  launch the 'base' template
+      ebx create --template NAME  →  launch NAME directly (no AI)
+      ebx create "DESCRIPTION"    →  Qwen Code generates a template, builds
+                                    and deploys it, then launches a sandbox;
+                                    the agent researches public facts first
+                                    and asks only for details it cannot infer
+
+    DESCRIPTION and --template are mutually exclusive: passing both is
+    rejected instead of silently ignoring one of them.
+
+    \b
+    Examples:
+      ebx create --template base              # explicit 'base' template
+      ebx create --template python-hello      # named template (no AI)
+      ebx create -e API_KEY=xxx -e DEBUG=1    # inject env vars
+      ebx create --upload ./app --timeout 600 # upload dir, 10-min lifetime
+      ebx create "a python data science env"  # AI-generate, build, deploy, create
+      ebx create -y "a node.js api server"    # non-interactive AI generation
+
+    \b
+    Notes:
+      AI generation needs the Qwen Code CLI and a DashScope/ModelStudio key
+      ('ebx config init'). The agent researches publicly verifiable facts
+      itself (tool stack, official install method, common dependencies) and
+      only asks for private preferences or business decisions it cannot
+      infer — one question at a time in interactive sessions. Non-interactive
+      shells must pass --yes to generate without asking.
+
+    \b
+    Related commands:
+      ebx list                 List existing sandboxes
+      ebx info SANDBOX_ID      Inspect a created sandbox
+      ebx template init DIR    Scaffold a new template project (local)
+      ebx template search KEY  Find reusable templates
+      ebx config init          Configure platform and Qwen Code credentials
     """
     from easy_sandbox.api.sandbox import Sandbox
     from easy_sandbox.utils.async_bridge import run_sync
@@ -77,54 +559,46 @@ def create(
 
         enable_verbose(ctx)
 
+    # Routing guard: one of the three routes must be explicit.  An
+    # implicit 'base' fallback made ``ebx create`` with no arguments easy
+    # to trigger by accident (e.g. a dropped argument), so require an
+    # explicit choice and show all three paths instead.  Emitted directly
+    # on stderr with exit code 2 (usage-error contract) instead of raising
+    # ``click.UsageError``, which ``handle_errors`` would re-wrap to exit 1.
+    if not description and not template:
+        click.echo(
+            "Error: No DESCRIPTION or --template given. Choose one of:\n\n"
+            "  ebx create --template base       launch the explicit base template\n"
+            "  ebx create --template <NAME>     launch an existing template (no AI)\n"
+            '  ebx create "<DESCRIPTION>"      AI-generate, build, deploy, create',
+            err=True,
+        )
+        sys.exit(2)
+
+    # Routing guard: DESCRIPTION and --template are mutually exclusive.
+    # Accepting both while silently dropping one of them would be surprising,
+    # so reject the combination before any AI generation or network call.
+    if description and template:
+        raise click.UsageError(
+            "DESCRIPTION and --template cannot be combined. Drop --template to "
+            "generate a template from the description, or drop DESCRIPTION to "
+            "launch an existing template directly."
+        )
+
     fmt = get_formatter(ctx)
 
-    # ---- NL inference when description given and --template omitted --------
+    # ---- AI template generation when description given and --template omitted --
     effective_template = template or "base"
     if description and not template:
-        import os
-        from pathlib import Path
-
-        from easy_sandbox.agent.infer import infer_template as _infer
-
-        # Read LLM config from env vars or ~/.ebx/config.toml
-        llm_api_key = os.environ.get("EBX_LLM_API_KEY")
-        llm_model = os.environ.get("EBX_LLM_MODEL")
-        llm_base_url = os.environ.get("EBX_LLM_BASE_URL")
-        if not llm_api_key:
-            _cfg_path = Path.home() / ".ebx" / "config.toml"
-            if _cfg_path.is_file():
-                try:
-                    try:
-                        import tomllib  # type: ignore[import-not-found]
-                    except ImportError:
-                        import tomli as tomllib
-                    with open(_cfg_path, "rb") as _f:
-                        _cfg_full = tomllib.load(_f)
-                    _cfg_transport = _cfg_full.get("transport", _cfg_full)
-                    # LLM config read from transport section (consistent with config set)
-                    llm_api_key = llm_api_key or _cfg_transport.get("llm_api_key")
-                    llm_model = llm_model or _cfg_transport.get("llm_model")
-                    llm_base_url = llm_base_url or _cfg_transport.get("llm_base_url")
-                except Exception:
-                    pass
-
-        infer_result = run_sync(
-            _infer(
-                description,
-                llm_api_key=llm_api_key,
-                llm_model=llm_model,
-                llm_base_url=llm_base_url,
-            )
+        effective_template = _generate_and_deploy_template(
+            ctx,
+            description,
+            yes=yes,
+            acr_namespace=acr_namespace,
+            verbose=verbose_flag,
         )
-        effective_template = infer_result.template
-
         if not fmt.use_json:
             out = get_output(ctx)
-            out.info("\u2713 Inference result:")
-            out.info(f"    Template: {infer_result.template}")
-            out.info(f"    CPU: {infer_result.cpu} cores  |  Memory: {infer_result.memory} MB")
-            out.info(f"    Confidence: {infer_result.confidence}")
             if not out.use_rich_spinner:
                 # The spinner below already announces creation in TTY mode;
                 # only print the plain progress line in degraded modes.
@@ -211,11 +685,12 @@ def create(
     }
     if sandbox.info.envd_version:
         data["EnvdVersion"] = sandbox.info.envd_version
-    if fmt.use_json:
-        fmt.print_data(data)
-    else:
-        fmt.print_dict(data)
-        fmt.print_success(f"Sandbox {sandbox.id} created successfully.")
+    # Result channel (task 167): the machine-consumable document goes to
+    # stdout; the success notice is skipped in --json mode so that stdout
+    # stays a single parseable JSON document.
+    out.data(data)
+    if not out.json_mode:
+        out.success(f"Sandbox {sandbox.id} created successfully.")
 
 
 # ---------------------------------------------------------------------------
@@ -231,11 +706,28 @@ def create(
     default=None,
     help="Filter by status",
 )
-@click.option("--limit", "-l", type=int, default=20, help="Max results")
+@click.option(
+    "--limit", "-l", type=int, default=20, help="Maximum results (positive integer; default: 20)"
+)
+@region_option
 @click.pass_context
 @handle_errors
-def list_cmd(ctx: click.Context, status: str | None, limit: int) -> None:
-    """List sandboxes."""
+def list_cmd(ctx: click.Context, status: str | None, limit: int, region: str | None) -> None:
+    """List sandboxes, optionally filtered by lifecycle status.
+
+    \b
+    Examples:
+      ebx list
+      ebx list --status running
+      ebx list --status error --limit 50
+      ebx list --region cn-shanghai
+
+    \b
+    Related commands:
+      ebx info SANDBOX_ID  Show one sandbox in detail
+      ebx create           Create a new sandbox
+      ebx kill SANDBOX_ID  Destroy a sandbox
+    """
     from easy_sandbox.models.sandbox import SandboxStatus
     from easy_sandbox.protocol.sandbox import SandboxProtocol
     from easy_sandbox.transport.auth import create_auth_provider
@@ -245,7 +737,7 @@ def list_cmd(ctx: click.Context, status: str | None, limit: int) -> None:
 
     fmt = get_formatter(ctx)
 
-    config = load_config(region=ctx.obj.get("region"))
+    config = load_config(region=region)
     auth = create_auth_provider(
         api_key=config.api_key,
         access_key_id=config.access_key_id,
@@ -276,7 +768,19 @@ def list_cmd(ctx: click.Context, status: str | None, limit: int) -> None:
 @click.pass_context
 @handle_errors
 def info(ctx: click.Context, sandbox_id: str) -> None:
-    """Get sandbox information."""
+    """Show status, template, region, timeout, and URL for a sandbox.
+
+    \b
+    Examples:
+      ebx info abc123
+      ebx --json info abc123
+
+    \b
+    Related commands:
+      ebx list                  Find sandbox IDs
+      ebx sandbox capabilities  Show declared capability groups
+      ebx exec SANDBOX_ID CMD   Run a command in the sandbox
+    """
     from easy_sandbox.api.sandbox import Sandbox
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -312,10 +816,30 @@ def info(ctx: click.Context, sandbox_id: str) -> None:
 @click.argument("sandbox_id", required=False)
 @click.option("--all", "kill_all", is_flag=True, help="Kill all running sandboxes")
 @click.option("--yes", "-y", is_flag=True, help="Skip confirmation")
+@region_option
 @click.pass_context
 @handle_errors
-def kill(ctx: click.Context, sandbox_id: str | None, kill_all: bool, yes: bool) -> None:
-    """Kill (destroy) a sandbox or all sandboxes."""
+def kill(
+    ctx: click.Context, sandbox_id: str | None, kill_all: bool, yes: bool, region: str | None
+) -> None:
+    """Permanently destroy one sandbox or all running sandboxes.
+
+    Confirmation is required unless --yes is supplied. Use --yes for scripts
+    and other non-interactive environments.
+
+    \b
+    Examples:
+      ebx kill abc123
+      ebx kill abc123 --yes
+      ebx kill --all --yes
+      ebx kill --all --yes --region cn-shanghai
+
+    \b
+    Related commands:
+      ebx list              Find running sandbox IDs
+      ebx info SANDBOX_ID   Verify a sandbox before deletion
+      ebx create            Create a replacement sandbox
+    """
     from easy_sandbox.api.sandbox import Sandbox
     from easy_sandbox.models.sandbox import SandboxStatus
     from easy_sandbox.protocol.sandbox import SandboxProtocol
@@ -334,7 +858,7 @@ def kill(ctx: click.Context, sandbox_id: str | None, kill_all: bool, yes: bool) 
         sys.exit(2)
 
     if kill_all:
-        config = load_config(region=ctx.obj.get("region"))
+        config = load_config(region=region)
         auth = create_auth_provider(
             api_key=config.api_key,
             access_key_id=config.access_key_id,
@@ -390,7 +914,14 @@ def kill(ctx: click.Context, sandbox_id: str | None, kill_all: bool, yes: bool) 
 @click.command("exec")
 @click.argument("sandbox_id")
 @click.argument("command")
-@click.option("--timeout", "-t", "cmd_timeout", type=int, default=60, help="Timeout in seconds")
+@click.option(
+    "--timeout",
+    "-t",
+    "cmd_timeout",
+    type=int,
+    default=60,
+    help="Command timeout in seconds (positive integer; default: 60)",
+)
 @click.option("--cwd", default="", help="Working directory (empty = container default)")
 @click.option("-v", "--verbose", "verbose_flag", is_flag=True, help="Verbose output (DEBUG level)")
 @click.pass_context
@@ -403,7 +934,23 @@ def exec_cmd(
     cwd: str,
     verbose_flag: bool,
 ) -> None:
-    """Execute a command in a sandbox."""
+    """Execute one command in a sandbox and return its exit code.
+
+    Quote commands containing spaces or shell operators. Use --cwd to select
+    the remote working directory and --timeout for long-running commands.
+
+    \b
+    Examples:
+      ebx exec abc123 "python --version"
+      ebx exec abc123 "pytest -q" --cwd /app --timeout 300
+      ebx --json exec abc123 "echo ready"
+
+    \b
+    Related commands:
+      ebx connect SANDBOX_ID  Open the command REPL
+      ebx sandbox shell-stream SANDBOX_ID -c CMD
+      ebx run SANDBOX_ID NAME  Run a registered custom command
+    """
     from easy_sandbox.api.sandbox import Sandbox
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -448,21 +995,54 @@ def exec_cmd(
 @click.pass_context
 @handle_errors
 def connect(ctx: click.Context, sandbox_id: str) -> None:
-    """Connect to a sandbox interactively (like SSH).
+    """Open an interactive command REPL for a sandbox.
 
-    Each command has a 30-second timeout.
+    This is a line-based REPL, not a PTY or a full SSH session: every entered
+    line runs in a new process with a 30-second timeout, and no shell state
+    survives between lines - ``cd``, environment variables and aliases are
+    gone after each command (use ``cd /path && <cmd>`` on one line, or
+    ``ebx exec --cwd``, instead).
+
+    On interactive terminals basic line editing and command history are
+    enabled (Up/Down history, Ctrl+R search, Ctrl+A/E and friends).  Type
+    ``exit``/``quit`` or press Ctrl+D to leave; Ctrl+C also disconnects.
+    Failed commands are reported as one friendly message - never as raw
+    HTTP errors.
+
+    \b
+    Examples:
+      ebx connect abc123
+      ebx sandbox connect abc123
+
+    \b
+    Related commands:
+      ebx exec SANDBOX_ID CMD  Run one command with a custom timeout
+      ebx info SANDBOX_ID      Inspect connection details
+      ebx sandbox shell-stream SANDBOX_ID -c CMD
     """
     from easy_sandbox.api.sandbox import Sandbox
+    from easy_sandbox.cli.repl import (
+        REPL_TIMEOUT,
+        describe_command_failure,
+        enable_line_editing,
+        program_name,
+    )
     from easy_sandbox.utils.async_bridge import run_sync
-
-    fmt = get_formatter(ctx)
 
     async def _connect() -> None:
         sandbox = await Sandbox.connect(sandbox_id)
         out = get_output(ctx)
         out.success(f"Connected to sandbox {sandbox_id}")
         out.info("Type 'exit' or Ctrl+D to disconnect")
-        out.info("Note: each command runs in an independent process")
+        out.info(
+            "Note: each line runs in an independent process - cd, environment "
+            "variables and shell state do not persist"
+        )
+        enable_line_editing()
+
+        # Executables observed in this session, used only as a reliable
+        # source for "did you mean" hints (never a guess about the image).
+        known_commands: set[str] = set()
 
         while True:
             try:
@@ -482,13 +1062,28 @@ def connect(ctx: click.Context, sandbox_id: str) -> None:
                 # Hardcoded 30s timeout for interactive commands to prevent
                 # indefinite hangs; long-running tasks should use 'ebx exec'
                 # with an explicit --timeout instead.
-                result = await sandbox.commands.run(cmd, timeout=30)
+                result = await sandbox.commands.run(cmd, timeout=REPL_TIMEOUT)
                 if result.stdout:  # type: ignore[union-attr]
                     click.echo(result.stdout, nl=False)  # type: ignore[union-attr]
                 if result.stderr:  # type: ignore[union-attr]
                     click.echo(result.stderr, nl=False, err=True)  # type: ignore[union-attr]
-            except Exception as e:
-                fmt.print_error(str(e))
+                # 126/127 mean "not executable / not found" - a shell wrapper
+                # may report the failure while the program does not exist.
+                if result.exit_code not in (126, 127):  # type: ignore[union-attr]
+                    name = program_name(cmd)
+                    if name:
+                        known_commands.add(name)
+            except Exception as exc:
+                # One friendly message per failure: a raw exception string
+                # could leak the sandbox URL / an MDN link, and logging it as
+                # a warning on top would repeat the same information.
+                failure = describe_command_failure(
+                    exc,
+                    command=cmd,
+                    timeout=REPL_TIMEOUT,
+                    known_commands=known_commands,
+                )
+                out.error(failure.message, code=failure.code, suggestion=failure.suggestion)
 
     run_sync(_connect())
 
@@ -510,6 +1105,12 @@ def upload(ctx: click.Context, sandbox_id: str, local_path: str, remote_path: st
     Examples:\n
         ebx upload abc123 ./script.py /app/script.py\n
         ebx upload abc123 ./data/ /app/data/
+
+    \b
+    Related commands:
+      ebx download SANDBOX_ID REMOTE_PATH LOCAL_PATH
+      ebx sandbox files list SANDBOX_ID --path /app
+      ebx exec SANDBOX_ID CMD
     """
     from pathlib import Path
 
@@ -565,6 +1166,12 @@ def download(ctx: click.Context, sandbox_id: str, remote_path: str, local_path: 
     Examples:\n
         ebx download abc123 /app/result.csv ./result.csv\n
         ebx download abc123 /app/output.log .
+
+    \b
+    Related commands:
+      ebx upload SANDBOX_ID LOCAL_PATH REMOTE_PATH
+      ebx sandbox files stat SANDBOX_ID --path REMOTE_PATH
+      ebx sandbox files list SANDBOX_ID --path REMOTE_DIR
     """
     from pathlib import Path
 
@@ -633,6 +1240,12 @@ def run_cmd(
         ebx run abc123 dev\n
         ebx run abc123 test --arg file=tests/\n
         ebx run abc123 demo --x 1 --y hello
+
+    \b
+    Related commands:
+      ebx exec SANDBOX_ID CMD  Run an arbitrary shell command
+      ebx info SANDBOX_ID      Inspect the target sandbox
+      ebx template info ID     Inspect a template definition
     """
     from easy_sandbox.api.sandbox import Sandbox
     from easy_sandbox.utils.async_bridge import run_sync
@@ -815,7 +1428,7 @@ def _discover_registered_commands() -> None:
             if spec and spec.loader:
                 mod = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(mod)
-        except Exception:  # noqa: BLE001
+        except Exception:
             _log.debug("Failed to import %s during command discovery", py_file.name, exc_info=True)
             continue
 
@@ -828,10 +1441,21 @@ def _discover_registered_commands() -> None:
 @click.group()
 @click.pass_context
 def sandbox(ctx: click.Context) -> None:
-    """Manage sandboxes.
+    """Manage sandbox lifecycle, files, processes, and system details.
 
-    Subcommands: create, list, info, kill, exec, connect, upload, download, run,
-    files, process, system.
+    Lifecycle commands are also available as shorter top-level aliases.
+
+    \b
+    Examples:
+      ebx sandbox create --template base
+      ebx sandbox list --status running
+      ebx sandbox system info abc123
+
+    \b
+    Related commands:
+      ebx sandbox files --help    Inspect and modify remote files
+      ebx sandbox process --help  Inspect and control processes
+      ebx sandbox system --help   Inspect runtime system details
     """
     ctx.ensure_object(dict)
 

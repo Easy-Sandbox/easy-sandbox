@@ -48,7 +48,7 @@ import pty
 import select
 import signal
 import struct
-import subprocess  # noqa: S404
+import subprocess
 import termios
 import threading
 import time
@@ -133,12 +133,12 @@ class PtySession:
             child_env.update(env)
 
         # Spawn the shell process with stdin/stdout/stderr on the slave PTY.
-        self._process = subprocess.Popen(  # noqa: S603
+        self._process = subprocess.Popen(
             [shell],
             stdin=slave_fd,
             stdout=slave_fd,
             stderr=slave_fd,
-            preexec_fn=os.setsid,  # noqa: PLW1509
+            preexec_fn=os.setsid,
             env=child_env,
             close_fds=True,
         )
@@ -482,7 +482,7 @@ async def pty_ws_handler(websocket: Any) -> None:
     When a server token is configured (``EBX_SERVER_TOKEN``), the client must
     also pass ``&token=<token>`` in the query string.
     """
-    import websockets  # noqa: F811
+    import websockets
 
     # Extract session_id from the request path / query.
     raw_path: str = (
@@ -617,7 +617,7 @@ async def _pty_read_loop(websocket: Any, session: PtySession) -> None:
                 break
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001
+        except Exception:
             break
 
 
@@ -627,7 +627,7 @@ async def _pty_read_loop(websocket: Any, session: PtySession) -> None:
 
 
 async def start_pty_server(
-    host: str = "0.0.0.0",  # noqa: S104
+    host: str = "0.0.0.0",
     port: int = 9001,
     stop_event: asyncio.Event | None = None,
     ready_event: threading.Event | None = None,

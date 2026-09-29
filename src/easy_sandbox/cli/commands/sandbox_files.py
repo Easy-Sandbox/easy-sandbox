@@ -45,6 +45,12 @@ def files_list(
     Examples:\n
         ebx sandbox files list abc123\n
         ebx sandbox files list abc123 --path /app --recursive
+
+    \b
+    Related commands:
+      ebx sandbox files stat SANDBOX_ID --path PATH
+      ebx upload SANDBOX_ID LOCAL_PATH REMOTE_PATH
+      ebx download SANDBOX_ID REMOTE_PATH LOCAL_PATH
     """
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -104,7 +110,14 @@ def files_stat(ctx: click.Context, sandbox_id: str, path: str) -> None:
     """Get file or directory information.
 
     Examples:\n
-        ebx sandbox files stat abc123 --path /home/user/app.py
+        ebx sandbox files stat abc123 --path /home/user/app.py\n
+        ebx sandbox files stat abc123 --path /app
+
+    \b
+    Related commands:
+      ebx sandbox files list SANDBOX_ID --path PATH
+      ebx sandbox files mv SANDBOX_ID --source PATH --dest PATH
+      ebx download SANDBOX_ID REMOTE_PATH LOCAL_PATH
     """
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -135,7 +148,14 @@ def files_mkdir(ctx: click.Context, sandbox_id: str, path: str) -> None:
     """Create a directory (including parent directories).
 
     Examples:\n
-        ebx sandbox files mkdir abc123 --path /home/user/myproject/src
+        ebx sandbox files mkdir abc123 --path /home/user/myproject/src\n
+        ebx sandbox files mkdir abc123 --path /tmp/results
+
+    \b
+    Related commands:
+      ebx sandbox files list SANDBOX_ID --path PATH
+      ebx upload SANDBOX_ID LOCAL_PATH REMOTE_PATH
+      ebx sandbox files rm SANDBOX_ID --path PATH
     """
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -168,6 +188,12 @@ def files_rm(
     Examples:\n
         ebx sandbox files rm abc123 --path /home/user/temp.txt\n
         ebx sandbox files rm abc123 --path /home/user/old_dir -y
+
+    \b
+    Related commands:
+      ebx sandbox files stat SANDBOX_ID --path PATH
+      ebx sandbox files list SANDBOX_ID --path DIRECTORY
+      ebx sandbox files mkdir SANDBOX_ID --path DIRECTORY
     """
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -201,7 +227,14 @@ def files_mv(
     """Move or rename a file/directory in the sandbox.
 
     Examples:\n
-        ebx sandbox files mv abc123 --source /home/user/old.py --dest /home/user/new.py
+        ebx sandbox files mv abc123 --source /home/user/old.py --dest /home/user/new.py\n
+        ebx sandbox files mv abc123 -s /tmp/results -d /app/results
+
+    \b
+    Related commands:
+      ebx sandbox files stat SANDBOX_ID --path PATH
+      ebx sandbox files list SANDBOX_ID --path DIRECTORY
+      ebx sandbox files rm SANDBOX_ID --path PATH
     """
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -221,7 +254,12 @@ def files_mv(
 @click.argument("sandbox_id")
 @click.option("--path", "-p", required=True, help="Directory to search in")
 @click.option("--pattern", required=True, help="Glob pattern (e.g. '*.py')")
-@click.option("--max-depth", type=int, default=5, help="Max search depth")
+@click.option(
+    "--max-depth",
+    type=int,
+    default=5,
+    help="Maximum search depth (non-negative integer; default: 5)",
+)
 @click.pass_context
 @handle_errors
 def files_search(
@@ -236,6 +274,12 @@ def files_search(
     Examples:\n
         ebx sandbox files search abc123 --path /home/user --pattern "*.py"\n
         ebx sandbox files search abc123 --path /app --pattern "*.log" --max-depth 3
+
+    \b
+    Related commands:
+      ebx sandbox files list SANDBOX_ID --path DIRECTORY
+      ebx sandbox files stat SANDBOX_ID --path PATH
+      ebx exec SANDBOX_ID "find /app -type f"
     """
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -269,7 +313,20 @@ def files_search(
 @click.group()
 @click.pass_context
 def files(ctx: click.Context) -> None:
-    """File operations in a sandbox (list, stat, mkdir, rm, mv, search)."""
+    """Inspect and modify files inside a sandbox.
+
+    \b
+    Examples:
+      ebx sandbox files list abc123 --path /app
+      ebx sandbox files stat abc123 --path /app/main.py
+      ebx sandbox files search abc123 --path /app --pattern "*.py"
+
+    \b
+    Related commands:
+      ebx upload SANDBOX_ID LOCAL_PATH REMOTE_PATH
+      ebx download SANDBOX_ID REMOTE_PATH LOCAL_PATH
+      ebx sandbox process --help
+    """
     ctx.ensure_object(dict)
 
 

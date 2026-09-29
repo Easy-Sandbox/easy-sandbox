@@ -22,6 +22,7 @@ env/
 # Testing
 .pytest_cache/
 .coverage
+coverage.json
 htmlcov/
 .tox/
 
@@ -38,7 +39,9 @@ htmlcov/
 *.pem
 *.key
 secrets.json
-.secrets.baseline
+# NOTE: .secrets.baseline is intentionally tracked — it is referenced by the
+# detect-secrets hook in .pre-commit-config.yaml and must ship with the repo.
+# Do not add it back to .gitignore.
 
 # OS
 .DS_Store
@@ -50,8 +53,12 @@ Thumbs.db
 *.whl
 
 # Temporary diff/patch files
+*.diff
 current_diff.patch
 diff-code.txt
+
+# Local scratch/verification workspaces
+.scratch-*/
 
 # Sandbox config (may contain API keys)
 ~/.sbox/
@@ -64,3 +71,6 @@ benchmarks/*.log
 # NOTE: .agents/design/ is deprecated (historical artifacts tracked, no new content).
 /.agents/evidence/
 /.agents/research/
+
+# awesome-templates sub-repo (has its own git)
+awesome-templates/

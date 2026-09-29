@@ -1,0 +1,5 @@
+[exit_code:1]
+[stderr]
+... Assessing description
+[E2008] The description is about 30% complete (minimum 80%) and this session cannot ask clarifying questions.
+  Suggestion: Missing details: dependencies, entry command, ports, resources, data. Example description: "Python 3.12 runtime with pandas and jupyter installed, entry command 'jupyter notebook --ip 0.0.0.0', port 8888, 2 CPU 4 GB memory, upload a data.csv dataset". Add them to DESCRIPTION, pass --yes/-y to generate from the current description anyway, or use 'ebx create --template <name>'.

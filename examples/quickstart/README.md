@@ -70,7 +70,10 @@ Content: 你好，Sandbox！Hello, Sandbox!
 ### 03_web_service.py — FAIL (requires node-web custom template)
 
 ```
-Requires deploying node-web template first: ebx template deploy examples/templates/node-web
+Requires deploying a template with the `ports` capability.
+Install & deploy the node-web template from the source-of-truth repo first:
+  ebx template install node-web
+  ebx template deploy ~/.ebx/templates/Easy-Sandbox/awesome-templates/default/node-web
 Failure reason: template not ready, sandbox creation timed out
 ```
 

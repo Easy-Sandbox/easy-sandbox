@@ -1,7 +1,5 @@
 # Authoring Templates
 
-> **Rename notice**: This project has been renamed from Serverless Sandbox to **Easy Sandbox**. PyPI package: `easy-sandbox` (`pip install easy-sandbox`), CLI command: `ebx`, Python import: `easy_sandbox`.
-
 This document explains how to create custom Easy Sandbox templates, including directory structure, field reference, capability declarations, custom commands, and publishing.
 
 ---
@@ -28,17 +26,10 @@ my-template/
 name: my-python-template
 version: "1.0.0"
 description: "Python data analysis environment with pre-installed pandas and matplotlib"
-
-base: python:3.11-slim
-
-system_packages:
-  - curl
-  - git
-
-python_packages:
-  - pandas
-  - matplotlib
-  - numpy
+author: "Your Name"
+tags:
+  - python
+  - data-analysis
 
 env:
   PYTHONUNBUFFERED: "1"
@@ -63,13 +54,7 @@ ports:
 | `name` | `str` | ✅ | — | Template name |
 | `version` | `str` | ❌ | `"1.0.0"` | Semantic version |
 | `description` | `str` | ❌ | `""` | Template description |
-| `base` | `str` | ❌ | `"ubuntu:22.04"` | Base Docker image |
-| `system_packages` | `list[str]` | ❌ | `[]` | System packages installed via apt |
-| `python_packages` | `list[str]` | ❌ | `[]` | Python packages installed via pip |
-| `node_packages` | `list[str]` | ❌ | `[]` | Node packages installed globally via npm |
-| `commands` | `list[str]` | ❌ | `[]` | Shell commands executed during build |
 | `env` | `dict[str, str]` | ❌ | `{}` | Environment variables |
-| `copy_files` | `dict[str, str]` | ❌ | `{}` | File copy mapping (src → dst) |
 | `cpu_count` | `int` | ❌ | `None` | Default CPU cores |
 | `memory_mb` | `int` | ❌ | `None` | Default memory in MB |
 | `ports` | `list[int]` | ❌ | `[]` | Exposed port list |
@@ -184,7 +169,7 @@ Registered commands are served by the in-sandbox HTTP server; clients invoke the
 
 ## Dockerfile Customization
 
-When finer control is needed, you can provide a `Dockerfile` directly:
+The actual build process uses `Dockerfile` directly along with language-native dependency files (`requirements.txt` / `package.json`):
 
 ```dockerfile
 FROM python:3.11-slim
@@ -201,7 +186,7 @@ WORKDIR /app
 ENV PYTHONUNBUFFERED=1
 ```
 
-When a `Dockerfile` is present, it takes priority over the build steps in `template.yaml` (`system_packages`, `python_packages`, `commands`, etc.).
+The `Dockerfile` in the template directory is the sole source for building images. `template.yaml` only defines runtime configuration (capabilities, commands, environment variables, resources) and does not contain build instructions.
 
 ---
 
@@ -253,7 +238,7 @@ ebx template deploy ./my-template \
 | Official CreateTemplate API | ✅ Yes | AK/SK | `easy-sandbox[alicloud]` |
 | Legacy v3/v2 Platform API | No (`--legacy-api`) | E2B API Key | No extra dependency |
 
-> **Region note**: The official API defaults to `cn-hangzhou` region, configurable via the `--region` global option. Cross-region ACR access may require VPC-related parameters.
+> **Region note**: The official API uses the region configured via `ebx config set region` (else `cn-hangzhou`). A single deployment can override it with the command-level `--region`/`-r` option on `template deploy`/`build`/`create`/`push`/`list`/`info`/`install`/`delete`. Cross-region ACR access may require VPC-related parameters.
 
 ### Creating Templates from Existing Images
 

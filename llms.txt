@@ -10,6 +10,17 @@ with secure cloud sandboxes. It provides isolated execution environments for
 running untrusted code, file operations, and shell commands — designed for
 LLM tool-use and agentic workflows.
 
+AI coding tools: read [SKILL.md](SKILL.md) — a static, tool-neutral Agent
+Skills guide covering install, credential safety, MCP vs SDK selection,
+sandbox lifecycle, file operations, and error diagnosis. The guide can be
+installed into skills-aware tools (Qoder, Claude Code, Cursor, Qwen Code,
+Codex, …) before the CLI/SDK is installed, with:
+
+    npx skills add Easy-Sandbox/easy-sandbox --skill easy-sandbox -a <agent> -y
+
+Full matrix (manual copy, Git sparse checkout, version pinning, uninstall):
+docs/en/guide/agent-skill-installation.md
+
 ## Architecture
 
 Six-layer architecture (lower layers never import upper layers):
@@ -28,19 +39,19 @@ Six-layer architecture (lower layers never import upper layers):
 ```python
 from easy_sandbox import Sandbox
 
-async with await Sandbox.create(template="python-base") as sb:
-    result = await sb.run_code("print('hello')")     # code execution
-    await sb.filesystem.write("/tmp/f.txt", b"data")  # file I/O
+async with await Sandbox.create(template="python-hello") as sb:
+    result = await sb.run_code("print('hello')")      # code execution
+    await sb.files.write("/tmp/f.txt", b"data")       # file I/O
     proc = await sb.commands.run("ls /tmp")            # shell command
 ```
 
 ### CLI
 
 ```
-ebx create --template python-base   # create sandbox
+ebx create --template python-hello # create sandbox
 ebx exec <id> "echo hello"          # run command
 ebx upload <id> ./local /remote     # file transfer
-ebx mcp serve                       # start MCP server
+ebx mcp start                       # start MCP server (STDIO)
 ebx kill <id>                       # destroy sandbox
 ```
 
@@ -59,12 +70,14 @@ ebx kill <id>                       # destroy sandbox
 
 ## Links
 
+- Agent usage skill: SKILL.md
+- Agent skill installation: docs/en/guide/agent-skill-installation.md
 - README: README.md
-- Design docs: docs/design/
-- Architecture: docs/design/architecture.md
-- SDK API design: docs/design/sdk-api-design.md
-- CLI design: docs/design/cli-design.md
-- Template system: docs/design/template-system.md
-- MCP server: docs/design/mcp-server.md
+- Design docs: docs/en/design/
+- Architecture: docs/en/design/architecture.md
+- SDK API design: docs/en/design/sdk-api-design.md
+- CLI design: docs/en/design/cli-design.md
+- Template system: docs/en/design/template-system.md
+- MCP server: docs/en/design/mcp-server.md
 - Contributing: .github/CONTRIBUTING.md
 - Changelog: CHANGELOG.md

@@ -1,0 +1,9 @@
+Connected to sandbox sbx-XXXXX
+app.py
+[exit_code:0]
+[stderr]
+Type 'exit' or Ctrl+D to disconnect
+Note: each line runs in an independent process - cd, environment variables and shell state do not persist
+[E3006] Command not found: sl
+  Suggestion: Did you mean 'ls'? It ran earlier in this session.
+Disconnected.

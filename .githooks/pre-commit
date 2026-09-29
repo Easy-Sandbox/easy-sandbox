@@ -1,17 +1,47 @@
 #!/usr/bin/env bash
 # Git pre-commit hook (used when core.hooksPath=.githooks).
-# Runs the custom secret-scanning check.
+#
+# Steps:
+#   1. Custom secret scanning (.githooks/check-secrets.sh) — always runs.
+#   2. The pre-commit framework (.pre-commit-config.yaml: ruff, ruff-format,
+#      detect-secrets, bandit, ...) — runs when the `pre-commit` command is
+#      available on PATH.
+#
+# The commit is blocked when either step fails. If `pre-commit` is not
+# installed, step 2 prints an install hint but does not block the commit.
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 cd "$PROJECT_ROOT" || exit 1
 
-# Run the secret-scanning check on staged files.
-bash .githooks/check-secrets.sh
-if [ $? -ne 0 ]; then
+STATUS=0
+
+# --- Step 1: custom secret scanning -----------------------------------------
+if ! bash .githooks/check-secrets.sh; then
     echo ""
     echo "⛔ Commit aborted due to sensitive information detected."
     echo "   Please remove hardcoded secrets before committing."
-    exit 1
+    STATUS=1
 fi
+
+# --- Step 2: pre-commit framework (optional, recommended) -------------------
+if command -v pre-commit >/dev/null 2>&1; then
+    echo ""
+    echo "🔧 Running pre-commit framework checks (.pre-commit-config.yaml)..."
+    if ! pre-commit run --config .pre-commit-config.yaml --hook-stage pre-commit "$@"; then
+        echo ""
+        echo "⛔ Commit aborted due to failing pre-commit checks."
+        echo "   Reproduce locally with:"
+        echo "   pre-commit run --config .pre-commit-config.yaml --hook-stage pre-commit"
+        echo "   then re-stage the fixed files."
+        STATUS=1
+    fi
+else
+    echo ""
+    echo "ℹ️  pre-commit is not installed — skipping framework checks"
+    echo "   (ruff, ruff-format, detect-secrets, bandit, ... from .pre-commit-config.yaml)."
+    echo "   Install it with: pip install pre-commit   (or run: make hooks)"
+fi
+
+exit "$STATUS"

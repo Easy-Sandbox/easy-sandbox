@@ -8,6 +8,11 @@ Usage: cli download [OPTIONS] SANDBOX_ID REMOTE_PATH LOCAL_PATH
 
       ebx download abc123 /app/output.log .
 
+  Related commands:
+    ebx upload SANDBOX_ID LOCAL_PATH REMOTE_PATH
+    ebx sandbox files stat SANDBOX_ID --path REMOTE_PATH
+    ebx sandbox files list SANDBOX_ID --path REMOTE_DIR
+
 Options:
-  --help  Show this message and exit.
+  -h, --help  Show this message and exit.
 [exit_code:0]

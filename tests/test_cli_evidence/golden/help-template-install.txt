@@ -3,30 +3,44 @@ Usage: cli template install [OPTIONS] TEMPLATE_REF
   Download a template and (by default) build + deploy it.
 
   By default, install downloads the template, then runs docker build, pushes to
-  ACR, and creates a sandbox template via the official API. Use --download-only
-  to skip the build/deploy step and only download to the local cache
-  (~/.ebx/templates/).
+  ACR, and creates a sandbox template via the official API — cloud-side
+  operations that can incur Alibaba Cloud costs (ACR storage/traffic, template
+  resources). Use --download-only to skip the build/deploy step and only
+  download to the local cache (~/.ebx/templates/).
 
   Use --dir <path> to download into a specific directory instead of the cache.
 
+  TEMPLATE_REF can be a bare template name from the official index (Easy-
+  Sandbox/awesome-templates) or a registry reference. Bare names are resolved
+  against the remote index; entries may pin a version, in which case that pinned
+  ref is honoured.
+
+  A GitHub token (private repos / higher rate limits) is taken from --token,
+  then the GITHUB_TOKEN environment variable, then the stored github_token;
+  prefer 'ebx config set github_token' - --token may leak into shell history and
+  process listings.
+
   Examples:
+    ebx template install python-hello --download-only   # install by index name
+    ebx template install owner/repo --acr-namespace my-ns
+    ebx template install owner/repo@v1.0 --download-only
+    ebx template install owner/repo//subdir --dir ./local-copy
+    ebx template install owner/repo --acr-namespace my-ns --region cn-shanghai
 
-    ebx install owner/repo --acr-namespace my-ns  # Download + build + deploy
-
-    ebx install owner/repo --download-only        # Download only
-
-    ebx install owner/repo//subdir --download-only # Subdirectory of a repo
-
-    ebx install ./my-template --acr-namespace ns  # Local dir + deploy
-
-    ebx install owner/repo@v1.0 --yes             # Skip confirmation
-
-    ebx install owner/repo --dir ./local-copy     # Download into ./local-copy
+  Related commands:
+    ebx template search QUERY  Find a template in the index
+    ebx template list          List registered templates
+    ebx create --template ID   Launch the installed template
 
 Options:
   --registry-url TEXT             Registry URL (default: GitHub)
   --registry-type [github|local]  Registry type (auto-detected if not specified)
-  --token TEXT                    Access token (required for private repos)
+  --token TEXT                    GitHub token for private repos / higher rate
+                                  limits. Prefer 'ebx config set github_token'
+                                  (masked input, stored once in ~/.ebx/.env);
+                                  --token is a temporary override that may leak
+                                  into shell history and the process list (env:
+                                  GITHUB_TOKEN).
   -a, --alias TEXT                Template alias
   --download-only                 Only download to local cache (skip build and
                                   deploy)
@@ -38,5 +52,8 @@ Options:
   --memory INTEGER                Memory in MB (default: from template.yaml or
                                   2048)
   -y, --yes                       Skip confirmation prompt
-  --help                          Show this message and exit.
+  -r, --region TEXT               Region override for this command (default:
+                                  'ebx config set region' value, else cn-
+                                  hangzhou)
+  -h, --help                      Show this message and exit.
 [exit_code:0]

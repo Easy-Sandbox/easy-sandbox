@@ -27,47 +27,106 @@ $ ebx --json create --template base
 Exit code: 0
 ```
 
-### create NL "运行 python"
+### create NL "运行 python"（AI 生成模板）
 
 ```
-$ ebx create "运行 python"
-✓ Inference result:
-    Template: code-interpreter
-    CPU: 2 cores  |  Memory: 4096 MB
-    Confidence: 0.88
-... Creating...
+$ ebx create -y "运行 python"
 ID        sbx-ev-001
 Status    running
-Template  code-interpreter
+Template  ebx-nl-python-ev001
 URL       https://sbx-ev-001.cn-hangzhou.e2b.fc.aliyuncs.com
 Sandbox sbx-ev-001 created successfully.
-Exit code: 0
-```
-
-### create NL "启动 Node.js 服务"
-
-```
-$ ebx create "启动 Node.js 服务"
-✓ Inference result:
-    Template: node-web
-    CPU: 1 cores  |  Memory: 2048 MB
-    Confidence: 0.88
-... Creating...
-ID        sbx-ev-001
-Status    running
-Template  node-web
-URL       https://sbx-ev-001.cn-hangzhou.e2b.fc.aliyuncs.com
-Sandbox sbx-ev-001 created successfully.
-<string>:9: RuntimeWarning: coroutine 'create.<locals>._create_and_upload' was never awaited
-RuntimeWarning: Enable tracemalloc to get the object allocation traceback
 Exit code: 0
 ```
 
 **stderr:**
 
 ```
-<string>:9: RuntimeWarning: coroutine 'create.<locals>._create_and_upload' was never awaited
-RuntimeWarning: Enable tracemalloc to get the object allocation traceback
+... Generating template
+
+✓ AI generated template: ebx-nl-python-ev001
+    Dockerfile:    /home/user/.ebx/generated/ebx-nl-python-ev001/Dockerfile
+    template.yaml: /home/user/.ebx/generated/ebx-nl-python-ev001/template.yaml
+... Creating...
+```
+
+### create NL "启动 Node.js 服务"（AI 生成模板）
+
+```
+$ ebx create -y "启动 Node.js 服务"
+ID        sbx-ev-001
+Status    running
+Template  ebx-nl-nodejs-ev001
+URL       https://sbx-ev-001.cn-hangzhou.e2b.fc.aliyuncs.com
+Sandbox sbx-ev-001 created successfully.
+Exit code: 0
+```
+
+**stderr:**
+
+```
+... Generating template
+
+✓ AI generated template: ebx-nl-nodejs-ev001
+    Dockerfile:    /home/user/.ebx/generated/ebx-nl-nodejs-ev001/Dockerfile
+    template.yaml: /home/user/.ebx/generated/ebx-nl-nodejs-ev001/template.yaml
+... Creating...
+```
+
+### create NL 非交互描述完整（需确认）
+
+```
+$ ebx create "用 Python 3.12，预装 pandas 和 jupyter，入口命令 jupyter notebook，端口 8888，2 核 4GB 内存，上传 data.csv 数据"
+Exit code: 1
+```
+
+**stderr:**
+
+```
+... Assessing description
+... Generating template
+
+✓ AI generated template: ebx-nl-python-ev001
+    Dockerfile:    /home/user/.ebx/generated/ebx-nl-python-ev001/Dockerfile
+    template.yaml: /home/user/.ebx/generated/ebx-nl-python-ev001/template.yaml
+Confirmation required to build and deploy the AI-generated template. Use --yes/-y to skip in non-interactive mode.
+```
+
+### create NL 非交互描述不完整（E2008 + 缺失项 + 示例）
+
+```
+$ ebx create "运行 python"
+Exit code: 1
+```
+
+**stderr:**
+
+```
+... Assessing description
+[E2008] The description is about 30% complete (minimum 80%) and this session cannot ask clarifying questions.
+  Suggestion: Missing details: dependencies, entry command, ports, resources, data. Example description: "Python 3.12 runtime with pandas and jupyter installed, entry command 'jupyter notebook --ip 0.0.0.0', port 8888, 2 CPU 4 GB memory, upload a data.csv dataset". Add them to DESCRIPTION, pass --yes/-y to generate from the current description anyway, or use 'ebx create --template <name>'.
+```
+
+### create NL 未安装 Qwen Code（Quick Setup）
+
+```
+$ ebx create "运行 python"
+Exit code: 1
+```
+
+**stderr:**
+
+```
+Warning: Qwen Code CLI was not found on PATH or in ~/.ebx/bin.
+
+Quick Setup - AI template generation (Qwen Code):
+  1. Install the Qwen Code CLI (official standalone build):
+       curl -fsSL https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.sh | bash
+     or re-run 'ebx create "<description>"' and accept the install prompt
+     or bypass AI generation with:  ebx create --template base
+  2. Docs: https://github.com/QwenLM/qwen-code
+[E2005] Qwen Code CLI is required for AI template generation but is not installed.
+  Suggestion: Install it with the official command from Quick Setup above, then retry — or use 'ebx create --template <name>' to skip AI generation.
 ```
 
 ### create -e FOO=bar
@@ -98,7 +157,6 @@ Exit code: 0
 
 ```
 $ ebx create -e INVALID --template base
-Invalid environment variable format: 'INVALID' (expected KEY=VALUE)
 Exit code: 2
 ```
 
@@ -106,4 +164,17 @@ Exit code: 2
 
 ```
 Invalid environment variable format: 'INVALID' (expected KEY=VALUE)
+```
+
+### create 同时提供描述与 --template（拒绝）
+
+```
+$ ebx create "运行 python" --template base
+Exit code: 1
+```
+
+**stderr:**
+
+```
+DESCRIPTION and --template cannot be combined. Drop --template to generate a template from the description, or drop DESCRIPTION to launch an existing template directly.
 ```

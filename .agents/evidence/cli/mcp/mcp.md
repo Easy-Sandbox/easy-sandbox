@@ -6,7 +6,7 @@
 
 ```
 $ ebx mcp install --target cursor
-MCP Server config written to /Users/anycodes/.cursor/mcp.json
+MCP Server config written to /var/folders/cb/925wcj8128gf6p6bn1hp1cgc0000gn/T/tmp7ux_49t0/.cursor/mcp.json
 
 Registered tools:
   • create_sandbox     — Create a cloud sandbox

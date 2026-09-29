@@ -43,6 +43,14 @@ BUILTIN_AGENTS: dict[str, dict[str, Any]] = {
         "capabilities": ["shell", "files", "code"],
         "resources": {"cpu": 2, "memory": 4096},
     },
+    "codex-agent-api": {
+        "template": "codex-agent-api",
+        "display_name": "Codex Agent API",
+        "description": "Self-hosted OpenAI Agents API compatible service",
+        "keywords": ["codex agent api", "agents api", "openai agents", "self-hosted"],
+        "capabilities": ["shell", "files", "code", "ports"],
+        "resources": {"cpu": 2, "memory": 4096},
+    },
     "claude-code": {
         "template": "claude-code",
         "display_name": "Claude Code Agent",

@@ -8,7 +8,7 @@ from __future__ import annotations
 import http.client
 import json
 import socket
-import subprocess as _sp  # noqa: S404
+import subprocess as _sp
 import sys
 import threading
 import time
@@ -139,7 +139,7 @@ def _clean_process_table() -> Any:
         try:
             info.popen.kill()
             info.popen.wait(timeout=2)
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
     _process_table.clear()
 
@@ -244,7 +244,7 @@ class TestProcessStart:
         """When _process_table is full, new starts are refused."""
         # Fill the table with dummy entries.
         for i in range(_MAX_PROCESSES):
-            dummy = _sp.Popen(  # noqa: S603
+            dummy = _sp.Popen(
                 [sys.executable, "-c", "import time; time.sleep(60)"],
                 stdout=_sp.PIPE,
                 stderr=_sp.PIPE,
@@ -270,7 +270,7 @@ class TestProcessStart:
             try:
                 info.popen.kill()
                 info.popen.wait(timeout=2)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
         _process_table.clear()
 
@@ -426,7 +426,7 @@ class TestProcessSignal:
         # We need pid 1 in the table for the route to find it, but the
         # safety check should fire before os.kill.
         # Create a real process to hold the slot.
-        dummy = _sp.Popen(  # noqa: S603
+        dummy = _sp.Popen(
             [sys.executable, "-c", "import time; time.sleep(60)"],
             stdout=_sp.PIPE,
             stderr=_sp.PIPE,
@@ -452,7 +452,7 @@ class TestProcessSignal:
         import os as _os
 
         my_pid = _os.getpid()
-        dummy = _sp.Popen(  # noqa: S603
+        dummy = _sp.Popen(
             [sys.executable, "-c", "import time; time.sleep(60)"],
             stdout=_sp.PIPE,
             stderr=_sp.PIPE,

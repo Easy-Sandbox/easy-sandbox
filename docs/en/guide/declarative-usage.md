@@ -1,7 +1,5 @@
 # Declarative Usage (@sandbox Decorator)
 
-> **Rename notice**: This project has been renamed from Serverless Sandbox to **Easy Sandbox**. PyPI package: `easy-sandbox` (`pip install easy-sandbox`), CLI command: `ebx`, Python import: `easy_sandbox`.
-
 The `@sandbox` decorator lets you declaratively execute Python functions in a remote sandbox without manually managing the sandbox lifecycle.
 
 ---

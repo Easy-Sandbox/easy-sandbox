@@ -245,8 +245,7 @@ src/easy_sandbox/
 │   │   ├── sandbox_process.py     #     ebx sandbox process (list/start/info/signal)
 │   │   ├── sandbox_system.py      #     ebx sandbox system (info/env/ports/packages/metrics)
 │   │   ├── template.py            #     template build/push/list/...
-│   │   ├── skill.py               #     skill search/install/...
-│   │   └── mcp.py                 #     mcp install/start/...
+│   │   └── mcp.py                 #     mcp install/start/status/deploy
 │   ├── formatters.py              #   Output formatting (table/json/quiet)
 │   └── output.py                  #   OutputManager unified output manager
 │

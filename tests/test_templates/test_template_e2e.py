@@ -1,4 +1,11 @@
-"""End-to-end tests for all 10 template ``commands.py`` files.
+"""End-to-end test for the ``python-hello`` fixture template.
+
+The full catalog (10 templates) has its own end-to-end suite in the
+single-source-of-truth repository ``Easy-Sandbox/awesome-templates``
+(``tests/test_commands_e2e.py``).  This copy only keeps one minimal
+fixture — ``examples/templates/python-hello/`` — so the sandbox HTTP server
+integration (import, discovery, dispatch, built-in routes) stays covered
+fully offline in this repository.
 
 Each test verifies:
 
@@ -7,8 +14,7 @@ Each test verifies:
 2. **Server startup** — ``/health`` returns ``200 {"status": "ok"}``.
 3. **Command discovery** — ``GET /commands`` lists expected command names with
    arg schemas.
-4. **Command invocation** — ``POST /commands/{name}`` dispatches correctly
-   (full E2E for python-hello; graceful 500 for external-tool templates).
+4. **Command invocation** — ``POST /commands/{name}`` dispatches correctly.
 5. **Built-in routes** — ``/upload`` + ``/download`` roundtrip, ``/shell``
    echo test.
 """
@@ -218,26 +224,13 @@ def _assert_shell(port: int) -> None:
     assert "hello" in body["stdout"]
 
 
-def _assert_external_command_graceful(port: int, cmd_name: str, params: dict[str, Any]) -> None:
-    """Invoke a command whose external tool is likely not installed.
-
-    Verifies the server routes correctly to the command function and returns
-    a structured error (500) rather than crashing or returning 404.
-    """
-    status, body = _http_post(port, f"/commands/{cmd_name}", params, timeout=30.0)
-    assert status in (200, 500), f"Unexpected status {status} for /commands/{cmd_name}: {body}"
-    if status == 500:
-        assert "error" in body, f"500 without 'error' key: {body}"
-        assert "type" in body, f"500 without 'type' key: {body}"
-
-
 # =========================================================================
-# Per-template E2E tests
+# Fixture-template E2E test
 # =========================================================================
 
 
 def test_python_hello_e2e(base_dir: str) -> None:
-    """python-hello: full E2E — hello + run_script + built-in routes."""
+    """python-hello fixture: full E2E — hello + run_script + built-in routes."""
     with _template_server("python-hello", base_dir) as port:
         _assert_health(port)
         _assert_commands_registered(port, ["hello", "run_script"])
@@ -258,95 +251,5 @@ def test_python_hello_e2e(base_dir: str) -> None:
         assert "2" in body["result"]
 
         # Built-in routes
-        _assert_upload_download_roundtrip(port, base_dir)
-        _assert_shell(port)
-
-
-def test_codex_e2e(base_dir: str) -> None:
-    """codex: import, discovery, graceful tool-missing failure, builtins."""
-    with _template_server("codex", base_dir) as port:
-        _assert_health(port)
-        _assert_commands_registered(port, ["codex"])
-        _assert_external_command_graceful(port, "codex", {"prompt": "hello"})
-        _assert_upload_download_roundtrip(port, base_dir)
-        _assert_shell(port)
-
-
-def test_claude_code_e2e(base_dir: str) -> None:
-    """claude-code: import, discovery, graceful failure, builtins."""
-    with _template_server("claude-code", base_dir) as port:
-        _assert_health(port)
-        _assert_commands_registered(port, ["claude"])
-        _assert_external_command_graceful(port, "claude", {"prompt": "hello"})
-        _assert_upload_download_roundtrip(port, base_dir)
-        _assert_shell(port)
-
-
-def test_qwen_code_e2e(base_dir: str) -> None:
-    """qwen-code: import, discovery, graceful failure, builtins."""
-    with _template_server("qwen-code", base_dir) as port:
-        _assert_health(port)
-        _assert_commands_registered(port, ["qwen"])
-        _assert_external_command_graceful(port, "qwen", {"prompt": "hello"})
-        _assert_upload_download_roundtrip(port, base_dir)
-        _assert_shell(port)
-
-
-def test_browser_automation_e2e(base_dir: str) -> None:
-    """browser-automation: import, discovery, graceful failure, builtins."""
-    with _template_server("browser-automation", base_dir) as port:
-        _assert_health(port)
-        _assert_commands_registered(port, ["browse"])
-        _assert_external_command_graceful(port, "browse", {"url": "https://example.com"})
-        _assert_upload_download_roundtrip(port, base_dir)
-        _assert_shell(port)
-
-
-def test_node_web_e2e(base_dir: str) -> None:
-    """node-web: import, discovery, graceful failure, builtins."""
-    with _template_server("node-web", base_dir) as port:
-        _assert_health(port)
-        _assert_commands_registered(port, ["serve"])
-        _assert_external_command_graceful(port, "serve", {})
-        _assert_upload_download_roundtrip(port, base_dir)
-        _assert_shell(port)
-
-
-def test_deepseek_harness_e2e(base_dir: str) -> None:
-    """deepseek-harness: import, discovery, graceful failure, builtins."""
-    with _template_server("deepseek-harness", base_dir) as port:
-        _assert_health(port)
-        _assert_commands_registered(port, ["deepseek"])
-        _assert_external_command_graceful(port, "deepseek", {"prompt": "hello"})
-        _assert_upload_download_roundtrip(port, base_dir)
-        _assert_shell(port)
-
-
-def test_hermes_agent_e2e(base_dir: str) -> None:
-    """hermes-agent: import, discovery, graceful failure, builtins."""
-    with _template_server("hermes-agent", base_dir) as port:
-        _assert_health(port)
-        _assert_commands_registered(port, ["hermes"])
-        _assert_external_command_graceful(port, "hermes", {"prompt": "hello"})
-        _assert_upload_download_roundtrip(port, base_dir)
-        _assert_shell(port)
-
-
-def test_openclaw_e2e(base_dir: str) -> None:
-    """openclaw: import, discovery, graceful failure, builtins."""
-    with _template_server("openclaw", base_dir) as port:
-        _assert_health(port)
-        _assert_commands_registered(port, ["gateway"])
-        _assert_external_command_graceful(port, "gateway", {})
-        _assert_upload_download_roundtrip(port, base_dir)
-        _assert_shell(port)
-
-
-def test_qoder_e2e(base_dir: str) -> None:
-    """qoder: import, discovery, graceful failure, builtins."""
-    with _template_server("qoder", base_dir) as port:
-        _assert_health(port)
-        _assert_commands_registered(port, ["qoder_run"])
-        _assert_external_command_graceful(port, "qoder_run", {})
         _assert_upload_download_roundtrip(port, base_dir)
         _assert_shell(port)

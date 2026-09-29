@@ -1,8 +1,8 @@
 # 认证详解
 
-> **项目更名说明**：本项目已从 Serverless Sandbox 更名为 **Easy Sandbox**。PyPI 包名: `easy-sandbox`（`pip install easy-sandbox`），CLI 命令: `ebx`，Python 导入: `easy_sandbox`。
-
 Easy Sandbox 支持两种认证模式：**API Key** 和 **AK/SK（阿里云 AccessKey）**。
+
+> **历史说明**：`ebx auth` CLI 命令组（`login`/`logout`/`status`/`switch`）已在首个正式版 `0.1.0` 之前移除。凭证通过下方介绍的环境变量与 `ebx config set api_key` 配置；用 `ebx config list` 查看生效状态。
 
 ---
 
@@ -11,7 +11,7 @@ Easy Sandbox 支持两种认证模式：**API Key** 和 **AK/SK（阿里云 Acce
 Easy Sandbox 存在三条认证路径，适用于不同场景：
 
 - **API Key 模式**：最常用。通过 `Authorization: Bearer {api_key}` 请求头访问平台 API。适用于个人开发、CI/CD、SDK 调用等绝大多数场景。
-- **AK/SK 模式（阿里云 AccessKey）**：使用阿里云 AccessKey 对，通过 token 交换获取临时 API Key。适用于阿里云生态集成、企业内部使用 RAM 角色授权的场景。
+- **AK/SK 模式（阿里云 AccessKey）🧪 实验性**：使用阿里云 AccessKey 对，通过 token 交换获取临时 API Key。框架已实现，但 token 交换端点待 FC 平台确认，当前推荐仍使用 API Key 模式。适用于阿里云生态集成、企业内部使用 RAM 角色授权的场景。
 - **envd 内部认证**：沙箱创建后，SDK 与沙箱内部 envd 服务之间的通信认证。使用 `envdAccessToken`（从创建响应中获取），由 SDK 自动管理，用户无需手动处理。
 
 ---
@@ -87,20 +87,33 @@ sandbox = await Sandbox.connect("sbx-xxxx", api_key="your-api-key")
 
 ---
 
-## AK/SK 阿里云扩展认证
+## AK/SK 阿里云扩展认证 🧪
 
-AK/SK 模式使用阿里云 AccessKey 对，通过 token 交换获取临时 API Key（TTL 3600 秒，到期前 300 秒自动刷新）。
+> **⚠️ 实验性功能**：AK/SK → API Key 的 token 交换框架已在 SDK 中实现（`transport/auth.py`），但 token 交换端点的 action 名称（`CreateApiKey`）和响应字段解析**仍待 FC 平台团队确认**。TTL（3600s）和提前刷新时间（300s）为假设值，未经真实端点实测。当前阶段可用于本地调试，**生产环境仍推荐使用 API Key 认证**。
+
+AK/SK 模式使用阿里云 AccessKey 对，通过 token 交换获取临时 API Key（设计 TTL 3600 秒，到期前 300 秒自动刷新）。
 
 ### 配置方式
 
-#### 环境变量
+#### 1. 环境变量
 
 ```bash
 export ALICLOUD_ACCESS_KEY_ID="your-access-key-id"
 export ALICLOUD_ACCESS_KEY_SECRET="your-access-key-secret"
 ```
 
-#### 代码参数
+#### 2. ebx config set（持久化到本地文件）
+
+```bash
+ebx config set access_key_id your-access-key-id
+ebx config set access_key_secret your-access-key-secret
+# 写入到 ~/.ebx/.env
+# 文件权限: 600（仅所有者可读写）
+```
+
+存储格式为 `ALICLOUD_ACCESS_KEY_ID=...` / `ALICLOUD_ACCESS_KEY_SECRET=...`，位于 `~/.ebx/.env`。
+
+#### 3. 代码参数
 
 ```python
 sandbox = await Sandbox.create(
@@ -111,10 +124,12 @@ sandbox = await Sandbox.create(
 
 ### AK/SK 工作原理
 
-1. SDK 使用 AK/SK 调用 token 交换端点获取临时 API Key
+1. SDK 使用 AK/SK 通过阿里云 RPC (POP) V1 HMAC-SHA1 签名调用 `https://fcsandbox.{region}.aliyuncs.com` 的 token 交换端点获取临时 API Key
 2. 临时 Key 缓存在内存中（不持久化到磁盘）
-3. 有效期 3600 秒，SDK 在到期前 300 秒自动刷新
+3. 设计有效期 3600 秒，SDK 在到期前 300 秒自动刷新（实际参数以 FC 平台最终确认为准）
 4. 后续请求使用临时 Key 作为 Bearer Token
+
+> **注意**：以上参数（TTL、端点 action 名等）基于 ACR token exchange 模式实现，正式上线前可能调整。
 
 ---
 
@@ -142,12 +157,17 @@ flowchart TD
 # 设置 API Key
 ebx config set api_key your-api-key
 
+# 设置 AK/SK（实验性）
+ebx config set access_key_id your-access-key-id
+ebx config set access_key_secret your-access-key-secret
+
 # 查看当前配置
 ebx config list
-# 输出包含 api_key 的来源（user/default）
+# 输出包含 api_key / access_key_id 等的来源（user/default）
 
 # 或直接查看 api_key
 ebx config get api_key
+ebx config get access_key_id
 ```
 
 ---

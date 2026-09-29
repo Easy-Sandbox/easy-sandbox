@@ -1,0 +1,2 @@
+qwen3-coder-plus
+[exit_code:0]

@@ -1,0 +1,28 @@
+Usage: cli config init [OPTIONS]
+
+  Guided setup: platform credentials, region, and Qwen Code (AI).
+
+  In a terminal this prompts for the platform API key, the default region, and
+  the Qwen Code API key used for AI template generation (``ebx create
+  "<description>"``). Secrets are typed with asterisk feedback (never echoed)
+  when the terminal supports it, and stored in ~/.ebx/.env; the region goes to
+  ~/.ebx/config.toml.
+
+  In non-TTY environments (CI, piped input) the wizard never blocks: it prints
+  the equivalent non-interactive ``ebx config set ...`` commands and exits
+  successfully. ``--yes`` behaves the same way.
+
+  Examples:
+    ebx config init
+    ebx config init --yes     # print non-interactive commands
+
+  Related commands:
+    ebx config list           Review effective values and sources
+    ebx config set KEY VALUE  Set one value directly
+    ebx config set KEY ""     Clear one stored value
+
+Options:
+  -y, --yes   Non-interactive: print the equivalent commands instead of
+              prompting
+  -h, --help  Show this message and exit.
+[exit_code:0]

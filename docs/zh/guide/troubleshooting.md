@@ -1,7 +1,5 @@
 # 常见问题（FAQ）
 
-> **项目更名说明**：本项目已从 Serverless Sandbox 更名为 **Easy Sandbox**。PyPI 包名: `easy-sandbox`（`pip install easy-sandbox`），CLI 命令: `ebx`，Python 导入: `easy_sandbox`。
-
 ---
 
 ## 连接超时

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import sys
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import click
@@ -59,6 +60,23 @@ class TestInstallCommand:
         result = runner.invoke(cli, ["install", "--help"])
         assert result.exit_code == 0
         assert "TEMPLATE_REF" in result.output or "template_ref" in result.output.lower()
+
+    def test_install_help_discloses_cloud_costs(self, runner: CliRunner) -> None:
+        """install help must disclose the billable cloud side effects of the
+        default build+deploy pipeline and the --download-only escape hatch."""
+        result = runner.invoke(cli, ["template", "install", "--help"])
+        assert result.exit_code == 0
+        assert "Alibaba Cloud" in result.output
+        assert "cost" in result.output.lower()
+        assert "--download-only" in result.output
+
+    def test_install_shortcut_help_discloses_cloud_costs(self, runner: CliRunner) -> None:
+        """Top-level install help carries the same cost disclosure."""
+        result = runner.invoke(cli, ["install", "--help"])
+        assert result.exit_code == 0
+        assert "Alibaba Cloud" in result.output
+        assert "cost" in result.output.lower()
+        assert "--download-only" in result.output
 
     def test_install_shortcut_builtin(self, runner: CliRunner) -> None:
         """'ebx install base' should delegate to template install."""
@@ -268,6 +286,31 @@ class TestTemplateBuildHelp:
         # build now runs the full pipeline (local build + ACR push + create).
         assert "--official-api" in result.output
         assert "--acr-namespace" in result.output
+
+    def test_build_help_discloses_cloud_costs(self, runner: CliRunner) -> None:
+        """build help must disclose the billable cloud side effects (ACR push
+        + remote registration) of the default pipeline."""
+        result = runner.invoke(cli, ["template", "build", "--help"])
+        assert result.exit_code == 0
+        assert "Alibaba Cloud" in result.output
+        assert "cost" in result.output.lower()
+        assert "cloud-side" in result.output or "cloud side" in result.output
+
+    def test_build_help_automation_hint(self, runner: CliRunner) -> None:
+        """build help should advise explicit --acr-namespace / TEMPLATE_DIR in
+        automation instead of env / .env fallbacks."""
+        result = runner.invoke(cli, ["template", "build", "--help"])
+        assert result.exit_code == 0
+        assert "automation/CI" in result.output
+        assert "ACR_NAMESPACE" in result.output
+        assert "EBX_TEMPLATE_DIR" in result.output
+
+    def test_deploy_help_discloses_cloud_costs(self, runner: CliRunner) -> None:
+        """deploy help must disclose the same cloud-side cost semantics."""
+        result = runner.invoke(cli, ["template", "deploy", "--help"])
+        assert result.exit_code == 0
+        assert "Alibaba Cloud" in result.output
+        assert "cost" in result.output.lower()
 
     def test_deploy_help(self, runner: CliRunner) -> None:
         """deploy exposes the full build, push, and create pipeline."""
@@ -1167,7 +1210,7 @@ class TestResolveAcrNamespace:
 
 
 class TestTemplateInitCommand:
-    """Tests for 'ebx template init' and 'ebx init' scaffold."""
+    """Tests for 'ebx template init' scaffold."""
 
     def test_list_shows_all_cases(self, runner: CliRunner) -> None:
         """--list shows python, node, and minimal."""
@@ -1205,13 +1248,13 @@ class TestTemplateInitCommand:
         assert expected == actual
         assert not (target / "commands.py").exists()
 
-    def test_init_shortcut_delegates(self, runner: CliRunner, tmp_path: Path) -> None:
-        """'ebx init -t python <dir>' delegates to template init."""
-        target = tmp_path / "shortcut"
-        result = runner.invoke(cli, ["init", "-t", "python", str(target)])
+    def test_top_level_init_shortcut_works(self, runner: CliRunner, tmp_path: Path) -> None:
+        """'ebx init' scaffolds exactly like 'ebx template init' (task 211)."""
+        target = tmp_path / "topshortcut"
+        result = runner.invoke(cli, ["init", str(target), "-t", "python"])
         assert result.exit_code == 0, result.output
         assert (target / "template.yaml").exists()
-        assert (target / "commands.py").exists()
+        assert (target / "Dockerfile").exists()
 
     def test_from_path(self, runner: CliRunner, tmp_path: Path) -> None:
         """--from local path copies files into target directory."""
@@ -1249,6 +1292,109 @@ class TestTemplateInitCommand:
         assert result.exit_code == 0, result.output
         assert (target / "template.yaml").exists()
         assert (target / "Dockerfile").exists()
+
+
+class TestTopLevelInitSharesTemplateInit:
+    """Top-level ``ebx init`` is the same Command object as ``template init``."""
+
+    def test_same_command_object(self) -> None:
+        from easy_sandbox.cli.commands.template import init as template_init
+        from easy_sandbox.cli.commands.template import template as template_group
+
+        assert cli.get_command(click.Context(cli), "init") is template_init
+        assert template_group.get_command(click.Context(template_group), "init") is template_init
+
+
+class _FakeTTYStdin:
+    def isatty(self) -> bool:
+        return True
+
+
+class _FakeSys:
+    """``sys`` shim with a TTY stdin (CliRunner replaces the real stdin)."""
+
+    def __init__(self) -> None:
+        self.stdin = _FakeTTYStdin()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(sys, name)
+
+
+class TestInitInteractivePicker:
+    """TTY case selection: arrow keys via questionary, numbered fallback."""
+
+    def _tty(self) -> Any:
+        return patch("easy_sandbox.cli.commands.template.sys", _FakeSys())
+
+    def test_arrow_picker_selects_case(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_q = MagicMock()
+        fake_q.select.return_value.ask.return_value = "node"
+        monkeypatch.chdir(tmp_path)
+        with self._tty(), patch.dict(sys.modules, {"questionary": fake_q}):
+            result = runner.invoke(cli, ["template", "init"])
+        assert result.exit_code == 0, result.output
+        assert fake_q.select.call_count == 1
+        assert (tmp_path / "node" / "template.yaml").exists()
+        # No numbered prompt when the picker worked.
+        assert "1. python" not in result.output
+
+    def test_numbered_fallback_when_questionary_missing(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        with self._tty(), patch.dict(sys.modules, {"questionary": None}):
+            result = runner.invoke(cli, ["template", "init"], input="2\n")
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "node" / "template.yaml").exists()
+        assert "1. python" in result.output
+
+    def test_numbered_fallback_when_picker_raises(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_q = MagicMock()
+        fake_q.select.return_value.ask.side_effect = RuntimeError("no terminal")
+        monkeypatch.chdir(tmp_path)
+        with self._tty(), patch.dict(sys.modules, {"questionary": fake_q}):
+            result = runner.invoke(cli, ["template", "init"], input="1\n")
+        assert result.exit_code == 0, result.output
+        assert (tmp_path / "python" / "template.yaml").exists()
+
+    def test_picker_cancel_aborts(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_q = MagicMock()
+        fake_q.select.return_value.ask.return_value = None
+        monkeypatch.chdir(tmp_path)
+        with self._tty(), patch.dict(sys.modules, {"questionary": fake_q}):
+            result = runner.invoke(cli, ["template", "init"])
+        assert result.exit_code == 1
+        assert "Aborted" in result.output
+        assert not (tmp_path / "python").exists()
+
+    def test_json_mode_never_prompts(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_q = MagicMock()
+        monkeypatch.chdir(tmp_path)
+        with self._tty(), patch.dict(sys.modules, {"questionary": fake_q}):
+            result = runner.invoke(cli, ["--json", "template", "init"])
+        assert result.exit_code == 1
+        assert "No scaffold case specified" in result.output
+        assert fake_q.select.call_count == 0
+
+    def test_ci_env_never_prompts(
+        self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        fake_q = MagicMock()
+        monkeypatch.setenv("CI", "true")
+        monkeypatch.chdir(tmp_path)
+        with self._tty(), patch.dict(sys.modules, {"questionary": fake_q}):
+            result = runner.invoke(cli, ["template", "init"])
+        assert result.exit_code == 1
+        assert "No scaffold case specified" in result.output
+        assert fake_q.select.call_count == 0
 
 
 class TestInstallFullPipeline:
@@ -1485,8 +1631,12 @@ class TestStartReadyWarning:
             )
 
             warning_text = stderr.getvalue()
-            assert "--start-cmd" in warning_text
-            assert "generation 2" in warning_text
+            # The warning now goes through the OutputManager's diagnostic
+            # channel (task 167) instead of bypassing it with a raw click.echo.
+            warnings_sent = [call.args[0] for call in mock_out.warning.call_args_list]
+            assert any("--start-cmd" in msg and "generation 2" in msg for msg in warnings_sent)
+            # Nothing may be written behind the manager's back.
+            assert warning_text == ""
 
 
 class TestInitDefaultDirectory:
@@ -1546,12 +1696,12 @@ class TestInitDefaultDirectory:
         assert result.exit_code == 0, result.output
         assert (tmp_path / "minimal").is_dir()
 
-    def test_init_shortcut_no_dir(
+    def test_template_init_no_dir_creates_subdir(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """'ebx init -t python' also creates ./python/ subdir."""
+        """'ebx template init -t python' creates ./python/ subdir."""
         monkeypatch.chdir(tmp_path)
-        result = runner.invoke(cli, ["init", "-t", "python"])
+        result = runner.invoke(cli, ["template", "init", "-t", "python"])
         assert result.exit_code == 0, result.output
         assert (tmp_path / "python" / "template.yaml").exists()
 

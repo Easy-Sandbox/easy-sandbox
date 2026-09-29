@@ -19,18 +19,24 @@ cd easy-sandbox
 # 2. Install in development mode (includes all extras + test/lint tooling)
 pip install -e ".[dev]"
 
-# 3. Install pre-commit hooks
-pre-commit install
+# 3. Install pre-commit — its checks are invoked automatically by .githooks/pre-commit
+pip install pre-commit   # or: make hooks
 
 # 4. Verify your setup
 make test
 ```
 
-> **Note:** The project also ships a `.githooks/` directory. If your Git config
-> uses `core.hooksPath=.githooks`, the same secret-scanning check runs
-> automatically via `.githooks/pre-commit` — no extra setup needed. The
-> `pre-commit install` approach and `core.hooksPath` approach are complementary;
-> both ultimately call `.githooks/check-secrets.sh`.
+> **Note on Git hooks:** This repository ships `.githooks/` and uses it as the
+> hook entry point via `core.hooksPath=.githooks` (a local Git config).
+> `.githooks/pre-commit` first runs the custom secret scan
+> (`.githooks/check-secrets.sh`), then — if the `pre-commit` command is
+> installed — invokes the full `.pre-commit-config.yaml` suite (ruff,
+> ruff-format, detect-secrets, bandit, …). Installing the package
+> (`pip install pre-commit`, or `make hooks`) is all that is needed:
+> `pre-commit install` is not used here because it writes to `.git/hooks/`,
+> which Git bypasses while `core.hooksPath=.githooks` is set. On a fresh clone
+> (where `core.hooksPath` is unset), run `git config core.hooksPath .githooks`
+> — or `pre-commit install` — to activate the hooks.
 
 ## Development Workflow
 
@@ -47,6 +53,13 @@ make test
    make typecheck # Type-check with mypy
    make test      # Run tests with pytest
    ```
+
+   Or run the full local CI equivalent in one command:
+   ```bash
+   make ci        # ruff check + ruff format --check + mypy + pytest (not integration) + build + twine check + py.typed check
+   ```
+
+   > **Note:** `make ci` runs on your single local Python interpreter. It does **not** replace the Python 3.10 / 3.11 / 3.12 test matrix enforced by GitHub Actions CI — the matrix can only be fully covered by CI itself.
 5. **Commit** using [Conventional Commits](https://www.conventionalcommits.org/):
    ```
    feat: add sandbox snapshot support
@@ -81,12 +94,25 @@ async def create_sandbox(template: str, timeout: int = 300) -> Sandbox:
 
 ## Secret Scanning
 
-A custom hook (`.githooks/check-secrets.sh`) scans every commit for hardcoded secrets — API keys, tokens, passwords, and cloud credentials. It runs in **two** complementary ways:
+A custom hook (`.githooks/check-secrets.sh`) scans every commit for hardcoded secrets — API keys, tokens, passwords, and cloud credentials. Commit-time checks flow through a single entry point:
 
-| Path | How it runs |
-|------|-------------|
-| `pre-commit install` | The hook is registered as a **local** repo entry (`id: check-secrets`) in `.pre-commit-config.yaml`. |
-| `core.hooksPath=.githooks` | `.githooks/pre-commit` calls the same script directly. |
+| Component | Role |
+|-----------|------|
+| `.githooks/pre-commit` | **Primary hook entry point.** Git calls it because this repository is configured with `core.hooksPath=.githooks`. |
+| `check-secrets.sh` | Runs first: scans staged files for hardcoded secrets and blocks the commit if any are found. |
+| pre-commit framework | Runs second (when the `pre-commit` command is installed): executes every hook in `.pre-commit-config.yaml` — ruff, ruff-format, detect-secrets, bandit, plus the `check-secrets` local hook — via `pre-commit run --hook-stage pre-commit`. |
+
+To enable the full suite locally, install the package once:
+
+```bash
+pip install pre-commit
+# or:
+make hooks
+```
+
+If `pre-commit` is not installed, `.githooks/pre-commit` still runs the secret
+scan and prints an install hint; the framework step is skipped without blocking
+the commit.
 
 If the hook detects a secret, the commit is blocked and the offending file + line is printed. False positives can be suppressed by adding `placeholder`, `example`, or `REPLACE_ME` to the line.
 
@@ -109,40 +135,29 @@ pytest -v
 
 ## Template Contributions
 
-Community sandbox templates are indexed in [`awesome-templates.yaml`](../awesome-templates.yaml) at the repository root. This file serves as a curated, searchable registry of both official and community templates — similar to an awesome-list.
+Sandbox templates — content, the machine-readable index (`awesome-templates.yaml`), releases and CI — live in the dedicated repository **[Easy-Sandbox/awesome-templates](https://github.com/Easy-Sandbox/awesome-templates)**. It is the single source of truth for official & community templates; this repository no longer bundles a template collection (it keeps only a minimal `python-hello` offline fixture for tests).
 
-### Adding Your Template to the Index
+### Contributing a Template
 
-1. **Fork** this repository
-2. **Open** `awesome-templates.yaml` and add your entry under the `# === Community Templates ===` section:
-   ```yaml
-   - name: my-template
-     description: "One-line description of what your template does"
-     repo: https://github.com/your-username/your-repo
-     path: optional/subdir        # omit if template is at repo root
-     tags: [python, your-tag]
-     author: your-github-handle
-     capabilities: [shell, files, code]  # sandbox capabilities your template requires
-     status: community
-   ```
-3. **Required fields**: `name`, `description`, `repo`, `tags`, `author`, `capabilities`, `status`
+1. **Read** the catalog repository's [CONTRIBUTING.md](https://github.com/Easy-Sandbox/awesome-templates/blob/main/CONTRIBUTING.md) — it defines the template anatomy, capability-group rules, and local dev workflow.
+2. **Open a PR** against [Easy-Sandbox/awesome-templates](https://github.com/Easy-Sandbox/awesome-templates) that adds your template folder and updates `awesome-templates.yaml` (plus the README template table) in the same PR.
+3. **Required index fields**: `name`, `description`, `repo`, `tags`, `author`, `capabilities`, `status` (optional: `path` for subdirectory templates, `ref` to pin a version).
 4. **Status values**:
    - `official` — maintained by the Easy-Sandbox team (do not use for community PRs)
    - `community` — community-contributed and maintained
    - `experimental` — early-stage or proof-of-concept
-5. **Ensure** your repo contains a valid `template.yaml` at the specified path
-6. **Open a PR** against `main` with the commit message: `feat: add <template-name> community template`
+5. **Ensure** your repo contains a valid `template.yaml` at the specified path. The catalog CI validates every folder and the index offline.
 
 ### Template Repository Requirements
 
 Your template repository should include:
 - A `template.yaml` defining the sandbox configuration (base image, packages, capabilities, etc.)
-- A `README.md` with usage instructions
+- A `Dockerfile` and a `README.md` with usage instructions
 - Example code or scripts that demonstrate the template's purpose
 
 ### Searching Templates
 
-Use the CLI to search the community index:
+Use the CLI to search the remote index:
 ```bash
 ebx template search python      # search by tag or keyword
 ebx template search ai-agent    # find AI agent templates

@@ -1028,7 +1028,7 @@ class Sandbox:
         description: str,
         *,
         max_wall_time: str = "10m",
-        max_tool_calls: int = 100,
+        max_session_turns: int = 100,
         llm_api_key: str | None = None,
         openai_base_url: str | None = None,
         openai_model: str | None = None,
@@ -1054,7 +1054,9 @@ class Sandbox:
             description: Natural-language instruction for the deployment.
             max_wall_time: Maximum wall-clock time for the agent
                 (e.g. ``'10m'``, ``'600s'``).
-            max_tool_calls: Maximum number of tool calls for qwen-code.
+            max_session_turns: Maximum number of qwen-code session turns
+                (user/model/tool turns). Exceeding it makes qwen-code exit
+                with code 53, reported as ``turn_limit_exceeded``.
             llm_api_key: Explicit LLM API key (falls back to env vars).
             openai_base_url: OpenAI-compatible API base URL override.
             openai_model: LLM model name override.
@@ -1106,7 +1108,7 @@ class Sandbox:
                 project_path,
                 description,
                 max_wall_time=max_wall_time,
-                max_tool_calls=max_tool_calls,
+                max_session_turns=max_session_turns,
                 on_progress=on_progress,
             )
             sandbox._deploy_result = result  # type: ignore[attr-defined]

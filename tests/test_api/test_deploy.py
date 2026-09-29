@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import re
+import subprocess
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from easy_sandbox.agent.qwen_code import find_qwen_code_binary
 from easy_sandbox.api.deploy import (
     DeployModule,
     DeployResult,
@@ -389,9 +392,65 @@ class TestDeployModule:
 
     def test_build_qwen_command(self) -> None:
         """Test that the qwen command is built correctly."""
-        cmd = DeployModule._build_qwen_command(prompt="deploy this", max_tool_calls=50)
+        cmd = DeployModule._build_qwen_command(prompt="deploy this", max_session_turns=50)
         assert "qwen" in cmd
         assert "--yolo" in cmd
         assert "--output-format json" in cmd
-        assert "--max-turns 50" in cmd
+        assert "--max-session-turns 50" in cmd
         assert "deploy this" in cmd
+
+    def test_build_qwen_command_prompt_is_positional(self) -> None:
+        """The prompt is positional; the deprecated ``-p`` flag must not come back.
+
+        Verified against qwen-code 0.15.11 and 0.23.0: ``--help`` marks
+        ``-p``/``--prompt`` as deprecated in favour of the positional
+        prompt, so the sandbox-side command must use the positional form.
+        """
+        cmd = DeployModule._build_qwen_command(prompt="deploy this", max_session_turns=50)
+        assert cmd.startswith("qwen ")
+        assert not cmd.startswith("qwen -p ")
+        assert " -p " not in cmd
+        assert " --prompt " not in cmd
+
+    def test_build_qwen_command_omits_obsolete_flag(self) -> None:
+        """The obsolete ``--max-turns`` CLI flag must not come back."""
+        cmd = DeployModule._build_qwen_command(prompt="deploy this", max_session_turns=50)
+        flags = re.findall(r"(?<!\S)--[a-z][a-z0-9-]*", cmd)
+        assert "--max-session-turns" in flags
+        assert "--max-turns" not in flags
+
+    def test_build_qwen_command_rejects_legacy_kwarg_name(self) -> None:
+        """The legacy ``max_tool_calls`` kwarg must fail loudly, not silently.
+
+        The parameter was renamed to ``max_session_turns`` because it maps
+        to qwen-code's ``--max-session-turns`` flag (user/model/tool turns),
+        which is semantically distinct from the real upstream
+        ``--max-tool-calls`` budget. Passing the old name must raise
+        ``TypeError`` instead of being ignored.
+        """
+        with pytest.raises(TypeError, match="max_tool_calls"):
+            DeployModule._build_qwen_command(prompt="deploy this", max_tool_calls=50)  # type: ignore[call-arg]
+
+    def test_build_qwen_command_flags_accepted_by_cli(self) -> None:
+        """Every long flag in the generated command must be accepted by the real CLI.
+
+        Runs ``qwen --help`` (no model request, no cost) and asserts each
+        long flag emitted by ``_build_qwen_command`` appears in the help
+        output. Skipped when the qwen CLI is not installed.
+        """
+        binary = find_qwen_code_binary()
+        if binary is None:
+            pytest.skip("qwen CLI is not installed; live flag acceptance check skipped")
+
+        cmd = DeployModule._build_qwen_command(prompt="deploy this", max_session_turns=50)
+        long_flags = set(re.findall(r"(?<!\S)--[a-z][a-z0-9-]*", cmd))
+
+        proc = subprocess.run(
+            [str(binary), "--help"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+        help_text = proc.stdout + proc.stderr
+        missing = sorted(flag for flag in long_flags if flag not in help_text)
+        assert not missing, f"flags not accepted by installed qwen CLI: {missing}"

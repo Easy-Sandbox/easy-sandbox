@@ -1,7 +1,5 @@
 # API 参考
 
-> **项目更名说明**：本项目已从 Serverless Sandbox 更名为 **Easy Sandbox**。PyPI 包名: `easy-sandbox`（`pip install easy-sandbox`），CLI 命令: `ebx`，Python 导入: `easy_sandbox`。
-
 本文档列出 Easy Sandbox Python SDK 的全部公开 API 签名、参数、返回值和异常。
 
 ---
@@ -139,7 +137,7 @@ async def deploy(
     description: str,
     *,
     max_wall_time: str = "10m",
-    max_tool_calls: int = 100,
+    max_session_turns: int = 100,
     llm_api_key: str | None = None,
     openai_base_url: str | None = None,
     openai_model: str | None = None,

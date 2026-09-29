@@ -1,0 +1,32 @@
+Usage: cli init [OPTIONS] [DIRECTORY]
+
+  Scaffold a new sandbox template project.
+
+  Creates a ready-to-build template directory with template.yaml, Dockerfile,
+  and (depending on the case) a commands.py file.
+
+  When DIRECTORY is omitted a new ./<name> subdirectory is created (derived from
+  --name, the scaffold case, or the fetched template).
+
+  Examples:
+    ebx template init --list                     # List built-in cases
+    ebx template init -t python                  # Creates ./python/
+    ebx template init -t python --name myapp     # Creates ./myapp/
+    ebx template init -t python ./my-template    # Explicit directory
+    ebx template init --from owner/repo          # Creates ./<template-name>/
+
+  Related commands:
+    ebx template deploy DIRECTORY
+    ebx template install TEMPLATE_REF
+    ebx create --template TEMPLATE
+
+Options:
+  -t, --template TEXT  Built-in scaffold case (python, node, minimal)
+  --from TEXT          Fetch template source from a registry ref (owner/repo,
+                       local path)
+  --name TEXT          Template name (default: case name, or fetched template
+                       name)
+  --list               List available scaffold cases
+  --force              Overwrite existing files
+  -h, --help           Show this message and exit.
+[exit_code:0]

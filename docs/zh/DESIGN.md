@@ -83,15 +83,14 @@ graph TB
 |------|------|------|
 | **CLI 命令体系** | [cli-design.md](design/cli-design.md) | 命令树（45 个命令）、全局选项、自然语言创建、OutputManager、AI 友好设计 |
 | **模板体系** | [template-system.md](design/template-system.md) | 模板分层、GitHub tarball 分发、`template.yaml` 规范、自定义命令、CLI 模板子命令 |
-| **模板目录** | [templates-catalog.md](design/templates-catalog.md) | 官方和社区模板列表、awesome-templates 索引 |
+| **模板目录** | [templates-catalog.md](design/templates-catalog.md) | 单一事实来源（SSOT）架构：模板真源仓库 awesome-templates、远程索引客户端、缓存/降级行为、主仓库 fixture 边界 |
 
 ### AI 与 Agent 集成
 
 | 专题 | 文档 | 摘要 |
 |------|------|------|
-| **MCP Server** | [mcp-server.md](design/mcp-server.md) | MCP 工具（P0/P1/P2）、STDIO + Streamable HTTP 传输、FC 部署架构、会话绑定 |
-| **内置 Agent** | [built-in-agents.md](design/built-in-agents.md) | 沙箱内置 AI CLI 工具（Codex、Claude Code、Qoder 等）、Agent 封装器 |
-| **Skills 系统** | [skills-system.md](design/skills-system.md) | Skills 注册、安装、分享生态 |
+| **MCP Server** | [mcp-server.md](design/mcp-server.md) | 7 个 P0 工具、STDIO 与 Streamable HTTP 传输、FC 部署产物、会话绑定 |
+| **内置 Agent** | [built-in-agents.md](design/built-in-agents.md) | 沙箱侧 `AgentModule`（`commands.run()` 语法糖）；Agent 随专用模板分发——默认基础镜像不预装任何 Agent CLI（见[自带 Agent（BYO）集成](guide/byo-agent-integration.md)） |
 
 ### 服务器与基础设施
 
@@ -109,13 +108,12 @@ graph TB
 | CLI（45 个命令） | **已实现** | 详见 [cli-design.md](design/cli-design.md) |
 | MCP Server（STDIO） | **已实现** | 7 个 P0 工具 |
 | MCP Server（Streamable HTTP） | **已实现** | `mcp_http.py` |
+| `ebx mcp deploy`（FC 产物生成） | **已实现** | 生成部署产物并打印手动 FC 部署步骤。详见 [mcp-server.md](design/mcp-server.md#7-fc-部署) |
 | 模板 build/push/create 流水线 | **已实现** | 通过官方 CreateTemplate API |
-| `ebx mcp deploy`（FC 部署） | **尚未实现** | 详见 [mcp-server.md](design/mcp-server.md#7-fc-部署) |
 | E2B 兼容层 | **已实现** | `easy_sandbox.compat` |
 | 持久沙箱 | **远期** | 需底层平台支持 |
 | SandboxPool（预热池） | **远期** | 需底层平台支持 |
 | NAS 挂载 / SLS 日志集成 | **远期** | 规划中的扩展模块 |
-| Skills 生态 | **部分实现** | 注册机制已完成；分发机制规划中 |
 
 ---
 
@@ -125,6 +123,7 @@ graph TB
 |------|------|
 | 架构决策记录 (ADR) | [`.agents/notes/`](../../.agents/notes/README.md) |
 | CLI 黄金文件证据 | [`.agents/evidence/`](../../.agents/evidence/) |
+| BYO Agent 集成指南 | [`docs/zh/guide/byo-agent-integration.md`](guide/byo-agent-integration.md) |
 | 用户指南 | [`docs/zh/guide/`](guide/) |
 | API/CLI 参考 | [`docs/zh/reference/`](reference/) |
 | English design index | [`docs/en/DESIGN.md`](../en/DESIGN.md) |

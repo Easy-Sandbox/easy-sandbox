@@ -33,7 +33,13 @@ _GENERATED_HEADER = (
 
 
 def run_case(case: EvidenceCase, runner: CliRunner) -> tuple[str, str, int]:
-    """Execute a single evidence case and return (stdout, stderr, exit_code)."""
+    """Execute a single evidence case and return (stdout, stderr, exit_code).
+
+    ``result.stdout`` (pure stdout) is used — on Click >= 8.2 ``result.output``
+    interleaves stdout and stderr, which would duplicate every diagnostic in
+    the golden stdout section and hide the stdout/stderr channel split the
+    evidence is supposed to prove.
+    """
     reset_config()
     cmd = list(case.command)
     if case.mock_setup is not None:
@@ -43,7 +49,7 @@ def run_case(case: EvidenceCase, runner: CliRunner) -> tuple[str, str, int]:
             result = runner.invoke(cli, cmd)
     else:
         result = runner.invoke(cli, cmd)
-    return result.output or "", result.stderr or "", result.exit_code
+    return result.stdout or "", result.stderr or "", result.exit_code
 
 
 # ─── markdown helpers ──────────────────────────────────────────────────────
@@ -53,7 +59,7 @@ def _cmd_display(cmd: list[str]) -> str:
     """Pretty-print a command list for Markdown fenced block."""
     parts: list[str] = []
     for c in cmd:
-        if " " in c or any(ch in c for ch in "'\""):
+        if c == "" or " " in c or any(ch in c for ch in "'\""):
             parts.append(f'"{c}"')
         else:
             parts.append(c)

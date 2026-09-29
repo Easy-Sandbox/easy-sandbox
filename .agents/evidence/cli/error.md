@@ -2,11 +2,59 @@
 
 # CLI Evidence: Error
 
+### create 无参数（显式用法错误，不再默认 base）
+
+```
+$ ebx create
+Exit code: 2
+```
+
+**stderr:**
+
+```
+Error: No DESCRIPTION or --template given. Choose one of:
+
+  ebx create --template base       launch the explicit base template
+  ebx create --template <NAME>     launch an existing template (no AI)
+  ebx create "<DESCRIPTION>"      AI-generate, build, deploy, create
+```
+
+### 未知顶层命令（拼写建议）
+
+```
+$ ebx crate
+Exit code: 2
+```
+
+**stderr:**
+
+```
+Usage: cli [OPTIONS] [COMMAND] [ARGS]...
+Try 'cli --help' for help.
+
+Error: No such command 'crate'. Did you mean 'create'?
+```
+
+### 未知顶层命令（custom_commands / ebx run 引导）
+
+```
+$ ebx frobnicate
+Exit code: 2
+```
+
+**stderr:**
+
+```
+Usage: cli [OPTIONS] [COMMAND] [ARGS]...
+Try 'cli --help' for help.
+
+Error: No such command 'frobnicate'. No similar ebx command found. If this is a custom command, declare it in the template's template.yaml (custom_commands) and run it with 'ebx run COMMAND'.
+```
+
 ### AuthenticationError
 
 ```
 $ ebx create --template base
-[E1000] Invalid API key
 Exit code: 3
 ```
 
@@ -20,8 +68,6 @@ Exit code: 3
 
 ```
 $ ebx create --template bad
-[E2001] Template 'bad' not found
-  Suggestion: Run 'ebx template list' to see available templates.
 Exit code: 4
 ```
 
@@ -36,8 +82,6 @@ Exit code: 4
 
 ```
 $ ebx create --template base
-[E2002] Sandbox quota exceeded
-  Suggestion: Destroy idle sandboxes or request a quota increase.
 Exit code: 6
 ```
 
@@ -52,8 +96,6 @@ Exit code: 6
 
 ```
 $ ebx exec sbx-ev-001 "sleep 999"
-[E3001] Command timed out after 60s
-  Suggestion: Increase the timeout parameter or check if the command is hanging.
 Exit code: 5
 ```
 

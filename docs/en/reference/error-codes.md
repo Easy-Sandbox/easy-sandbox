@@ -1,7 +1,5 @@
 # Error Codes Reference
 
-> **Renaming Notice**: This project has been renamed from Serverless Sandbox to **Easy Sandbox**. PyPI package: `easy-sandbox` (`pip install easy-sandbox`), CLI command: `ebx`, Python import: `easy_sandbox`.
-
 All SDK errors inherit from `SandboxError` and carry `code` (error code), `message`, `suggestion`, and `docs_url` attributes.
 
 ```python
@@ -43,12 +41,17 @@ except SandboxError as e:
 | E2002 | `QuotaExceededError` | Quota exceeded | Destroy idle sandboxes or request a quota increase | Number of running sandboxes exceeds account quota |
 | E2003 | `RegionUnavailableError` | Region unavailable | Try another region or check service availability | Requested region is temporarily unavailable or does not exist |
 | E2004 | `TemplateParseError` | Template parse failure | Fix template.yaml (see validation errors); capabilities will not be granted until the template parses successfully | template.yaml has format errors or invalid fields |
+| E2005 | `QwenCodeNotInstalledError` | Qwen Code is not installed | Install the official standalone build per the Quick Setup (or run `ebx config init`), or skip AI generation with `ebx create --template <name>` | `ebx create "description"` while Qwen Code is absent from PATH and `~/.ebx/bin`, and the user declines install or a non-TTY shell omits `-y` |
+| E2006 | `QwenCodeCredentialError` | Qwen Code credentials missing | `ebx config set qwen_code_api_key <KEY>` or `ebx config init`; exported `DASHSCOPE_API_KEY`/`OPENAI_API_KEY` also work | No usable credential in `qwen_code_api_key`, `llm_api_key`, environment variables, or `~/.qwen/settings.json` on the AI path |
+| E2007 | `AICodegenError` | AI generation failed | Inspect the retained workspace (`~/.ebx/generated/<name>`) and retry, or use `ebx create --template <name>` | Qwen Code generation failed/timed out, or the produced Dockerfile/template.yaml is missing or fails validation |
+| E2008 | `DescriptionClarificationError` | Description too incomplete for AI generation | Add the missing details listed in the suggestion (or a similar example description) to `DESCRIPTION`, pass `--yes`/`-y` to generate from the current description anyway, or use `ebx create --template <name>` | After the agent researched the publicly verifiable facts itself, the description still scores below the 80% completeness threshold (missing user preferences / private constraints / business decisions) and the session cannot ask clarifying questions (non-TTY / CI without `-y`), or the interactive clarification was cancelled / interrupted (EOF) |
 
 ### Troubleshooting Steps
 
 1. Verify the template name is correct (`ebx template list`)
 2. For E2002, check `ebx list` for idle sandboxes
 3. For E2004, check template.yaml YAML syntax and field values
+4. For E2005–E2008 (AI path), follow the Quick Setup printed in the output; pass `ebx create --template <name>` explicitly to skip AI generation. For E2008 specifically, add the missing details (or the example description) to the argument, or pass `-y` to generate from the current description without clarification
 
 ---
 
@@ -61,6 +64,8 @@ except SandboxError as e:
 | E3002 | `ProcessError` | Non-zero exit code | — | Command returned a non-zero exit code (carries `exit_code`, `stdout`, `stderr` attributes) |
 | E3003 | `CodeExecutionError` | Code execution failed | Check code syntax and runtime dependencies | Code Interpreter failed to execute code |
 | E3004 | `CapabilityNotSupportedError` | Capability not enabled | Declare the required capability in the template's `capabilities` list, or use a template that supports it | Called a capability that is runtime-gated without it being declared (e.g., calling `run_code()` on a template without the `code` capability). Also raised during `resolve_capabilities()` at template parse time |
+| E3005 | `CommandNotFoundError` | Named custom command not found | Check the command name, the template's `custom_commands`, and whether the SandboxServer is running (`sandbox.server.start()`) | `Sandbox.custom(name)` / `ebx run <name>` cannot resolve the command from the template's `custom_commands` (mechanism A) or the SandboxServer registry (mechanism B) — server reachable but HTTP 404, or SandboxServer unreachable (connection failure / invalid response). Carries `command_name` and `checked_sources` attributes |
+| E3006 | `EnvdRpcError` | envd rejected an RPC call (HTTP >= 400) | Check the command and arguments, or run with `ebx -v` for the raw error response | Sandbox envd returned HTTP >= 400 (e.g., a `process.Process/Start` 500 for an unknown executable). Carries `status_code`, `rpc_path`, `envd_error` (parsed JSON body) and `body_text`; the message never includes the full sandbox URL. `ebx connect` maps it to a single friendly notice (e.g., `Command not found: <cmd>`) |
 
 ### E3004 Details
 
@@ -98,9 +103,12 @@ except CapabilityNotSupportedError as e:
 | Error Code | Exception Class | Meaning | Suggestion | Trigger Scenario |
 |------------|----------------|---------|------------|------------------|
 | E5000 | `NetworkError` | Network error (base class) | — | General network connection errors |
+| E5000 | `GitHubRateLimitError` | GitHub anonymous API rate limit hit while fetching templates | Run `ebx config set github_token` (masked input; the CLI offers this interactively and retries once), or inject `GITHUB_TOKEN` in CI | `ebx template install` / `ebx install` / `ebx template search` without a token configured |
 | E5001 | `ConnectionError_` | Connection failed | Check network connectivity and firewall rules | Unable to connect to the sandbox service |
 
 > **Note**: The `ConnectionError_` class name has a trailing underscore to avoid shadowing Python's built-in `ConnectionError`.
+
+> **Note**: `GitHubRateLimitError` deliberately shares the E5000 code with `NetworkError` — it stays a plain network error to callers, while the CLI detects the subtype to offer one-shot interactive `github_token` onboarding.
 
 ---
 
@@ -167,6 +175,10 @@ classDiagram
     SandboxCreationError <|-- QuotaExceededError
     SandboxCreationError <|-- RegionUnavailableError
     SandboxCreationError <|-- TemplateParseError
+    SandboxCreationError <|-- QwenCodeNotInstalledError
+    SandboxCreationError <|-- QwenCodeCredentialError
+    SandboxCreationError <|-- AICodegenError
+    SandboxCreationError <|-- DescriptionClarificationError
 
     ExecutionError <|-- CommandTimeoutError
     ExecutionError <|-- ProcessError
@@ -177,6 +189,7 @@ classDiagram
     FileOperationError <|-- PermissionDeniedError
 
     NetworkError <|-- ConnectionError_
+    NetworkError <|-- GitHubRateLimitError
 
     SessionError <|-- SessionNotFoundError
     SessionError <|-- SessionAlreadyExistsError
@@ -195,6 +208,10 @@ classDiagram
     class QuotaExceededError { E2002 }
     class RegionUnavailableError { E2003 }
     class TemplateParseError { E2004 }
+    class QwenCodeNotInstalledError { E2005 }
+    class QwenCodeCredentialError { E2006 }
+    class AICodegenError { E2007 }
+    class DescriptionClarificationError { E2008 }
     class ExecutionError { E3000 }
     class CommandTimeoutError { E3001 }
     class ProcessError { E3002 }
@@ -205,6 +222,7 @@ classDiagram
     class PermissionDeniedError { E4002 }
     class NetworkError { E5000 }
     class ConnectionError_ { E5001 }
+    class GitHubRateLimitError { E5000 }
     class SessionError { E6000 }
     class SessionNotFoundError { E6001 }
     class SessionAlreadyExistsError { E6002 }
@@ -235,6 +253,10 @@ from easy_sandbox.models.errors import (
     QuotaExceededError,
     RegionUnavailableError,
     TemplateParseError,
+    QwenCodeNotInstalledError,
+    QwenCodeCredentialError,
+    AICodegenError,
+    DescriptionClarificationError,
     ExecutionError,
     CommandTimeoutError,
     ProcessError,
@@ -245,6 +267,7 @@ from easy_sandbox.models.errors import (
     PermissionDeniedError,
     NetworkError,
     ConnectionError_,
+    GitHubRateLimitError,
     SessionError,
     SessionNotFoundError,
     SessionAlreadyExistsError,

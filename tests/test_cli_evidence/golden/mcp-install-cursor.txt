@@ -1,4 +1,4 @@
-MCP Server config written to /HOME/.cursor/mcp.json
+MCP Server config written to /TMPPATH
 
 Registered tools:
   • create_sandbox     — Create a cloud sandbox

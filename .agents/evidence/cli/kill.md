@@ -22,8 +22,6 @@ Exit code: 0
 
 ```
 $ ebx kill
-Either provide a sandbox ID or use --all.
-  Suggestion: Usage: ebx kill <sandbox-id> or ebx kill --all
 Exit code: 2
 ```
 

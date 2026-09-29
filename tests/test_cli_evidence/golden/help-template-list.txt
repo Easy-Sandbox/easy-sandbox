@@ -1,15 +1,26 @@
 Usage: cli template list [OPTIONS]
 
-  List your custom templates on the platform.
+  List custom templates registered for the current account.
 
-  Shows templates you have built or cached locally via 'ebx template build' or
-  'ebx template install'.  This does NOT query a central registry.  To discover
-  community templates, visit GitHub and install with 'ebx template install
-  <owner/repo>'. Pass ``--official-api`` to list templates registered via the
-  official Alibaba Cloud FCSandbox CreateTemplate API.
+  By default this queries the configured platform endpoint. Pass --official-api
+  to use the Alibaba Cloud FCSandbox API with AK/SK. This command does not
+  search the community template index.
+
+  Examples:
+    ebx template list
+    ebx template list --official-api
+    ebx template list --region cn-shanghai
+    ebx --json template list
+
+  Related commands:
+    ebx template info TEMPLATE_ID
+    ebx template search QUERY
+    ebx template install TEMPLATE_REF
 
 Options:
-  --official-api  Query templates via the official Alibaba Cloud FCSandbox API
-                  (AK/SK).
-  --help          Show this message and exit.
+  --official-api     Query templates via the official Alibaba Cloud FCSandbox
+                     API (AK/SK).
+  -r, --region TEXT  Region override for this command (default: 'ebx config set
+                     region' value, else cn-hangzhou)
+  -h, --help         Show this message and exit.
 [exit_code:0]

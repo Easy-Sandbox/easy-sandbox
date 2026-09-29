@@ -14,7 +14,7 @@ from easy_sandbox.cli.formatters import get_formatter
 from easy_sandbox.cli.main import handle_errors
 
 # Shell metacharacters that require wrapping in ``sh -c``.
-_SHELL_META_RE = re.compile(r"[|&;<>()$`\\\"'\n]")  # noqa: W605
+_SHELL_META_RE = re.compile(r"[|&;<>()$`\\\"'\n]")
 
 
 def _wrap_shell_cmd(cmd: str) -> str:
@@ -60,7 +60,14 @@ def system_info(ctx: click.Context, sandbox_id: str) -> None:
     Displays OS, architecture, CPU, memory, disk, and Python version.
 
     Examples:\n
-        ebx sandbox system info abc123
+        ebx sandbox system info abc123\n
+        ebx --json sandbox system info abc123
+
+    \b
+    Related commands:
+      ebx info SANDBOX_ID
+      ebx sandbox system metrics SANDBOX_ID
+      ebx sandbox system packages SANDBOX_ID
     """
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -128,6 +135,12 @@ def system_env(ctx: click.Context, sandbox_id: str, env_filter: str) -> None:
     Examples:\n
         ebx sandbox system env abc123\n
         ebx sandbox system env abc123 --filter PATH,HOME,LANG
+
+    \b
+    Related commands:
+      ebx sandbox system info SANDBOX_ID
+      ebx exec SANDBOX_ID "env | sort"
+      ebx create --env KEY=VALUE
     """
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -182,7 +195,14 @@ def system_ports(ctx: click.Context, sandbox_id: str) -> None:
     """Show listening TCP ports in a sandbox.
 
     Examples:\n
-        ebx sandbox system ports abc123
+        ebx sandbox system ports abc123\n
+        ebx --json sandbox system ports abc123
+
+    \b
+    Related commands:
+      ebx sandbox system info SANDBOX_ID
+      ebx sandbox process list SANDBOX_ID
+      ebx exec SANDBOX_ID "ss -tlnp"
     """
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -233,6 +253,12 @@ def system_packages(
     Examples:\n
         ebx sandbox system packages abc123\n
         ebx sandbox system packages abc123 --manager npm
+
+    \b
+    Related commands:
+      ebx sandbox system info SANDBOX_ID
+      ebx exec SANDBOX_ID "python3 -m pip show PACKAGE"
+      ebx sandbox process list SANDBOX_ID
     """
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -301,7 +327,14 @@ def system_metrics(ctx: click.Context, sandbox_id: str) -> None:
     Displays CPU load, memory usage, and disk usage.
 
     Examples:\n
-        ebx sandbox system metrics abc123
+        ebx sandbox system metrics abc123\n
+        ebx --json sandbox system metrics abc123
+
+    \b
+    Related commands:
+      ebx sandbox system info SANDBOX_ID
+      ebx sandbox process list SANDBOX_ID
+      ebx info SANDBOX_ID
     """
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -364,10 +397,20 @@ def system_metrics(ctx: click.Context, sandbox_id: str) -> None:
 @click.pass_context
 @handle_errors
 def capabilities(ctx: click.Context, sandbox_id: str) -> None:
-    """Show supported capability groups of a sandbox.
+    """Show the capability groups declared by a sandbox template.
+
+    Capability groups include shell, files, code, terminal, and ports when
+    declared by the template.
 
     Examples:\n
-        ebx sandbox capabilities abc123
+        ebx sandbox capabilities abc123\n
+        ebx --json sandbox capabilities abc123
+
+    \b
+    Related commands:
+      ebx info SANDBOX_ID
+      ebx template info TEMPLATE_ID
+      ebx sandbox system info SANDBOX_ID
     """
     fmt = get_formatter(ctx)
     sandbox = _connect_sandbox(sandbox_id)
@@ -399,7 +442,14 @@ def capabilities(ctx: click.Context, sandbox_id: str) -> None:
     required=True,
     help="Command to execute with streaming output",
 )
-@click.option("--timeout", "-t", "cmd_timeout", type=int, default=300, help="Timeout in seconds")
+@click.option(
+    "--timeout",
+    "-t",
+    "cmd_timeout",
+    type=int,
+    default=300,
+    help="Command timeout in seconds (positive integer; default: 300)",
+)
 @click.option("--cwd", default="", help="Working directory")
 @click.pass_context
 @handle_errors
@@ -418,6 +468,12 @@ def shell_stream(
     Examples:\n
         ebx sandbox shell-stream abc123 --command "pip install numpy"\n
         ebx sandbox shell-stream abc123 -c "make build" --cwd /app
+
+    \b
+    Related commands:
+      ebx exec SANDBOX_ID CMD
+      ebx sandbox process start SANDBOX_ID --command CMD
+      ebx connect SANDBOX_ID
     """
     from easy_sandbox.models.process import ProcessChunkType
     from easy_sandbox.utils.async_bridge import run_sync
@@ -463,7 +519,20 @@ def shell_stream(
 @click.group()
 @click.pass_context
 def system(ctx: click.Context) -> None:
-    """System information for a sandbox (info, env, ports, packages, metrics)."""
+    """Inspect runtime environment, ports, packages, and resource usage.
+
+    \b
+    Examples:
+      ebx sandbox system info abc123
+      ebx sandbox system env abc123 --filter PATH,HOME
+      ebx sandbox system metrics abc123
+
+    \b
+    Related commands:
+      ebx info SANDBOX_ID
+      ebx sandbox process --help
+      ebx sandbox capabilities SANDBOX_ID
+    """
     ctx.ensure_object(dict)
 
 

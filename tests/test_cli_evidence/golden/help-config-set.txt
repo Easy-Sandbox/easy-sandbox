@@ -1,7 +1,63 @@
-Usage: cli config set [OPTIONS] KEY VALUE
+Usage: cli config set [OPTIONS] KEY [VALUE]
 
-  Set a configuration value.
+  Set a configuration value: KEY [VALUE].
+
+  Settings are stored in ~/.ebx/config.toml, except credentials (api_key,
+  access_key_id, access_key_secret, qwen_code_api_key, github_token) which are
+  written to ~/.ebx/.env using their environment-variable names.
+
+  Passing an empty VALUE clears the stored value for KEY instead: the key falls
+  back to its built-in default or becomes not set. An empty string is never
+  stored as a credential or override. Environment variables that are still
+  exported keep overriding the key at runtime; their values are never printed.
+
+  In an interactive terminal VALUE may be omitted: sensitive keys (github_token,
+  api_key, access_key_secret, qwen_code_api_key) are then read through the
+  masked (asterisk) input and the typed value is never echoed; other keys use a
+  visible prompt. Pressing Enter at the prompt cancels without changing
+  anything. In CI / non-interactive sessions VALUE is required.
+
+  Available keys (expected value):
+    api_key            E2B API Key (string)
+    access_key_id      Alibaba Cloud AccessKey ID for AK/SK auth, used by
+                       template deploy and ACR push (string)
+    access_key_secret  Alibaba Cloud AccessKey Secret for AK/SK auth, used by
+                       template deploy and ACR push (string)
+    api_url            Platform API URL (e.g. https://api.cn-hangzhou.e2b.fc.aliyuncs.com)
+    domain             Envd data-plane domain (e.g. cn-hangzhou.e2b.fc.aliyuncs.com)
+    region             Default region (e.g. cn-hangzhou, cn-shanghai)
+    http_timeout       HTTP request timeout in seconds (number, e.g. 120)
+    http2              Enable HTTP/2 (true/false)
+    max_retries        Maximum retry attempts (integer, e.g. 3)
+    llm_api_key        LLM API Key for NL inference (string)
+    llm_model          LLM model name (e.g. qwen-plus)
+    llm_base_url       LLM API base URL, OpenAI-compatible (string)
+    qwen_code_api_key  Qwen Code API key for AI template generation,
+                       e.g. a DashScope/ModelStudio key (string;
+                       stored in ~/.ebx/.env)
+    qwen_code_base_url Qwen Code OpenAI-compatible base URL (string)
+    qwen_code_model    Qwen Code model name (e.g. qwen3-coder-plus)
+    github_token       GitHub token for template downloads, used by
+                       'ebx template install' / 'ebx template search'
+                       (string; stored in ~/.ebx/.env)
+
+  Examples:
+    ebx config set api_key YOUR_API_KEY
+    ebx config set access_key_id YOUR_ACCESS_KEY_ID
+    ebx config set access_key_secret YOUR_ACCESS_KEY_SECRET
+    ebx config set region cn-hangzhou
+    ebx config set http_timeout 120
+    ebx config set http2 false
+    ebx config set region ""          # clear the stored region
+    ebx config set api_key ""         # remove the stored API key
+    ebx config set github_token      # masked prompt (VALUE omitted)
+    ebx config set github_token YOUR_GITHUB_TOKEN
+    ebx config set github_token ""    # remove the stored token
+
+  Related commands:
+    ebx config get KEY       Verify the effective value
+    ebx config list          Review effective values and sources
 
 Options:
-  --help  Show this message and exit.
+  -h, --help  Show this message and exit.
 [exit_code:0]

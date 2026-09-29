@@ -110,7 +110,7 @@ class _ServerProxy:
     the server package (which pulls in ``http.server`` etc.).
     """
 
-    def start(self, port: int = 9000, host: str = "0.0.0.0") -> None:  # noqa: S104
+    def start(self, port: int = 9000, host: str = "0.0.0.0") -> None:
         """Start the sandbox HTTP server (blocking).
 
         Args:
@@ -171,7 +171,7 @@ class _RegisterProxy:
         # Resolve string annotations (from __future__ annotations) to real types
         try:
             hints = typing.get_type_hints(func)
-        except Exception:  # noqa: BLE001
+        except Exception:
             hints = {}
         args: list[CustomCommandArg] = []
         for pname, param in sig.parameters.items():
@@ -597,7 +597,7 @@ async def _detect_python_cmd(sb: Any) -> str:
         result = await sb.commands.run("python3 --version")
         if result.exit_code == 0:
             return "python3"
-    except Exception:  # noqa: BLE001
+    except Exception:
         pass
     return "python"
 

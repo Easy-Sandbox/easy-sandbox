@@ -149,6 +149,56 @@ class TestSessionStore:
 
 
 # ---------------------------------------------------------------------------
+# HTTP protocol version negotiation
+# ---------------------------------------------------------------------------
+
+
+class TestHttpProtocolVersionNegotiation:
+    """Sessions created by SessionStore negotiate the HTTP transport version.
+
+    The shared SandboxMCPServer is wired with the HTTP supported-version set
+    (2025-06-18), not the STDIO default (2024-11-05).
+    """
+
+    async def test_session_server_negotiates_2025_06_18(self):
+        store = SessionStore()
+        _, server = await store.create_session()
+        resp = await server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2025-06-18",
+                    "capabilities": {},
+                    "clientInfo": {"name": "t", "version": "1"},
+                },
+            }
+        )
+        assert resp is not None
+        assert resp["result"]["protocolVersion"] == "2025-06-18"
+        assert resp["result"]["protocolVersion"] == MCP_PROTOCOL_VERSION
+
+    async def test_session_server_rejects_stdio_version_echo(self):
+        """HTTP 会话不回显 STDIO 的 2024-11-05，而是回退到 HTTP 支持版本。"""
+        store = SessionStore()
+        _, server = await store.create_session()
+        resp = await server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "t", "version": "1"},
+                },
+            }
+        )
+        assert resp["result"]["protocolVersion"] == "2025-06-18"
+
+
+# ---------------------------------------------------------------------------
 # ASGI app via Starlette TestClient
 # ---------------------------------------------------------------------------
 
@@ -206,7 +256,69 @@ class TestMcpHttpApp:
         assert "Mcp-Session-Id" in resp.headers
         body = resp.json()
         assert body["id"] == 1
-        assert "protocolVersion" in body["result"]
+        # Regression guard for the E2E-found inconsistency: initialize over
+        # HTTP must negotiate 2025-06-18, not the shared STDIO constant.
+        assert body["result"]["protocolVersion"] == "2025-06-18"
+
+    # ---- Protocol version negotiation (consistent with GET /health) ----
+
+    def test_health_and_initialize_report_same_protocol_version(self):
+        """HTTP /health 与 initialize 声明的协议版本必须一致（回归守卫）。"""
+        app = self._make_app()
+        client = TestClient(app)
+        health = client.get("/health")
+        assert health.status_code == 200
+
+        init = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": MCP_PROTOCOL_VERSION,
+                    "capabilities": {},
+                    "clientInfo": {"name": "t", "version": "1"},
+                },
+            },
+        )
+        assert init.status_code == 200
+        assert (
+            init.json()["result"]["protocolVersion"]
+            == health.json()["protocol"]
+            == MCP_PROTOCOL_VERSION
+        )
+
+    def test_initialize_with_unsupported_version_responds_supported(self):
+        """请求不支持的版本 → 按规范返回服务器支持的版本（200，非错误）。"""
+        app = self._make_app()
+        client = TestClient(app)
+        resp = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {
+                    "protocolVersion": "2024-11-05",
+                    "capabilities": {},
+                    "clientInfo": {"name": "t", "version": "1"},
+                },
+            },
+        )
+        assert resp.status_code == 200
+        assert resp.json()["result"]["protocolVersion"] == "2025-06-18"
+
+    def test_initialize_without_protocol_version_defaults_to_supported(self):
+        """请求缺失 protocolVersion → 协商到 HTTP 传输支持的版本。"""
+        app = self._make_app()
+        client = TestClient(app)
+        resp = client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["result"]["protocolVersion"] == "2025-06-18"
 
     def test_session_limit_returns_503(self):
         app = self._make_app(max_sessions=1)

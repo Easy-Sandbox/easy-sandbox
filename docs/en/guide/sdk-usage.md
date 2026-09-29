@@ -1,7 +1,5 @@
 # SDK Usage Guide
 
-> **Rename notice**: This project has been renamed from Serverless Sandbox to **Easy Sandbox**. PyPI package: `easy-sandbox` (`pip install easy-sandbox`), CLI command: `ebx`, Python import: `easy_sandbox`.
-
 This document covers the complete usage of the Easy Sandbox Python SDK.
 
 ---
@@ -56,7 +54,7 @@ async with await Sandbox.create(template="base") as sandbox:
 
 ### Natural Language Creation
 
-When `description` is provided and `template` is left at its default value, the SDK records it as a hint log entry. Template inference via LLM happens at the **CLI / Agent layer**, not inside `Sandbox.create()` itself:
+When `description` is provided and `template` is left at its default value, the SDK records it as a hint log entry; template selection does not happen inside `Sandbox.create()` itself. The CLI's `ebx create "<description>"` calls Qwen Code to generate an AI template before creating the sandbox (an explicit `--template` skips AI generation):
 
 ```python
 sandbox = await Sandbox.create(

@@ -21,7 +21,7 @@ import platform
 import re
 import shlex
 import shutil
-import subprocess  # noqa: S404
+import subprocess
 import sys
 import time
 from typing import Any
@@ -118,13 +118,13 @@ def _parse_meminfo() -> dict[str, int]:
 def _memory_fallback() -> tuple[int, int]:
     """Return ``(total_mb, available_mb)`` using :mod:`resource` on non-Linux."""
     try:
-        import resource  # noqa: PLC0415
+        import resource
 
         # soft limit of address space (bytes) — very rough proxy
         soft, _hard = resource.getrlimit(resource.RLIMIT_AS)
         total = soft // (1024 * 1024) if soft > 0 and soft != resource.RLIM_INFINITY else 0
         return total, 0
-    except Exception:  # noqa: BLE001
+    except Exception:
         return 0, 0
 
 
@@ -169,13 +169,13 @@ def _parse_proc_net_tcp(path: str) -> list[dict[str, Any]]:
 def _ports_via_ss() -> list[dict[str, Any]]:
     """Fallback: use ``ss -tlnp`` to list listening TCP ports."""
     try:
-        proc = subprocess.run(  # noqa: S603
+        proc = subprocess.run(
             shlex.split("ss -tlnp"),
             capture_output=True,
             text=True,
             timeout=10,
         )
-    except Exception:  # noqa: BLE001
+    except Exception:
         return []
     results: list[dict[str, Any]] = []
     for line in proc.stdout.splitlines()[1:]:
@@ -351,7 +351,7 @@ def handle_packages(request: ServerRequest) -> ServerResponse:
         )
 
     try:
-        proc = subprocess.run(  # noqa: S603
+        proc = subprocess.run(
             cmd_parts,
             capture_output=True,
             text=True,
@@ -361,7 +361,7 @@ def handle_packages(request: ServerRequest) -> ServerResponse:
         return ServerResponse.ok({"manager": manager, "packages": []})
     except subprocess.TimeoutExpired:
         return ServerResponse.error(500, f"{manager} timed out", "TimeoutError")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ServerResponse.error(500, str(exc), type(exc).__name__)
 
     packages: list[dict[str, str]] = []

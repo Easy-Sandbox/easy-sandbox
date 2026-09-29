@@ -2,6 +2,6 @@
 
 from __future__ import annotations
 
-from easy_sandbox.compat.sandbox import Sandbox
+from easy_sandbox.compat.sandbox import E2BSandbox, Sandbox
 
-__all__ = ["Sandbox"]
+__all__ = ["Sandbox", "E2BSandbox"]

@@ -26,7 +26,7 @@ from typing import Any
 
 import pytest
 
-import easy_sandbox.server.routes_process  # noqa: F401  — trigger registration
+import easy_sandbox.server.routes_process
 import easy_sandbox.server.routes_system  # noqa: F401  — trigger registration
 from easy_sandbox.server.app import SandboxRequestHandler
 from easy_sandbox.server.registry import CommandRegistry

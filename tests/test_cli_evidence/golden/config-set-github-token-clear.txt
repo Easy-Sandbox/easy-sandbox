@@ -1,0 +1,2 @@
+Cleared github_token (now not set).
+[exit_code:0]

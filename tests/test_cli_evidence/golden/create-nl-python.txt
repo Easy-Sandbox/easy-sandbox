@@ -1,11 +1,13 @@
-✓ Inference result:
-    Template: code-interpreter
-    CPU: 2 cores  |  Memory: 4096 MB
-    Confidence: 0.88
-... Creating...
 ID        sbx-XXXXX
 Status    running
-Template  code-interpreter
+Template  ebx-nl-python-ev001
 URL       https://sbx-XXXXX.cn-hangzhou.e2b.fc.aliyuncs.com
 Sandbox sbx-XXXXX created successfully.
 [exit_code:0]
+[stderr]
+... Generating template
+
+✓ AI generated template: ebx-nl-python-ev001
+    Dockerfile:    /home/user/.ebx/generated/ebx-nl-python-ev001/Dockerfile
+    template.yaml: /home/user/.ebx/generated/ebx-nl-python-ev001/template.yaml
+... Creating...

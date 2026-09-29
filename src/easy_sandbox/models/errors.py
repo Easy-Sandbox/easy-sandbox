@@ -9,6 +9,8 @@ Error codes follow the pattern E{category}{sequence}:
   E3xxx = Execution errors
   E4xxx = Filesystem errors
   E5xxx = Network errors
+  E6xxx = Session errors
+  E7xxx = Deploy, build, and Docker errors
 """
 
 from __future__ import annotations
@@ -89,6 +91,16 @@ class InvalidCredentialsError(AuthenticationError):
     )
 
 
+class TokenExchangeError(AuthenticationError):
+    """AK/SK to API Key token exchange failed."""
+
+    code = "E1004"
+    suggestion = (
+        "Token exchange from AK/SK to Platform API key failed. "
+        "Use E2B_API_KEY directly, or check AK/SK credentials and network connectivity."
+    )
+
+
 # --- Creation Errors (E2xxx) ---
 
 
@@ -132,6 +144,57 @@ class TemplateParseError(SandboxCreationError):
     suggestion = (
         "Fix the template.yaml (see the validation error above); "
         "capabilities are NOT granted until the template parses cleanly."
+    )
+
+
+class QwenCodeNotInstalledError(SandboxCreationError):
+    """Qwen Code executable was not found on PATH or in ~/.ebx/bin."""
+
+    code = "E2005"
+    suggestion = (
+        "Install Qwen Code, then retry. Interactive install prompt: run the "
+        "command again in a terminal. Or install manually via the official "
+        "installer (see 'ebx create --help'), or bypass AI generation with "
+        "'ebx create --template <name>'."
+    )
+
+
+class QwenCodeCredentialError(SandboxCreationError):
+    """Qwen Code is installed but no usable model credentials were found."""
+
+    code = "E2006"
+    suggestion = (
+        "Configure a DashScope/ModelStudio API key for Qwen Code: "
+        "'ebx config set qwen_code_api_key <KEY>' (interactive: 'ebx config init'), "
+        "or export DASHSCOPE_API_KEY / OPENAI_API_KEY."
+    )
+
+
+class AICodegenError(SandboxCreationError):
+    """Qwen Code failed to generate a valid Dockerfile / template.yaml."""
+
+    code = "E2007"
+    suggestion = (
+        "The AI generation step failed or produced incomplete files. "
+        "Inspect the generated workspace (path shown above), then retry "
+        "'ebx create \"<description>\"' or fall back to "
+        "'ebx create --template <name>'."
+    )
+
+
+class DescriptionClarificationError(SandboxCreationError):
+    """The description stayed below the completeness threshold.
+
+    Raised when the single-question clarification loop cannot be completed:
+    a non-interactive session (or JSON mode) would have to ask the user, or
+    the interactive user cancelled / hit EOF before reaching the threshold.
+    """
+
+    code = "E2008"
+    suggestion = (
+        "Add the missing details (runtime, dependencies, entry command, ports, "
+        "resources, data) to DESCRIPTION, or pass --yes/-y to generate from the "
+        "current description anyway, or use 'ebx create --template <name>'."
     )
 
 
@@ -241,6 +304,42 @@ class CommandNotFoundError(ExecutionError):
         )
         self.command_name = name
         self.checked_sources = checked
+
+
+class EnvdRpcError(ExecutionError):
+    """The sandbox envd rejected an RPC call with an HTTP error status.
+
+    Raised by the transport layer (``HttpClient.envd_stream``) when the
+    envd responds with HTTP >= 400 (e.g. a ``process.Process/Start`` 500
+    for an unknown executable).  Carries the *structured* envd JSON error
+    body (``envd_error``, parsed when the response body is JSON) so upper
+    layers can map it to friendly messages, plus the HTTP status and RPC
+    path.  The exception text deliberately avoids the full sandbox URL
+    (which embeds the sandbox ID / internal host) — only the RPC path is
+    included, and no separate WARNING log is emitted by default.
+    """
+
+    code = "E3006"
+    suggestion = (
+        "The sandbox envd rejected this RPC call. Check the command and "
+        "arguments, or run with 'ebx -v' for the raw error response."
+    )
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int = 0,
+        rpc_path: str = "",
+        envd_error: dict[str, Any] | None = None,
+        body_text: str = "",
+        **kwargs: Any,
+    ) -> None:
+        self.status_code = status_code
+        self.rpc_path = rpc_path
+        self.envd_error = envd_error
+        self.body_text = body_text
+        super().__init__(message, **kwargs)
 
 
 # --- Filesystem Errors (E4xxx) ---
@@ -383,23 +482,43 @@ class ConnectionError_(NetworkError):  # noqa: N801, N818
     # Note: named with underscore to avoid shadowing builtin ConnectionError
 
 
+class GitHubRateLimitError(NetworkError):
+    """GitHub's anonymous API rate limit was hit while fetching templates.
+
+    Deliberately shares the E5000 code of :class:`NetworkError`: to users
+    it remains one network error, while the CLI can detect this subtype and
+    offer a one-shot interactive ``github_token`` setup (task 206) before
+    giving up.  The raised ``suggestion`` always carries the officially
+    verified fine-grained PAT URL (see
+    :mod:`easy_sandbox.utils.github_token`).
+    """
+
+    code = "E5000"
+
+
 __all__ = [
     "SandboxError",
     "AuthenticationError",
     "InvalidAPIKeyError",
     "TokenExpiredError",
     "InvalidCredentialsError",
+    "TokenExchangeError",
     "SandboxCreationError",
     "TemplateNotFoundError",
     "QuotaExceededError",
     "RegionUnavailableError",
     "TemplateParseError",
+    "QwenCodeNotInstalledError",
+    "QwenCodeCredentialError",
+    "AICodegenError",
+    "DescriptionClarificationError",
     "ExecutionError",
     "CommandTimeoutError",
     "ProcessError",
     "CodeExecutionError",
     "CapabilityNotSupportedError",
     "CommandNotFoundError",
+    "EnvdRpcError",
     "FileOperationError",
     "FileNotFoundError_",
     "PermissionDeniedError",
@@ -414,6 +533,7 @@ __all__ = [
     "ACRLoginError",
     "NetworkError",
     "ConnectionError_",
+    "GitHubRateLimitError",
     "SessionError",
     "SessionNotFoundError",
     "SessionAlreadyExistsError",

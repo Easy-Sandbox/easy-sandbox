@@ -1,21 +1,36 @@
-"""Shared fixtures / helpers for the offline template-catalog tests.
+"""Shared fixtures / helpers for the offline template-fixture tests.
 
-Everything here is **offline**: no network, no real platform API, no docker
-daemon.  The only boundary that gets mocked in ``test_local_install.py`` is the
-backend build request (and, for the GitHub flavour, the archive download).
+``examples/templates/`` is **not** a publishable template collection: the
+single source of truth for template content, the index and releases is the
+``Easy-Sandbox/awesome-templates`` repository.  What remains here is a minimal
+fixture (``python-hello``) used to exercise the install/server pipelines
+**offline**: no network, no real platform API, no docker daemon.
 """
 
 from __future__ import annotations
 
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from click.testing import CliRunner
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 # tests/test_templates/conftest.py → parents[2] is the repository root.
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TEMPLATES_DIR = REPO_ROOT / "examples" / "templates"
 CATALOG_README = TEMPLATES_DIR / "README.md"
+
+#: The fixture template(s) intentionally kept in this repository so that the
+#: offline test-suite has something real to install/load.  Everything else
+#: belongs to the catalog repository (see :data:`SOURCE_OF_TRUTH_URL`).
+EXPECTED_FIXTURE_TEMPLATES: tuple[str, ...] = ("python-hello",)
+
+#: Single source of truth for official & community template content, the
+#: machine-readable index (``awesome-templates.yaml``) and publication.
+SOURCE_OF_TRUTH_URL = "https://github.com/Easy-Sandbox/awesome-templates"
 
 #: Files every template folder must contain.
 REQUIRED_TEMPLATE_FILES = ("template.yaml", "Dockerfile", "README.md")
@@ -23,7 +38,7 @@ REQUIRED_TEMPLATE_FILES = ("template.yaml", "Dockerfile", "README.md")
 #: Template YAML keys that must be present *explicitly* in every catalog entry.
 #: (The Pydantic model gives most of them defaults, but a published template is
 #: expected to spell them out so the index table stays meaningful.)
-REQUIRED_YAML_KEYS = ("name", "version", "description", "base", "author", "tags")
+REQUIRED_YAML_KEYS = ("name", "version", "description", "author", "tags")
 
 
 def discover_template_dirs() -> list[Path]:
@@ -46,6 +61,39 @@ def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
             dirs,
             ids=[d.name for d in dirs],
         )
+
+
+#: Environment variables that trigger CI auto-detection in the CLI root group
+#: (see ``easy_sandbox.cli.output.is_ci_env``).  When any of these is set the
+#: CLI silently switches to ``--json --quiet --no-color`` mode, which changes
+#: the output format and breaks assertions that expect human-readable text.
+#: Clearing them makes the tests environment-agnostic: they pass identically
+#: on a developer laptop and inside GitHub Actions / GitLab CI / etc.
+_CI_ENV_VARS: tuple[str, ...] = (
+    "CI",
+    "GITHUB_ACTIONS",
+    "GITLAB_CI",
+    "JENKINS_URL",
+    "TRAVIS",
+    "CIRCLECI",
+    "BITBUCKET_PIPELINES",
+    "TF_BUILD",
+    "CODEBUILD_BUILD_ID",
+)
+
+
+@pytest.fixture(autouse=True)
+def _suppress_ci_detection(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Remove CI environment variables so the CLI never auto-enables JSON mode.
+
+    Without this, ``is_ci_env()`` returns ``True`` in CI runners, the
+    ``OutputManager`` flips to ``json_mode=True``, and every assertion that
+    checks for human-readable output (e.g. ``"Using local template from"``)
+    fails because the output is JSON instead.
+    """
+    for var in _CI_ENV_VARS:
+        monkeypatch.delenv(var, raising=False)
+    yield
 
 
 @pytest.fixture

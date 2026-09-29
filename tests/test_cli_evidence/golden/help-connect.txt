@@ -1,9 +1,27 @@
 Usage: cli connect [OPTIONS] SANDBOX_ID
 
-  Connect to a sandbox interactively (like SSH).
+  Open an interactive command REPL for a sandbox.
 
-  Each command has a 30-second timeout.
+  This is a line-based REPL, not a PTY or a full SSH session: every entered line
+  runs in a new process with a 30-second timeout, and no shell state survives
+  between lines - ``cd``, environment variables and aliases are gone after each
+  command (use ``cd /path && <cmd>`` on one line, or ``ebx exec --cwd``,
+  instead).
+
+  On interactive terminals basic line editing and command history are enabled
+  (Up/Down history, Ctrl+R search, Ctrl+A/E and friends).  Type
+  ``exit``/``quit`` or press Ctrl+D to leave; Ctrl+C also disconnects. Failed
+  commands are reported as one friendly message - never as raw HTTP errors.
+
+  Examples:
+    ebx connect abc123
+    ebx sandbox connect abc123
+
+  Related commands:
+    ebx exec SANDBOX_ID CMD  Run one command with a custom timeout
+    ebx info SANDBOX_ID      Inspect connection details
+    ebx sandbox shell-stream SANDBOX_ID -c CMD
 
 Options:
-  --help  Show this message and exit.
+  -h, --help  Show this message and exit.
 [exit_code:0]

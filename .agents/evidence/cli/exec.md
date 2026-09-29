@@ -27,7 +27,6 @@ Exit code: 0
 
 ```
 $ ebx exec sbx-ev-001 bad_cmd
-command not found
 Exit code: 127
 ```
 

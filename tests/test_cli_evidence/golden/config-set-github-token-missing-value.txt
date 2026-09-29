@@ -1,0 +1,4 @@
+[exit_code:2]
+[stderr]
+Missing VALUE for 'github_token' and stdin is not an interactive terminal.
+  Suggestion: Pass the value explicitly: 'ebx config set github_token <VALUE>'. In CI, inject the GITHUB_TOKEN environment variable as a secret instead of storing it locally.

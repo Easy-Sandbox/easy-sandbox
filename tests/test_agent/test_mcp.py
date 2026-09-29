@@ -310,3 +310,67 @@ class TestSandboxMCPServer:
         server._manager.shutdown = AsyncMock()
         await server.shutdown()
         server._manager.shutdown.assert_awaited_once()
+
+
+# ---------------------------------------------------------------------------
+# Protocol version negotiation (per-transport)
+# ---------------------------------------------------------------------------
+
+
+class TestProtocolVersionNegotiation:
+    """Test initialize protocol version negotiation.
+
+    STDIO keeps its legacy ``2024-11-05`` default; other transports declare
+    their own supported set. Supported requests are echoed; missing or
+    unsupported requests fall back to the preferred (first) version.
+    """
+
+    async def _initialize(self, server, requested=None):
+        params = {
+            "capabilities": {},
+            "clientInfo": {"name": "test", "version": "0.1"},
+        }
+        if requested is not None:
+            params["protocolVersion"] = requested
+        return await server.handle_request(
+            {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": params}
+        )
+
+    @pytest.mark.parametrize(
+        "requested",
+        ["2024-11-05", "2025-06-18", "1999-01-01", None, 1],
+    )
+    async def test_stdio_default_keeps_2024_11_05(self, requested):
+        """STDIO 默认仅支持 2024-11-05 —— 与修复前行为完全一致（无回归）。"""
+        server = SandboxMCPServer()
+        resp = await self._initialize(server, requested)
+        assert resp is not None
+        assert resp["result"]["protocolVersion"] == "2024-11-05"
+        assert resp["result"]["protocolVersion"] == MCP_PROTOCOL_VERSION
+
+    async def test_echo_requested_version_when_transport_supports_it(self):
+        server = SandboxMCPServer(
+            supported_protocol_versions=("2025-06-18", "2024-11-05"),
+        )
+        resp = await self._initialize(server, "2025-06-18")
+        assert resp["result"]["protocolVersion"] == "2025-06-18"
+        resp = await self._initialize(server, "2024-11-05")
+        assert resp["result"]["protocolVersion"] == "2024-11-05"
+
+    async def test_unsupported_version_falls_back_to_preferred(self):
+        """不支持的请求版本 → 回退到首选支持版本（MCP 规范协商规则）。"""
+        server = SandboxMCPServer(supported_protocol_versions=("2025-06-18",))
+        resp = await self._initialize(server, "2024-11-05")
+        assert resp["result"]["protocolVersion"] == "2025-06-18"
+
+    async def test_missing_version_falls_back_to_preferred(self):
+        """请求缺失 protocolVersion → 回退到首选支持版本。"""
+        server = SandboxMCPServer(
+            supported_protocol_versions=("2025-06-18", "2024-11-05"),
+        )
+        resp = await self._initialize(server, None)
+        assert resp["result"]["protocolVersion"] == "2025-06-18"
+
+    def test_empty_supported_versions_rejected(self):
+        with pytest.raises(ValueError, match="at least one version"):
+            SandboxMCPServer(supported_protocol_versions=())

@@ -1,4 +1,3 @@
-Invalid argument format: 'badformat' (expected key=value)
 [exit_code:2]
 [stderr]
 Invalid argument format: 'badformat' (expected key=value)

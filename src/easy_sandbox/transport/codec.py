@@ -13,6 +13,8 @@ from __future__ import annotations
 import struct
 from typing import Any
 
+from easy_sandbox.utils.logging import get_logger
+
 try:
     import orjson
 
@@ -43,6 +45,8 @@ except ImportError:
 
 
 CONNECT_CONTENT_TYPE = "application/connect+json"
+
+logger = get_logger("transport.codec")
 
 
 class ConnectCodec:
@@ -140,3 +144,88 @@ class ConnectCodec:
             except Exception:
                 continue
         return frames
+
+
+class EnvelopeStreamParser:
+    """Incremental parser for Connect binary envelope-framed streams.
+
+    Feed raw network chunks via :meth:`feed`; each call returns the frames
+    that became complete with that chunk (possibly an empty list).  This
+    keeps memory bounded to a single in-flight frame and lets callers yield
+    frames as soon as they arrive instead of buffering the whole body.
+
+    Frame semantics match :meth:`ConnectCodec.parse_streaming_frames`
+    exactly (trailer/end frames skipped, unparseable payloads skipped,
+    non-dict payloads skipped).  Handles:
+
+    - a 5-byte frame header split across network chunks
+    - a payload split across multiple network chunks
+    - multiple complete frames packed into a single network chunk
+    - trailing truncated bytes (kept in the buffer; surfaced by
+      :meth:`pending_bytes` so the caller can log a warning at EOF)
+    """
+
+    __slots__ = ("_buf",)
+
+    def __init__(self) -> None:
+        self._buf = bytearray()
+
+    def feed(self, chunk: bytes) -> list[dict[str, Any]]:
+        """Absorb *chunk* and return frames completed by this chunk.
+
+        Args:
+            chunk: Raw bytes received from the network (may be empty, may
+                start/end mid-frame, may contain several whole frames).
+
+        Returns:
+            List of decoded data-frame dicts (never *None*). Frames are
+            returned in wire order.
+        """
+        if chunk:
+            self._buf.extend(chunk)
+
+        frames: list[dict[str, Any]] = []
+        buf = self._buf
+        header_size = ConnectCodec.FRAME_HEADER_SIZE
+        while True:
+            if len(buf) < header_size:
+                break  # Incomplete header — wait for more bytes
+            flags = buf[0]
+            length = struct.unpack_from(">I", buf, 1)[0]
+            frame_end = header_size + length
+            if len(buf) < frame_end:
+                break  # Incomplete payload — wait for more bytes
+            payload = bytes(buf[header_size:frame_end])
+            del buf[:frame_end]
+
+            if flags == ConnectCodec.FRAME_FLAG_TRAILER:
+                # End-of-stream/trailer frame, skip (kept for diagnostics —
+                # an error trailer means the RPC itself failed, but the
+                # historic parse_streaming_frames semantics skip it and
+                # rely on HTTP-level error mapping instead).
+                if payload:
+                    try:
+                        trailer = json_decode(payload)
+                    except Exception:
+                        trailer = None
+                    if isinstance(trailer, dict) and trailer.get("error"):
+                        logger.warning(
+                            "Connect stream ended with error trailer: %s",
+                            trailer["error"],
+                        )
+                continue
+
+            if not payload:
+                continue
+
+            try:
+                frame = json_decode(payload)
+            except Exception:
+                continue
+            if isinstance(frame, dict):
+                frames.append(frame)
+        return frames
+
+    def pending_bytes(self) -> int:
+        """Number of buffered bytes belonging to an incomplete final frame."""
+        return len(self._buf)

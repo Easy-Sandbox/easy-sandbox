@@ -1,7 +1,5 @@
 # template.yaml 规范
 
-> **项目更名说明**：本项目已从 Serverless Sandbox 更名为 **Easy Sandbox**。PyPI 包名: `easy-sandbox`（`pip install easy-sandbox`），CLI 命令: `ebx`，Python 导入: `easy_sandbox`。
-
 本文档精确定义 `template.yaml` 文件的所有字段（使用者视角）。
 
 ---
@@ -33,19 +31,6 @@ my-template/
 | `author` | `str` | ❌ | `""` | 作者 |
 | `license` | `str` | ❌ | `""` | 许可证标识（如 `"MIT"`） |
 | `tags` | `list[str]` | ❌ | `[]` | 分类标签 |
-
-### 构建配置
-
-| 字段 | 类型 | 必须 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| `base` | `str` | ❌ | `"ubuntu:22.04"` | 基础 Docker 镜像 |
-| `system_packages` | `list[str]` | ❌ | `[]` | 通过 `apt-get install` 安装的系统包 |
-| `python_packages` | `list[str]` | ❌ | `[]` | 通过 `pip install` 安装的 Python 包 |
-| `node_packages` | `list[str]` | ❌ | `[]` | 通过 `npm install -g` 安装的 Node.js 包 |
-| `commands` | `list[str]` | ❌ | `[]` | 构建时顺序执行的 Shell 命令（每条生成一个 `RUN` 指令） |
-| `copy_files` | `dict[str, str]` | ❌ | `{}` | 文件复制映射，键为源路径，值为目标路径（生成 `COPY` 指令） |
-
-> 当模板目录中存在 `Dockerfile` 时，`Dockerfile` 优先于上述构建字段。
 
 ### 运行时配置
 
@@ -130,27 +115,9 @@ tags:
   - web
   - flask
 
-base: python:3.11-slim
-
-system_packages:
-  - curl
-  - git
-  - postgresql-client
-
-python_packages:
-  - flask>=3.0
-  - sqlalchemy>=2.0
-  - gunicorn
-
-commands:
-  - "mkdir -p /app"
-
 env:
   PYTHONUNBUFFERED: "1"
   FLASK_ENV: "development"
-
-copy_files:
-  ./requirements.txt: /app/requirements.txt
 
 ports:
   - 5000
@@ -202,14 +169,6 @@ custom_commands:
 
 ---
 
-## Dockerfile 转换
+## 构建说明
 
-`template.yaml` 中的构建字段按以下顺序生成 Dockerfile 指令：
-
-1. `base` → `FROM {base}`
-2. `system_packages` → `RUN apt-get update && apt-get install -y {pkgs} && rm -rf /var/lib/apt/lists/*`
-3. `python_packages` → `RUN pip install --no-cache-dir {pkgs}`
-4. `node_packages` → `RUN npm install -g {pkgs}`
-5. `commands` → 每条 `RUN {cmd}`
-6. `env` → 每条 `ENV {key}={value}`
-7. `copy_files` → 每条 `COPY {src} {dst}`
+`template.yaml` 只定义运行时配置（能力、命令、环境变量、资源）。镜像构建完全由模板目录中的 `Dockerfile` 负责，使用语言原生依赖文件（`requirements.txt` / `package.json`）管理依赖。

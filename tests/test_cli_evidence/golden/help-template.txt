@@ -1,19 +1,29 @@
 Usage: cli template [OPTIONS] COMMAND [ARGS]...
 
-  Template management.
+  Discover, scaffold, build, and manage sandbox templates.
+
+  Examples:
+    ebx template search python
+    ebx template init --template python --name my-template
+    ebx template list
+
+  Related commands:
+    ebx create --template TEMPLATE  Launch a sandbox from a template
+    ebx install TEMPLATE_REF        Install shortcut
+    ebx config --help               Configure credentials and region
 
 Options:
-  --help  Show this message and exit.
+  -h, --help  Show this message and exit.
 
 Commands:
   build    Build Docker image locally, push to ACR, and create a sandbox...
   create   Create a sandbox template from an existing container image.
-  delete   Delete a custom template from the platform.
-  deploy   Build, push, and create template in one step
-  info     View template details.
+  delete   Delete a custom template from the remote platform.
+  deploy   Build, push, and create template in one step (alias of 'template...
+  info     Show details for a template ID.
   init     Scaffold a new sandbox template project.
   install  Download a template and (by default) build + deploy it.
-  list     List your custom templates on the platform.
+  list     List custom templates registered for the current account.
   push     Push a locally-built image to Alibaba Cloud ACR.
-  search   Search community templates by name, tag, or description.
+  search   Search the template catalog by name, tag, or description.
 [exit_code:0]

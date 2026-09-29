@@ -1,4 +1,3 @@
-Invalid environment variable format: 'INVALID' (expected KEY=VALUE)
 [exit_code:2]
 [stderr]
 Invalid environment variable format: 'INVALID' (expected KEY=VALUE)

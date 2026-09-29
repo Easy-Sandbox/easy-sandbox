@@ -12,10 +12,22 @@ import click
 
 from easy_sandbox.cli.formatters import get_formatter
 from easy_sandbox.cli.main import handle_errors
-from easy_sandbox.cli.output import get_output
+from easy_sandbox.cli.output import get_output, is_ci_env
+from easy_sandbox.cli.region import region_option
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+
+#: Shared help for the three ``--token`` options (task 206). The persistent
+#: ``ebx config set github_token`` flow is recommended; the flag remains a
+#: temporary override with an explicit leak warning.
+_GITHUB_TOKEN_HELP = (
+    "GitHub token for private repos / higher rate limits. Prefer "
+    "'ebx config set github_token' (masked input, stored once in ~/.ebx/.env); "
+    "--token is a temporary override that may leak into shell history and the "
+    "process list (env: GITHUB_TOKEN)."
+)
 
 
 def _extract_platform_error(resp: Any) -> str:
@@ -130,6 +142,133 @@ def _read_yaml_defaults(template_dir: str) -> dict[str, Any]:
     except Exception as e:  # includes yaml.YAMLError and any parse failure
         click.echo(f"Warning: Failed to parse template.yaml: {e}", err=True)
         return {}
+
+
+def _resolve_index_name(
+    name: str,
+    *,
+    token: str | None,
+    fmt: Any,
+    out: Any,
+) -> str:
+    """Resolve a bare template name through the remote template index (SSOT).
+
+    The catalog lives in ``Easy-Sandbox/awesome-templates``; its index maps
+    names to concrete ``owner/repo//subdir@ref`` references (with version
+    pins where the entry declares ``ref``).  Returns the concrete registry
+    ref.  When the cached index does not know the name and is not stale, a
+    single forced refresh runs so freshly published templates resolve
+    immediately.
+
+    Raises:
+        TemplateNotFoundError: the name is not in the index.
+        NetworkError: the index is unreachable and no cache exists.
+    """
+    from easy_sandbox.models.errors import TemplateNotFoundError
+    from easy_sandbox.utils.async_bridge import run_sync
+    from easy_sandbox.utils.template_index import fetch_index
+
+    index = run_sync(fetch_index(token=token))
+    entry = index.find(name)
+    if entry is None and not index.stale:
+        # The cache may predate a freshly published template - refresh once.
+        index = run_sync(fetch_index(token=token, force=True))
+        entry = index.find(name)
+    if index.notice:
+        out.warning(index.notice)
+    if entry is None:
+        raise TemplateNotFoundError(
+            f"Template '{name}' is not a built-in template and was not found in the "
+            f"template index ({index.source_url}).",
+            suggestion=(
+                "Run 'ebx template search <query>' to browse the index, or install "
+                "directly from a repository: 'ebx template install owner/repo//subdir[@ref]'."
+            ),
+        )
+    fmt.print_success(f"Resolved '{name}' via the template index: {entry.install_ref}")
+    return entry.install_ref
+
+
+def _github_rate_limit_setup_available(out: Any) -> bool:
+    """Whether the interactive GitHub-token onboarding can run here.
+
+    JSON / CI sessions never prompt (machine output must stay clean and CI
+    must never block); otherwise an interactive stdin is required.
+    """
+    if out.use_json or is_ci_env():
+        return False
+    try:
+        return bool(sys.stdin.isatty())
+    except (AttributeError, ValueError, OSError):
+        return False
+
+
+def _offer_github_token_setup(fmt: Any, out: Any) -> str | None:
+    """Offer a one-shot interactive ``github_token`` setup after a rate limit.
+
+    Shows the officially verified fine-grained PAT prefill URL, asks for
+    confirmation, reads the token through the existing masked (asterisk)
+    input (task 201), stores it in ``~/.ebx/.env`` and returns it so the
+    caller can retry exactly once. Returns ``None`` when the user declines,
+    cancels, or enters nothing - the original rate-limit error is re-raised
+    by the caller. The token value is never echoed, printed, or logged.
+    """
+    from easy_sandbox.cli.commands.config_cmd import _prompt_secret, write_env_var
+    from easy_sandbox.utils.github_token import (
+        FINE_GRAINED_PAT_URL,
+        GITHUB_TOKEN_ENV_VAR,
+    )
+
+    try:
+        out.info(
+            "GitHub rate limit reached and no token is configured "
+            "(anonymous access is limited to 60 requests/hour)."
+        )
+        out.info(
+            "Create a fine-grained token here - public repositories need no "
+            "extra permissions; a 90-day expiry is recommended:\n"
+            f"  {FINE_GRAINED_PAT_URL}"
+        )
+        if not click.confirm("Configure github_token now?", default=True):
+            return None
+        entered = _prompt_secret("Paste the GitHub token (input masked)")
+    except click.Abort:
+        return None
+    token = entered.strip()
+    if not token:
+        out.warning("No token entered; nothing was saved.")
+        return None
+    write_env_var(GITHUB_TOKEN_ENV_VAR, token)
+    fmt.print_success("Stored github_token in ~/.ebx/.env (input hidden); retrying once...")
+    return token
+
+
+def _with_github_rate_limit_retry(
+    operation: Callable[[str | None], Any],
+    *,
+    token: str | None,
+    fmt: Any,
+    out: Any,
+) -> Any:
+    """Run *operation* (which takes the active token) with one-shot recovery.
+
+    When the operation hits GitHub's anonymous rate limit while no token is
+    configured, an interactive session is offered the masked
+    ``github_token`` setup and the operation is retried exactly once with
+    the freshly stored token. Declining, cancelling, or a retry that fails
+    again raises the error unchanged - there is never a retry loop.
+    """
+    from easy_sandbox.models.errors import GitHubRateLimitError
+
+    try:
+        return operation(token)
+    except GitHubRateLimitError:
+        if token or not _github_rate_limit_setup_available(out):
+            raise
+        new_token = _offer_github_token_setup(fmt, out)
+        if new_token is None:
+            raise
+        return operation(new_token)
 
 
 def _resolve_acr_namespace(cli_value: str | None) -> str:
@@ -367,6 +506,7 @@ def _do_deploy(
     envd_inject: bool = False,
     generation: int | None = None,
     target_image: str | None = None,
+    region: str | None = None,
     ctx: click.Context | None = None,
     verbose: bool = False,
 ) -> dict[str, Any]:
@@ -379,6 +519,8 @@ def _do_deploy(
     Args:
         template_dir: Path to a template directory containing a Dockerfile.
         acr_namespace: Resolved ACR namespace (required).
+        region: Command-level region override (``--region``); ``None`` falls
+            back to the configured region (``ebx config set region``).
         ctx: Click context for output manager; falls back to defaults.
         verbose: Enable verbose docker build output streaming.
 
@@ -389,7 +531,7 @@ def _do_deploy(
     from easy_sandbox.transport.config import load_config
     from easy_sandbox.utils.async_bridge import run_sync
 
-    config = load_config(region=(ctx.obj.get("region") if ctx and ctx.obj else None))
+    config = load_config(region=region)
 
     yaml_defaults = _read_yaml_defaults(template_dir)
     resolved_cpu: int = cpu if cpu is not None else _coerce_int(yaml_defaults.get("cpu"), 2)
@@ -424,17 +566,16 @@ def _do_deploy(
         security_group_id=security_group_id,
     )
     template_name = alias or resolved_repo
-    region = config.region or "cn-hangzhou"
+    region = config.region
 
     out = get_output(ctx)
     reporter = _StepReporter(out, verbose=verbose)
 
     # Warn if start/ready commands used without generation 2
     if (start_cmd or ready_cmd) and resolved_generation != 2:
-        click.echo(
-            "Warning: --start-cmd / --ready-cmd only take effect with --generation 2 (MicroVM).",
-            err=True,
-        )
+        # Diagnostic channel: rendered once on stderr, suppressed by
+        # --quiet/--ci/--json instead of bypassing the output manager.
+        out.warning("--start-cmd / --ready-cmd only take effect with --generation 2 (MicroVM).")
 
     # Provenance notice (Task #9)
     _provenance_notice(out)
@@ -447,7 +588,7 @@ def _do_deploy(
             platform=platform,
             dockerfile=dockerfile,
             on_progress=reporter.phase,
-            on_output=click.echo if verbose else None,
+            on_output=out.info if verbose else None,
         )
         acr_ref, creds = _push_image(
             local_tag,
@@ -559,9 +700,30 @@ def _do_deploy(
     }
 
 
+#: Public alias so other commands (e.g. ``ebx create`` AI path) can reuse the
+#: build -> push -> CreateTemplate -> poll pipeline.
+do_deploy = _do_deploy
+
+#: Public alias used by the ``ebx create`` AI path to resolve the ACR namespace.
+resolve_acr_namespace = _resolve_acr_namespace
+
+
 @click.group()
 def template() -> None:
-    """Template management."""
+    """Discover, scaffold, build, and manage sandbox templates.
+
+    \b
+    Examples:
+      ebx template search python
+      ebx template init --template python --name my-template
+      ebx template list
+
+    \b
+    Related commands:
+      ebx create --template TEMPLATE  Launch a sandbox from a template
+      ebx install TEMPLATE_REF        Install shortcut
+      ebx config --help               Configure credentials and region
+    """
 
 
 @template.command("install")
@@ -577,7 +739,12 @@ def template() -> None:
     default=None,
     help="Registry type (auto-detected if not specified)",
 )
-@click.option("--token", default=None, help="Access token (required for private repos)")
+@click.option(
+    "--token",
+    default=None,
+    envvar="GITHUB_TOKEN",
+    help=_GITHUB_TOKEN_HELP,
+)
 @click.option("--alias", "-a", default=None, help="Template alias")
 @click.option(
     "--download-only",
@@ -611,6 +778,7 @@ def template() -> None:
     help="Memory in MB (default: from template.yaml or 2048)",
 )
 @click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompt")
+@region_option
 @click.pass_context
 @handle_errors
 def install(
@@ -626,25 +794,45 @@ def install(
     cpu: int | None,
     memory: int | None,
     yes: bool,
+    region: str | None,
 ) -> None:
     """Download a template and (by default) build + deploy it.
 
     By default, install downloads the template, then runs docker build,
-    pushes to ACR, and creates a sandbox template via the official API.
-    Use --download-only to skip the build/deploy step and only download
-    to the local cache (~/.ebx/templates/).
+    pushes to ACR, and creates a sandbox template via the official API —
+    cloud-side operations that can incur Alibaba Cloud costs (ACR
+    storage/traffic, template resources). Use --download-only to skip the
+    build/deploy step and only download to the local cache
+    (~/.ebx/templates/).
 
     Use --dir <path> to download into a specific directory instead of
     the cache.
 
-    Examples:\n
-      ebx install owner/repo --acr-namespace my-ns  # Download + build + deploy\n
-      ebx install owner/repo --download-only        # Download only\n
-      ebx install owner/repo//subdir --download-only # Subdirectory of a repo\n
-      ebx install ./my-template --acr-namespace ns  # Local dir + deploy\n
-      ebx install owner/repo@v1.0 --yes             # Skip confirmation\n
-      ebx install owner/repo --dir ./local-copy     # Download into ./local-copy
+    TEMPLATE_REF can be a bare template name from the official index
+    (Easy-Sandbox/awesome-templates) or a registry reference. Bare names
+    are resolved against the remote index; entries may pin a version, in
+    which case that pinned ref is honoured.
+
+    A GitHub token (private repos / higher rate limits) is taken from
+    --token, then the GITHUB_TOKEN environment variable, then the stored
+    github_token; prefer 'ebx config set github_token' - --token may leak
+    into shell history and process listings.
+
+    \b
+    Examples:
+      ebx template install python-hello --download-only   # install by index name
+      ebx template install owner/repo --acr-namespace my-ns
+      ebx template install owner/repo@v1.0 --download-only
+      ebx template install owner/repo//subdir --dir ./local-copy
+      ebx template install owner/repo --acr-namespace my-ns --region cn-shanghai
+
+    \b
+    Related commands:
+      ebx template search QUERY  Find a template in the index
+      ebx template list          List registered templates
+      ebx create --template ID   Launch the installed template
     """
+    from easy_sandbox.cli.commands.config_cmd import resolve_github_token
     from easy_sandbox.utils.async_bridge import run_sync
     from easy_sandbox.utils.registry import (
         TEMPLATE_CACHE_DIR,
@@ -671,24 +859,47 @@ def install(
         )
         sys.exit(EXIT_NOT_FOUND)
 
-    client = RegistryClient(registry_url=registry_url, token=token)
-    ref = run_sync(client.resolve(template_ref, registry_type=registry_type))
+    active_token = resolve_github_token(token)
 
-    if ref.is_builtin:
-        fmt.print_success(f"'{template_ref}' is a built-in template. No installation needed.")
-        fmt.print_success(f"Use it directly: ebx create --template {template_ref}")
-        return
+    def _acquire(active: str | None) -> tuple[Any, Path | None]:
+        """Resolve TEMPLATE_REF and download its sources (task 206).
 
-    # Fetch the template sources.
-    if ref.registry_type == "local":
-        fmt.print_success(f"Using local template from {ref.local_path}...")
-    else:
+        Returns ``(ref, source_path)``; ``source_path`` is ``None`` when the
+        ref is a built-in template that needs no installation.
+        """
+        nonlocal template_ref
+        client = RegistryClient(registry_url=registry_url, token=active)
+        ref = run_sync(client.resolve(template_ref, registry_type=registry_type))
+
+        if ref.is_builtin:
+            from easy_sandbox.utils.registry import BUILTIN_TEMPLATES
+
+            if template_ref in BUILTIN_TEMPLATES:
+                fmt.print_success(
+                    f"'{template_ref}' is a built-in template. No installation needed."
+                )
+                fmt.print_success(f"Use it directly: ebx create --template {template_ref}")
+                return ref, None
+            # Bare name that is not built-in: resolve it through the remote
+            # template index (single source of truth), then continue as usual.
+            template_ref = _resolve_index_name(template_ref, token=active, fmt=fmt, out=out)
+            ref = run_sync(client.resolve(template_ref, registry_type=registry_type))
+            if ref.is_builtin:  # pragma: no cover - defensive: index refs are owner/repo
+                raise click.ClickException(
+                    f"Template index resolved '{template_ref}' to a built-in template."
+                )
+
+        # Fetch the template sources.
+        if ref.registry_type == "local":
+            fmt.print_success(f"Using local template from {ref.local_path}...")
+            return ref, run_sync(client.fetch(ref))
         fmt.print_success(f"Fetching template from {ref.owner}/{ref.repo}...")
-    if ref.registry_type == "local":
-        source_path = run_sync(client.fetch(ref))
-    else:
         with out.spinner(f"Fetching template {template_ref}"):
-            source_path = run_sync(client.fetch(ref))
+            return ref, run_sync(client.fetch(ref))
+
+    ref, source_path = _with_github_rate_limit_retry(_acquire, token=active_token, fmt=fmt, out=out)
+    if source_path is None:  # built-in template: nothing to install
+        return
 
     # Locate template.yaml
     yaml_path = _find_template_yaml(source_path)
@@ -759,9 +970,7 @@ def install(
     # AK/SK credentials?
     from easy_sandbox.transport.config import load_config
 
-    config = load_config(
-        region=(ctx.obj.get("region") if ctx.obj else None),
-    )
+    config = load_config(region=region)
     if not (config.access_key_id and config.access_key_secret):
         missing.append(
             "Alibaba Cloud AK/SK credentials not found. "
@@ -798,6 +1007,7 @@ def install(
         cpu=cpu,
         memory=memory,
         alias=alias,
+        region=region,
         ctx=ctx,
     )
 
@@ -823,23 +1033,33 @@ def install(
     default=False,
     help="Query templates via the official Alibaba Cloud FCSandbox API (AK/SK).",
 )
+@region_option
 @click.pass_context
 @handle_errors
-def list_templates(ctx: click.Context, official_api: bool) -> None:
-    """List your custom templates on the platform.
+def list_templates(ctx: click.Context, official_api: bool, region: str | None) -> None:
+    """List custom templates registered for the current account.
 
-    Shows templates you have built or cached locally via
-    'ebx template build' or 'ebx template install'.  This does NOT
-    query a central registry.  To discover community templates, visit
-    GitHub and install with 'ebx template install <owner/repo>'.
-    Pass ``--official-api`` to list templates registered via the
-    official Alibaba Cloud FCSandbox CreateTemplate API.
+    By default this queries the configured platform endpoint. Pass
+    --official-api to use the Alibaba Cloud FCSandbox API with AK/SK.
+    This command does not search the community template index.
+
+    \b
+    Examples:
+      ebx template list
+      ebx template list --official-api
+      ebx template list --region cn-shanghai
+      ebx --json template list
+
+    \b
+    Related commands:
+      ebx template info TEMPLATE_ID
+      ebx template search QUERY
+      ebx template install TEMPLATE_REF
     """
     from easy_sandbox.transport.config import load_config
 
     fmt = get_formatter(ctx)
 
-    region = ctx.obj.get("region") if ctx.obj else None
     config = load_config(region=region)
 
     if official_api:
@@ -852,7 +1072,7 @@ def list_templates(ctx: click.Context, official_api: bool) -> None:
         templates = list_official_templates(
             access_key_id=config.access_key_id,
             access_key_secret=config.access_key_secret,
-            region=config.region or "cn-hangzhou",
+            region=config.region,
         )
         if not templates:
             fmt.print_success("No official templates found for this team.")
@@ -927,19 +1147,32 @@ def list_templates(ctx: click.Context, official_api: bool) -> None:
     default=False,
     help="Query the template via the official Alibaba Cloud FCSandbox API (AK/SK).",
 )
+@region_option
 @click.pass_context
 @handle_errors
-def info(ctx: click.Context, template_id: str, official_api: bool) -> None:
-    """View template details.
+def info(ctx: click.Context, template_id: str, official_api: bool, region: str | None) -> None:
+    """Show details for a template ID.
 
-    Pass ``--official-api`` to use the official Alibaba Cloud FCSandbox
-    ``GetTemplate`` API (requires AccessKey/AccessSecret in env).
+    Pass --official-api to use the Alibaba Cloud FCSandbox GetTemplate API;
+    that mode requires configured AccessKey credentials.
+
+    \b
+    Examples:
+      ebx template info tmpl-abc123
+      ebx template info tmpl-abc123 --official-api
+      ebx template info tmpl-abc123 --region cn-shanghai
+      ebx --json template info tmpl-abc123
+
+    \b
+    Related commands:
+      ebx template list
+      ebx create --template TEMPLATE_ID
+      ebx template delete TEMPLATE_ID
     """
     from easy_sandbox.transport.config import load_config
 
     fmt = get_formatter(ctx)
 
-    region = ctx.obj.get("region") if ctx.obj else None
     config = load_config(region=region)
 
     if official_api:
@@ -953,7 +1186,7 @@ def info(ctx: click.Context, template_id: str, official_api: bool) -> None:
             template_id,
             access_key_id=config.access_key_id,
             access_key_secret=config.access_key_secret,
-            region=config.region or "cn-hangzhou",
+            region=config.region,
         )
         # BUG-09: Format as readable key-value pairs instead of raw dict.
         if isinstance(data, dict):
@@ -1047,6 +1280,7 @@ def info(ctx: click.Context, template_id: str, official_api: bool) -> None:
 @click.option(
     "--registry-password", default=None, help="Registry login password (for pulling image)"
 )
+@region_option
 @click.pass_context
 @handle_errors
 def create_template(
@@ -1067,6 +1301,7 @@ def create_template(
     acree_instance_id: str | None,
     registry_username: str | None,
     registry_password: str | None,
+    region: str | None,
 ) -> None:
     """Create a sandbox template from an existing container image.
 
@@ -1081,11 +1316,19 @@ def create_template(
         --name my-template --team-id team-xxx --cpu 4 --memory 4096
       ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag \\
         --name my-template --envd-inject --generation 1
+      ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag \\
+        --name my-template --region cn-shanghai
+
+    \b
+    Related commands:
+      ebx template push IMAGE       Push a local image to ACR first
+      ebx template info TEMPLATE_ID Inspect the created template
+      ebx create --template ID      Launch a sandbox from the template
     """
     from easy_sandbox.transport.config import load_config
 
     fmt = get_formatter(ctx)
-    config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
+    config = load_config(region=region)
 
     ak = config.access_key_id or ""
     sk = config.access_key_secret or ""
@@ -1099,7 +1342,7 @@ def create_template(
 
     from easy_sandbox.api.fc_template import create_official_template
 
-    region = config.region or "cn-hangzhou"
+    region = config.region
     resolved_generation: int = generation if generation is not None else 1
 
     # Warn if start/ready commands used without generation 2
@@ -1179,6 +1422,7 @@ def create_template(
     default="",
     help="ACR EE instance ID (cri-...)",
 )
+@region_option
 @click.pass_context
 @handle_errors
 def push(
@@ -1189,6 +1433,7 @@ def push(
     acr_username: str | None,
     acr_password: str | None,
     acree_instance_id: str,
+    region: str | None,
 ) -> None:
     """Push a locally-built image to Alibaba Cloud ACR.
 
@@ -1199,15 +1444,22 @@ def push(
     \b
     Examples:
       ebx template push python-hello:latest --acr-namespace my-ns
+      ebx template push python-hello:latest --acr-namespace my-ns --region cn-shanghai
       ebx template push my-tmpl:v1 --acr-namespace prod \\
         --acree-instance-id cri-xxx
+
+    \b
+    Related commands:
+      ebx template build TEMPLATE_DIR  Build, push, and register a template
+      ebx template create IMAGE        Register an existing image
+      ebx config set access_key_id KEY
     """
     from easy_sandbox.api.docker_builder import ACRConfig
     from easy_sandbox.models.errors import ACRLoginError
     from easy_sandbox.transport.config import load_config
 
     fmt = get_formatter(ctx)
-    config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
+    config = load_config(region=region)
 
     # Parse the local image reference into repo name + tag.
     if ":" in image:
@@ -1246,7 +1498,7 @@ def push(
         image,
         acr=acr,
         tag=image_tag,
-        region=config.region or "cn-hangzhou",
+        region=config.region,
         on_progress=reporter.phase,
     )
     reporter.done(f"Image pushed to ACR: {acr_ref}")
@@ -1363,6 +1615,7 @@ def push(
 )
 @click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompt")
 @click.option("-v", "--verbose", "verbose_flag", is_flag=True, help="Verbose output (DEBUG level)")
+@region_option
 @click.pass_context
 @handle_errors
 def build(
@@ -1395,8 +1648,14 @@ def build(
     target_image: str | None,
     yes: bool,
     verbose_flag: bool,
+    region: str | None,
 ) -> None:
     """Build Docker image locally, push to ACR, and create a sandbox template.
+
+    Full pipeline with cloud side effects: the local docker build is
+    local-only, but the ACR push and the remote template registration
+    can incur Alibaba Cloud costs (ACR storage/traffic, template
+    resources).
 
     Supports two modes:
 
@@ -1410,7 +1669,10 @@ def build(
       local docker build → ACR push → legacy v3/v2 platform API.
       Use --legacy-api to keep the old behaviour.
 
-    Requires Docker daemon running and ACR credentials.
+    Requires Docker daemon running and ACR credentials. In automation/CI,
+    pass --acr-namespace and TEMPLATE_DIR explicitly instead of relying
+    on ACR_NAMESPACE / EBX_TEMPLATE_DIR environment variables or .env
+    files, so the build cannot drift with the surrounding environment.
 
     \b
     Examples:
@@ -1422,6 +1684,13 @@ def build(
         --acr-namespace prod --disk-size 10240 --internet-access
       ebx template build ./my-template \\
         --acr-namespace prod --legacy-api
+      ebx template build ./my-template --acr-namespace prod --region cn-shanghai
+
+    \b
+    Related commands:
+      ebx template init DIRECTORY    Scaffold template source files
+      ebx template push IMAGE        Push an existing local image only
+      ebx create --template ID       Launch the completed template
     """
     if verbose_flag:
         from easy_sandbox.cli.output import enable_verbose
@@ -1447,9 +1716,7 @@ def build(
     # Early credential check (before confirmation prompt)
     from easy_sandbox.transport.config import load_config
 
-    config = load_config(
-        region=(ctx.obj.get("region") if ctx.obj else None),
-    )
+    config = load_config(region=region)
     resolved_acr_username = acr_username or config.access_key_id or ""
     resolved_acr_password = acr_password or config.access_key_secret or ""
     if not resolved_acr_username or not resolved_acr_password:
@@ -1505,6 +1772,7 @@ def build(
         envd_inject=envd_inject,
         generation=resolved_generation,
         target_image=target_image,
+        region=region,
         ctx=ctx,
         verbose=out.verbose,
     )
@@ -1530,7 +1798,27 @@ def build(
 @template.command(
     "deploy",
     params=list(build.params),
-    help="Build, push, and create template in one step",
+    help=(
+        "Build, push, and create template in one step (alias of 'template build').\n\n"
+        "Builds a Docker image locally, pushes it to ACR, and creates a sandbox "
+        "template. The ACR push and the remote template registration are "
+        "cloud-side operations that can incur Alibaba Cloud costs (ACR "
+        "storage/traffic, template resources).\n\n"
+        "Requires: Docker daemon running, ACR credentials, and an ACR namespace "
+        "(--acr-namespace or the ACR_NAMESPACE env var / .env entry). AK/SK "
+        "credentials are read from ALICLOUD_ACCESS_KEY_ID / "
+        "ALICLOUD_ACCESS_KEY_SECRET when --acr-username/--acr-password are omitted.\n\n"
+        "\b\n"
+        "Examples:\n"
+        "  ebx template deploy ./examples/templates/python-hello \\\n"
+        "    --acr-namespace my-ns --acr-repo python-hello\n"
+        "  ebx template deploy ./my-template --acr-namespace prod --yes\n\n"
+        "\b\n"
+        "Related commands:\n"
+        "  ebx template init DIRECTORY  Scaffold a template project\n"
+        "  ebx template list            Verify the registered template\n"
+        "  ebx create --template ID     Launch a sandbox from the template"
+    ),
 )
 @click.pass_context
 def deploy(ctx: click.Context, /, **kwargs: Any) -> None:
@@ -1541,13 +1829,25 @@ def deploy(ctx: click.Context, /, **kwargs: Any) -> None:
 @template.command("delete")
 @click.argument("template_id")
 @click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompt")
+@region_option
 @click.pass_context
 @handle_errors
-def delete(ctx: click.Context, template_id: str, yes: bool) -> None:
-    """Delete a custom template from the platform.
+def delete(ctx: click.Context, template_id: str, yes: bool, region: str | None) -> None:
+    """Delete a custom template from the remote platform.
 
-    Removes the template identified by TEMPLATE_ID from the remote
-    platform.  This does NOT affect the local cache (~/.ebx/templates/).
+    This irreversible operation does not remove the local template cache.
+    Confirmation is required unless --yes is supplied.
+
+    \b
+    Examples:
+      ebx template delete tmpl-abc123
+      ebx template delete tmpl-abc123 --yes --region cn-shanghai
+
+    \b
+    Related commands:
+      ebx template info TEMPLATE_ID  Verify the target before deletion
+      ebx template list              Confirm the template was removed
+      ebx template install REF       Reinstall a template
     """
     if not yes:
         if not sys.stdin.isatty():
@@ -1566,7 +1866,7 @@ def delete(ctx: click.Context, template_id: str, yes: bool) -> None:
 
     fmt = get_formatter(ctx)
 
-    config = load_config(region=ctx.obj.get("region") if ctx.obj else None)
+    config = load_config(region=region)
     auth = create_auth_provider(
         api_key=config.api_key,
         access_key_id=config.access_key_id,
@@ -1606,12 +1906,47 @@ def delete(ctx: click.Context, template_id: str, yes: bool) -> None:
     default=None,
     help="Filter by template status",
 )
+@click.option(
+    "--index-url",
+    default=None,
+    envvar="EBX_TEMPLATE_INDEX_URL",
+    help="Template index location: HTTP(S) URL or local file path "
+    "(env: EBX_TEMPLATE_INDEX_URL; default: the canonical remote index)",
+)
+@click.option(
+    "--token",
+    default=None,
+    envvar="GITHUB_TOKEN",
+    help=_GITHUB_TOKEN_HELP,
+)
+@click.option(
+    "--refresh",
+    is_flag=True,
+    default=False,
+    help="Force a re-fetch of the index, ignoring the local cache",
+)
 @click.pass_context
-def search(ctx: click.Context, query: str, tag: str | None, status: str | None) -> None:
-    """Search community templates by name, tag, or description.
+@handle_errors
+def search(
+    ctx: click.Context,
+    query: str,
+    tag: str | None,
+    status: str | None,
+    index_url: str | None,
+    token: str | None,
+    refresh: bool,
+) -> None:
+    """Search the template catalog by name, tag, or description.
 
-    Searches the awesome-templates.yaml index for templates matching
-    QUERY against name, description, tags, and author fields.
+    Queries the template index published in the Easy-Sandbox/awesome-templates
+    repository - the single source of truth for official and community
+    templates. The fetched index is cached under ~/.ebx/index/ and reused for
+    up to an hour; on network failures the cached copy is served with a
+    warning.
+
+    For private mirrors / higher rate limits a token is taken from --token,
+    then the GITHUB_TOKEN environment variable, then the stored github_token
+    (in that order); prefer 'ebx config set github_token'.
 
     \b
     Examples:
@@ -1619,90 +1954,129 @@ def search(ctx: click.Context, query: str, tag: str | None, status: str | None) 
       ebx template search ai-agent
       ebx template search browser --status official
       ebx template search qwen --tag deploy
-    """
-    from pathlib import Path
+      ebx template search python --refresh    # bypass the local cache
 
-    import yaml
+    \b
+    Related commands:
+      ebx template install <name>             Install a template by index name
+      ebx template install owner/repo//subdir[@ref]
+      ebx template list
+    """
+    from easy_sandbox.cli.commands.config_cmd import resolve_github_token
+    from easy_sandbox.utils.async_bridge import run_sync
+    from easy_sandbox.utils.template_index import fetch_index
 
     fmt = get_formatter(ctx)
+    out = get_output(ctx)
 
-    # Locate awesome-templates.yaml (project root or package root)
-    candidates = [
-        Path.cwd() / "awesome-templates.yaml",
-        Path(__file__).resolve().parents[3] / "awesome-templates.yaml",
-    ]
-    index_path: Path | None = None
-    for candidate in candidates:
-        if candidate.exists():
-            index_path = candidate
-            break
+    def _fetch(active: str | None) -> Any:
+        """Fetch the index with *active* as the token (retried once)."""
+        with out.spinner("Fetching the template index"):
+            return run_sync(fetch_index(index_url, token=active, force=refresh))
 
-    if index_path is None:
-        fmt.print_error(
-            "awesome-templates.yaml not found.",
-            suggestion="Run this command from the project root or ensure "
-            "awesome-templates.yaml is present.",
-        )
-        sys.exit(1)
+    index = _with_github_rate_limit_retry(
+        _fetch, token=resolve_github_token(token), fmt=fmt, out=out
+    )
 
-    with open(index_path, encoding="utf-8") as f:
-        data = yaml.safe_load(f)
+    if index.notice:
+        out.warning(index.notice)
 
-    templates_list: list[dict[str, Any]] = data.get("templates", [])
-    if not templates_list:
-        fmt.print_success("No templates found in the index.")
-        return
-
-    query_lower = query.lower()
-
-    def matches(tmpl: dict[str, Any]) -> bool:
-        """Check if a template matches the search query and filters."""
-        # Status filter
-        if status and tmpl.get("status", "") != status:
-            return False
-        # Tag filter
-        if tag and tag.lower() not in [t.lower() for t in tmpl.get("tags", [])]:
-            return False
-        # Query match against name, description, tags, author
-        name = tmpl.get("name", "").lower()
-        desc = tmpl.get("description", "").lower()
-        tags = [t.lower() for t in tmpl.get("tags", [])]
-        author = tmpl.get("author", "").lower()
-        return (
-            query_lower in name
-            or query_lower in desc
-            or any(query_lower in t for t in tags)
-            or query_lower in author
-        )
-
-    results = [t for t in templates_list if matches(t)]
+    results = index.filter(query, tag=tag, status=status)
 
     if not results:
         fmt.print_success(f"No templates matching '{query}'.")
         return
 
     if fmt.use_json:
-        fmt.print_data(results)
+        fmt.print_data(
+            [
+                {
+                    "name": entry.name,
+                    "description": entry.description,
+                    "repo": entry.repo,
+                    "path": entry.path,
+                    "ref": entry.ref,
+                    "tags": list(entry.tags),
+                    "author": entry.author,
+                    "capabilities": list(entry.capabilities),
+                    "status": entry.status,
+                }
+                for entry in results
+            ]
+        )
         return
 
     headers = ["Name", "Description", "Tags", "Status"]
     rows = [
-        [
-            t.get("name", "N/A"),
-            t.get("description", "N/A"),
-            ", ".join(t.get("tags", [])),
-            t.get("status", "N/A"),
-        ]
-        for t in results
+        [entry.name, entry.description or "N/A", ", ".join(entry.tags), entry.status or "N/A"]
+        for entry in results
     ]
     fmt.print_table(headers, rows)
     if not fmt.quiet:
         click.echo(f"\n{len(results)} template(s) found.")
+        click.echo(f"Install one with: ebx template install <name> (index: {index.source_url})")
 
 
 # ---------------------------------------------------------------------------
 # template init — scaffold a new template project
 # ---------------------------------------------------------------------------
+
+
+def _scaffold_picker_available(fmt: Any) -> bool:
+    """Whether the interactive scaffold-case picker can run here.
+
+    JSON / CI sessions never prompt (machine output must stay clean and CI
+    must never block); otherwise an interactive stdin is required.
+    """
+    if fmt.use_json or is_ci_env():
+        return False
+    try:
+        return bool(sys.stdin.isatty())
+    except (AttributeError, ValueError, OSError):
+        return False
+
+
+def _try_arrow_case_picker(cases: list[tuple[str, str]]) -> str | None:
+    """Cross-platform arrow-key picker backed by ``questionary`` (lazy import).
+
+    Returns the chosen case name, or ``None`` when ``questionary`` is not
+    installed / cannot start, so the caller can fall back to the numbered
+    prompt. Cancelling the picker (Ctrl-C) aborts the command instead of
+    silently re-prompting.
+    """
+    try:
+        import questionary
+
+        choices = [questionary.Choice(title=f"{c:<12} {desc}", value=c) for c, desc in cases]
+        answer = questionary.select("Select a case", choices=choices, default=cases[0][0]).ask()
+    except ImportError:
+        # Optional dependency (declared in the ``cli`` extra); degrade quietly.
+        return None
+    except KeyboardInterrupt:
+        raise click.Abort() from None
+    except Exception:
+        # No usable terminal (or a picker failure): fall back to numbered input.
+        return None
+    if answer is None:
+        # ``ask()`` returns None when the user cancels with Ctrl-C.
+        raise click.Abort()
+    return str(answer)
+
+
+def _select_scaffold_case(cases: list[tuple[str, str]]) -> str:
+    """Pick a scaffold case interactively.
+
+    Prefers the cross-platform arrow-key picker; falls back to the previous
+    numbered ``click.prompt`` whenever the picker is unavailable.
+    """
+    picked = _try_arrow_case_picker(cases)
+    if picked is not None:
+        return picked
+    click.echo("Available scaffold cases:")
+    for i, (c, desc) in enumerate(cases, 1):
+        click.echo(f"  {i}. {c:<12} {desc}")
+    choice = click.prompt("Select a case", type=click.IntRange(1, len(cases)), default=1)
+    return cases[choice - 1][0]
 
 
 @template.command("init")
@@ -1759,6 +2133,12 @@ def init(
       ebx template init -t python --name myapp     # Creates ./myapp/
       ebx template init -t python ./my-template    # Explicit directory
       ebx template init --from owner/repo          # Creates ./<template-name>/
+
+    \b
+    Related commands:
+      ebx template deploy DIRECTORY
+      ebx template install TEMPLATE_REF
+      ebx create --template TEMPLATE
     """
     from easy_sandbox.cli.scaffold import available_cases, render_scaffold
 
@@ -1786,18 +2166,25 @@ def init(
 
     # --from: fetch from registry and copy source files into DIR
     if from_ref:
+        from easy_sandbox.cli.commands.config_cmd import resolve_github_token
         from easy_sandbox.utils.async_bridge import run_sync
         from easy_sandbox.utils.registry import RegistryClient, load_template_from_yaml
 
-        client = RegistryClient()
-        ref = run_sync(client.resolve(from_ref))
-        if ref.is_builtin:
-            raise click.UsageError(
-                f"'{from_ref}' is a built-in template and cannot be used with --from. "
-                "Use -t/--template for built-in cases."
-            )
-        with out.spinner(f"Fetching template from {from_ref}"):
-            source_path = run_sync(client.fetch(ref))
+        def _fetch_from(active: str | None) -> tuple[Any, Path]:
+            """Resolve --from and download it (retried once after setup)."""
+            client = RegistryClient(token=active)
+            ref = run_sync(client.resolve(from_ref))
+            if ref.is_builtin:
+                raise click.UsageError(
+                    f"'{from_ref}' is a built-in template and cannot be used with --from. "
+                    "Use -t/--template for built-in cases."
+                )
+            with out.spinner(f"Fetching template from {from_ref}"):
+                return ref, run_sync(client.fetch(ref))
+
+        ref, source_path = _with_github_rate_limit_retry(
+            _fetch_from, token=resolve_github_token(), fmt=fmt, out=out
+        )
 
         source = Path(source_path)
 
@@ -1837,16 +2224,8 @@ def init(
     # Interactive selection when no --template/--from given
     if case is None:
         cases = available_cases()
-        if sys.stdin.isatty():
-            click.echo("Available scaffold cases:")
-            for i, (c, desc) in enumerate(cases, 1):
-                click.echo(f"  {i}. {c:<12} {desc}")
-            choice = click.prompt(
-                "Select a case",
-                type=click.IntRange(1, len(cases)),
-                default=1,
-            )
-            case = cases[choice - 1][0]
+        if _scaffold_picker_available(fmt):
+            case = _select_scaffold_case(cases)
         else:
             case_names = ", ".join(c for c, _ in cases)
             raise click.UsageError(
@@ -1907,7 +2286,7 @@ def _print_init_summary(
 
 
 # ---------------------------------------------------------------------------
-# Top-level shortcuts: ebx install / ebx init
+# Top-level shortcut: ebx install
 # ---------------------------------------------------------------------------
 
 
@@ -1924,7 +2303,12 @@ def _print_init_summary(
     default=None,
     help="Registry type (auto-detected if not specified)",
 )
-@click.option("--token", default=None, help="Access token (required for private repos)")
+@click.option(
+    "--token",
+    default=None,
+    envvar="GITHUB_TOKEN",
+    help=_GITHUB_TOKEN_HELP,
+)
 @click.option("--alias", "-a", default=None, help="Template alias")
 @click.option(
     "--download-only",
@@ -1948,6 +2332,7 @@ def _print_init_summary(
 @click.option("--cpu", type=int, default=None, help="CPU cores")
 @click.option("--memory", type=int, default=None, help="Memory in MB")
 @click.option("--yes", "-y", is_flag=True, default=False, help="Skip confirmation prompt")
+@region_option
 @click.pass_context
 @handle_errors
 def install_shortcut(
@@ -1963,11 +2348,36 @@ def install_shortcut(
     cpu: int | None,
     memory: int | None,
     yes: bool,
+    region: str | None,
 ) -> None:
-    """Install a template (shortcut for 'ebx template install').
+    """Install a template from TEMPLATE_REF (shortcut for 'ebx template install').
 
-    Downloads and (by default) builds + deploys a template.
-    Use --download-only to skip the build/deploy step.
+    Downloads and (by default) builds + deploys a template: local docker
+    build, ACR push, and CreateTemplate registration — cloud-side steps
+    that can incur Alibaba Cloud costs. Use --download-only to only fetch
+    it into the local cache (~/.ebx/templates/) without building.
+
+    \b
+    TEMPLATE_REF formats:
+      <name>                Template name from the official index
+      owner/repo            GitHub repo (default registry)
+      owner/repo@v1.0       Pinned to a tag/branch/commit
+      owner/repo//subdir    A subdirectory within a repo
+      ./path/to/template    Local directory
+
+    \b
+    Examples:
+      ebx install python-hello --download-only       # install by index name
+      ebx install owner/repo --acr-namespace my-ns  # download + build + deploy
+      ebx install owner/repo --acr-namespace my-ns --region cn-shanghai
+      ebx install owner/repo --download-only         # download only
+      ebx install ./my-template --acr-namespace ns   # local dir + deploy
+
+    \b
+    Related commands:
+      ebx template search QUERY
+      ebx template list
+      ebx create --template TEMPLATE
     """
     ctx.invoke(
         install,
@@ -1982,51 +2392,5 @@ def install_shortcut(
         cpu=cpu,
         memory=memory,
         yes=yes,
-    )
-
-
-@click.command("init")
-@click.argument("directory", default=None, required=False, type=click.Path())
-@click.option(
-    "--template",
-    "-t",
-    "case",
-    default=None,
-    help="Built-in scaffold case (python, node, minimal)",
-)
-@click.option(
-    "--from",
-    "from_ref",
-    default=None,
-    help="Fetch template source from a registry ref",
-)
-@click.option("--name", default=None, help="Template name")
-@click.option(
-    "--list",
-    "list_cases",
-    is_flag=True,
-    default=False,
-    help="List available scaffold cases",
-)
-@click.option("--force", is_flag=True, default=False, help="Overwrite existing files")
-@click.pass_context
-@handle_errors
-def init_shortcut(
-    ctx: click.Context,
-    directory: str | None,
-    case: str | None,
-    from_ref: str | None,
-    name: str | None,
-    list_cases: bool,
-    force: bool,
-) -> None:
-    """Scaffold a new template (shortcut for 'ebx template init')."""
-    ctx.invoke(
-        init,
-        directory=directory,
-        case=case,
-        from_ref=from_ref,
-        name=name,
-        list_cases=list_cases,
-        force=force,
+        region=region,
     )

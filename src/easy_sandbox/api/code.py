@@ -292,7 +292,7 @@ class CodeContextModule:
                 )
                 async for _ in rm_reader:
                     pass
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
 
     # ------------------------------------------------------------------

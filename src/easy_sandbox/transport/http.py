@@ -8,12 +8,12 @@ envd URL 格式: https://49983-{sandbox_id}.{domain}（已实测验证）
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, NoReturn
 
 import httpx
 
-from easy_sandbox.models.errors import ConnectionError_
-from easy_sandbox.transport.codec import CONNECT_CONTENT_TYPE, ConnectCodec
+from easy_sandbox.models.errors import ConnectionError_, EnvdRpcError
+from easy_sandbox.transport.codec import CONNECT_CONTENT_TYPE, ConnectCodec, EnvelopeStreamParser
 from easy_sandbox.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -23,6 +23,38 @@ if TYPE_CHECKING:
     from easy_sandbox.transport.config import TransportConfig
 
 logger = get_logger("transport.http")
+
+# Upper bound on bytes read from an envd error response body (defensive —
+# an error body is diagnostic text, not data; avoid buffering anything huge).
+_MAX_ERROR_BODY_BYTES = 8192
+
+# How much of the error body is kept in the exception / logs.
+_ERROR_BODY_TEXT_LIMIT = 500
+
+
+def _envd_error_detail(envd_error: dict[str, Any] | None) -> str:
+    """Extract a human-readable detail string from an envd JSON error body.
+
+    Covers the shapes observed from envd / Connect implementations:
+    ``{"error": {"code": ..., "message": ...}}``, ``{"error": "text"}``,
+    and flat ``{"code": ..., "message": ...}`` / ``{"message": ...}``.
+    Returns ``""`` when nothing readable is found.
+    """
+    if not isinstance(envd_error, dict):
+        return ""
+    err = envd_error.get("error")
+    if isinstance(err, dict):
+        for key in ("message", "msg", "detail", "code"):
+            val = err.get(key)
+            if isinstance(val, str) and val:
+                return val
+    elif isinstance(err, str):
+        return err
+    for key in ("message", "msg", "detail", "code"):
+        val = envd_error.get(key)
+        if isinstance(val, str) and val:
+            return val
+    return ""
 
 
 class HttpClient:
@@ -186,6 +218,56 @@ class HttpClient:
                 suggestion="Check if the sandbox is still running.",
             ) from exc
 
+    async def _raise_envd_rpc_error(
+        self,
+        response: httpx.Response,
+        rpc_path: str,
+    ) -> NoReturn:
+        """Build and raise an :class:`EnvdRpcError` from an envd error response.
+
+        Reads a *bounded* slice of the error body, parses it as JSON when
+        possible (structured propagation for upper layers), and logs the
+        details at DEBUG level only — never a default WARNING, and never
+        with the full sandbox URL (which embeds the sandbox ID).  The RPC
+        path (e.g. ``/process.Process/Start``) is not sensitive and is kept
+        for diagnostics.  Task 166.
+        """
+        raw = b""
+        async for chunk in response.aiter_bytes():
+            raw += chunk
+            if len(raw) >= _MAX_ERROR_BODY_BYTES:
+                raw = raw[:_MAX_ERROR_BODY_BYTES]
+                break
+        body_text = raw.decode("utf-8", errors="replace")[:_ERROR_BODY_TEXT_LIMIT]
+
+        envd_error: dict[str, Any] | None = None
+        if raw:
+            try:
+                parsed = self._codec.decode_response(raw)
+            except Exception:
+                parsed = None
+            if isinstance(parsed, dict):
+                envd_error = parsed
+
+        detail = _envd_error_detail(envd_error) or body_text.strip()
+        message = f"envd RPC {rpc_path} failed (HTTP {response.status_code})"
+        if detail:
+            message = f"{message}: {detail}"
+
+        logger.debug(
+            "envd STREAM %s failed (HTTP %s): %s",
+            rpc_path,
+            response.status_code,
+            body_text,
+        )
+        raise EnvdRpcError(
+            message,
+            status_code=response.status_code,
+            rpc_path=rpc_path,
+            envd_error=envd_error,
+            body_text=body_text,
+        )
+
     async def envd_stream(
         self,
         envd_url: str,
@@ -202,11 +284,30 @@ class HttpClient:
         Connect streaming uses binary envelope framing (已实测验证):
           flags (1 byte) + length (4 bytes big-endian) + JSON payload
 
+        The response is consumed incrementally via ``client.stream()`` +
+        ``aiter_bytes()`` so frames are yielded as soon as they arrive
+        (server-side per-line output is visible line by line).  The full
+        response body is never buffered — only a single in-flight frame is
+        held in memory.
+
         NOTE: A fresh httpx client is used for each streaming call to
         avoid HTTP/2 connection-state issues observed with connection
         reuse on some envd versions (cached connections that served
         earlier unary RPCs can return spurious 500 errors on subsequent
         streaming calls).
+
+        Resource cleanup: both the streaming response and the client are
+        managed by ``async with``.  They are closed on normal completion,
+        on errors, on cancellation (``CancelledError``), and when the
+        consumer stops iterating early (``GeneratorExit`` propagated by
+        ``aclose()`` / garbage collection of the generator).
+
+        Error responses (HTTP >= 400) raise :class:`EnvdRpcError` — a
+        structured :class:`~easy_sandbox.models.errors.SandboxError`
+        carrying the parsed envd JSON error body, the status code and the
+        RPC path.  No default WARNING is logged for the error body and the
+        exception text never contains the full sandbox URL (task 166; the
+        CLI/connect-layer friendly mapping is handled separately).
 
         Args:
             request_timeout: Per-request timeout override in seconds.
@@ -230,37 +331,38 @@ class HttpClient:
 
         logger.debug("envd STREAM %s%s (timeout=%.1fs)", envd_url, rpc_path, effective_timeout)
         try:
-            # Use a fresh client per streaming call and a regular POST
-            # to read the full response at once.  Reusing the cached
-            # envd client can trigger HTTP/2 multiplexing issues where
-            # connection state from prior unary RPCs causes the server
-            # to return 500 on streaming endpoints.
+            # Use a fresh client per streaming call (see NOTE above) and a
+            # true streaming request so frames are decoded incrementally
+            # as network chunks arrive.
             async with httpx.AsyncClient(
                 http2=self._config.http2,
                 timeout=httpx.Timeout(effective_timeout),
             ) as client:
                 url = envd_url.rstrip("/") + rpc_path
-                response = await client.post(
+                async with client.stream(
+                    "POST",
                     url=url,
                     content=body,
                     headers=all_headers,
-                )
-                if response.status_code >= 400:
-                    # Include response body in the error for better
-                    # diagnostics (envd may return useful messages).
-                    body_text = response.text[:500]
-                    logger.warning(
-                        "envd STREAM error %s: %s",
-                        response.status_code,
-                        body_text,
-                    )
-                response.raise_for_status()
-                raw_bytes = response.content
+                ) as response:
+                    if response.status_code >= 400:
+                        # Structured error propagation instead of httpx's
+                        # raise_for_status (whose message embeds the full
+                        # sandbox URL and an MDN status link).
+                        await self._raise_envd_rpc_error(response, rpc_path)
 
-            # Parse all frames from the binary envelope
-            frames = self._codec.parse_streaming_frames(raw_bytes)
-            for frame in frames:
-                yield frame
+                    parser = EnvelopeStreamParser()
+                    async for chunk in response.aiter_bytes():
+                        for frame in parser.feed(chunk):
+                            yield frame
+
+                    if parser.pending_bytes():
+                        logger.warning(
+                            "envd STREAM %s ended with %d truncated byte(s); "
+                            "incomplete final frame dropped",
+                            rpc_path,
+                            parser.pending_bytes(),
+                        )
         except httpx.ConnectError as exc:
             raise ConnectionError_(
                 f"Failed to connect to sandbox envd for streaming: {exc}",

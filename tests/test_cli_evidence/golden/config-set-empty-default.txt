@@ -1,0 +1,2 @@
+Cleared region (falls back to default: cn-hangzhou).
+[exit_code:0]

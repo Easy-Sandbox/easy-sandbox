@@ -9,9 +9,11 @@ from easy_sandbox.models.errors import (
     CodeExecutionError,
     CommandTimeoutError,
     ConnectionError_,
+    EnvdRpcError,
     ExecutionError,
     FileNotFoundError_,
     FileOperationError,
+    GitHubRateLimitError,
     InvalidAPIKeyError,
     InvalidCredentialsError,
     NetworkError,
@@ -167,6 +169,32 @@ class TestExecutionErrors:
         assert isinstance(err, ExecutionError)
         assert err.code == "E3003"
 
+    def test_envd_rpc_error_structured_fields(self):
+        """EnvdRpcError carries envd error details for upper-layer mapping."""
+        err = EnvdRpcError(
+            "envd RPC /process.Process/Start failed (HTTP 500): exec not found",
+            status_code=500,
+            rpc_path="/process.Process/Start",
+            envd_error={"error": {"code": "not_found", "message": "exec not found"}},
+            body_text='{"error":{...}}',
+        )
+        assert isinstance(err, ExecutionError)
+        assert isinstance(err, SandboxError)
+        assert err.code == "E3006"
+        assert err.status_code == 500
+        assert err.rpc_path == "/process.Process/Start"
+        assert err.envd_error["error"]["message"] == "exec not found"
+        assert err.body_text == '{"error":{...}}'
+
+    def test_envd_rpc_error_defaults(self):
+        err = EnvdRpcError("boom")
+        assert err.status_code == 0
+        assert err.rpc_path == ""
+        assert err.envd_error is None
+        assert err.body_text == ""
+        assert err.code == "E3006"
+        assert err.suggestion  # actionable by default
+
 
 # ---- Filesystem Errors ----
 
@@ -201,6 +229,11 @@ class TestNetworkErrors:
         err = ConnectionError_("conn fail")
         assert isinstance(err, NetworkError)
         assert err.code == "E5001"
+
+    def test_github_rate_limit_error(self):
+        err = GitHubRateLimitError("rate limited")
+        assert isinstance(err, NetworkError)
+        assert err.code == "E5000"
 
 
 # ---- Unique Codes ----
@@ -246,17 +279,23 @@ class TestErrorsAll:
             "InvalidAPIKeyError",
             "TokenExpiredError",
             "InvalidCredentialsError",
+            "TokenExchangeError",
             "SandboxCreationError",
             "TemplateNotFoundError",
             "QuotaExceededError",
             "RegionUnavailableError",
             "TemplateParseError",
+            "QwenCodeNotInstalledError",
+            "QwenCodeCredentialError",
+            "AICodegenError",
+            "DescriptionClarificationError",
             "ExecutionError",
             "CommandTimeoutError",
             "ProcessError",
             "CodeExecutionError",
             "CapabilityNotSupportedError",
             "CommandNotFoundError",
+            "EnvdRpcError",
             "FileOperationError",
             "FileNotFoundError_",
             "PermissionDeniedError",
@@ -266,6 +305,7 @@ class TestErrorsAll:
             "DeployTimeoutError",
             "NetworkError",
             "ConnectionError_",
+            "GitHubRateLimitError",
             "SessionError",
             "SessionNotFoundError",
             "SessionAlreadyExistsError",

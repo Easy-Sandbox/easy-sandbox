@@ -2,15 +2,32 @@
 
 from __future__ import annotations
 
+import struct
+
 import pytest
 
 from easy_sandbox.transport.codec import (
     CONNECT_CONTENT_TYPE,
     HAS_ORJSON,
     ConnectCodec,
+    EnvelopeStreamParser,
     json_decode,
     json_encode,
 )
+
+
+def _frame(payload: dict, flags: int = 0x00) -> bytes:
+    """Build one binary envelope frame."""
+    body = json_encode(payload)
+    return struct.pack(">BI", flags, len(body)) + body
+
+
+def _feed_all(parser: EnvelopeStreamParser, chunks: list[bytes]) -> list[dict]:
+    """Feed every chunk and collect yielded frames in order."""
+    out: list[dict] = []
+    for chunk in chunks:
+        out.extend(parser.feed(chunk))
+    return out
 
 
 class TestJsonEncodeDecode:
@@ -115,3 +132,140 @@ class TestConnectCodec:
     def test_build_rpc_path_filesystem(self):
         path = ConnectCodec.build_rpc_path("filesystem", "Filesystem", "ReadFile")
         assert path == "/filesystem.Filesystem/ReadFile"
+
+
+class TestEnvelopeStreamParser:
+    """Incremental binary-envelope parsing (task 166)."""
+
+    def test_single_frame_single_chunk(self):
+        parser = EnvelopeStreamParser()
+        assert parser.feed(_frame({"a": 1})) == [{"a": 1}]
+        assert parser.pending_bytes() == 0
+
+    def test_header_split_across_chunks(self):
+        """5-byte frame header split 1+2+2 across chunks."""
+        raw = _frame({"event": {"data": {"stdout": "aGk="}}})
+        parser = EnvelopeStreamParser()
+        assert parser.feed(raw[0:1]) == []
+        assert parser.feed(raw[1:3]) == []
+        frames = parser.feed(raw[3:])
+        assert frames == [{"event": {"data": {"stdout": "aGk="}}}]
+        assert parser.pending_bytes() == 0
+
+    def test_payload_split_across_chunks(self):
+        """Payload split mid-way across three chunks."""
+        raw = _frame({"n": 12345678901234})
+        parser = EnvelopeStreamParser()
+        assert parser.feed(raw[:5]) == []  # full header, no payload yet
+        assert parser.feed(raw[5:10]) == []
+        assert parser.feed(raw[10:]) == [{"n": 12345678901234}]
+
+    def test_multiple_frames_in_one_chunk(self):
+        blob = _frame({"a": 1}) + _frame({"b": 2}) + _frame({"c": 3})
+        parser = EnvelopeStreamParser()
+        assert parser.feed(blob) == [{"a": 1}, {"b": 2}, {"c": 3}]
+
+    def test_frame_boundary_mixes_complete_and_partial(self):
+        """Chunk contains a whole frame + the start of the next frame."""
+        first = _frame({"a": 1})
+        second = _frame({"b": 2})
+        parser = EnvelopeStreamParser()
+        assert parser.feed(first + second[:4]) == [{"a": 1}]
+        assert parser.pending_bytes() == 4
+        assert parser.feed(second[4:]) == [{"b": 2}]
+
+    def test_trailer_and_empty_frames_skipped(self):
+        parser = EnvelopeStreamParser()
+        out = parser.feed(
+            _frame({"a": 1})
+            + _frame({"error": {"code": "x"}}, flags=0x02)
+            + struct.pack(">BI", 0x00, 0)  # empty data frame
+        )
+        assert out == [{"a": 1}]
+
+    def test_truncated_trailing_frame_stays_pending(self):
+        raw = _frame({"big": "x" * 100})
+        parser = EnvelopeStreamParser()
+        assert parser.feed(raw[:60]) == []
+        assert parser.pending_bytes() == 60  # not silently discarded
+
+    def test_invalid_json_payload_skipped(self):
+        bad_payload = b"{not json"
+        bad = struct.pack(">BI", 0x00, len(bad_payload)) + bad_payload
+        parser = EnvelopeStreamParser()
+        assert parser.feed(bad + _frame({"ok": True})) == [{"ok": True}]
+
+    def test_non_dict_payload_skipped(self):
+        arr = struct.pack(">BI", 0x00, 7) + b"[1,2,3]"
+        parser = EnvelopeStreamParser()
+        assert parser.feed(arr) == []
+
+    def test_empty_chunk_is_noop(self):
+        parser = EnvelopeStreamParser()
+        assert parser.feed(b"") == []
+        assert parser.feed(_frame({"a": 1})) == [{"a": 1}]
+
+    def test_error_trailer_logged_not_yielded(self, caplog):
+        """A trailer carrying an error is skipped but logged for diagnostics."""
+        import logging
+
+        parser = EnvelopeStreamParser()
+        with caplog.at_level(logging.WARNING, logger="transport.codec"):
+            out = parser.feed(_frame({"a": 1}) + _frame({"error": {"code": "boom"}}, flags=0x02))
+
+        assert out == [{"a": 1}]  # error trailer never yielded
+        assert any("error trailer" in r.message for r in caplog.records)
+
+    def test_success_trailer_not_logged(self, caplog):
+        """A normal (empty / non-error) trailer is skipped silently."""
+        import logging
+
+        parser = EnvelopeStreamParser()
+        with caplog.at_level(logging.WARNING, logger="transport.codec"):
+            out = parser.feed(_frame({"a": 1}) + _frame({}, flags=0x02))
+
+        assert out == [{"a": 1}]
+        assert not caplog.records
+
+    def test_equivalence_with_parse_streaming_frames(self):
+        """For every systematic split, incremental == one-shot parsing.
+
+        Feeds the same byte stream at every possible 2-split point and
+        verifies the concatenated incremental output equals
+        :meth:`ConnectCodec.parse_streaming_frames` on the whole stream.
+        """
+        stream = (
+            _frame({"event": {"start": {"pid": 9}}})
+            + _frame({"event": {"data": {"stdout": "MQ=="}}})
+            + _frame({"event": {"data": {"stderr": "Mg=="}}})
+            + _frame({"event": {"end": {"exitCode": 0}}})
+            + _frame({}, flags=0x02)
+        )
+        expected = ConnectCodec.parse_streaming_frames(stream)
+        assert len(expected) == 4
+
+        for split in range(1, len(stream)):
+            parser = EnvelopeStreamParser()
+            got = _feed_all(parser, [stream[:split], stream[split:]])
+            assert got == expected, f"mismatch at split={split}"
+
+    def test_equivalence_random_three_way_splits(self):
+        """Three-way splits (including 0-length chunks) stay equivalent."""
+        import random
+
+        stream = (
+            _frame({"a": 1})
+            + _frame({"b": 2})
+            + _frame({"c": 3})
+            + _frame({"error": {"code": "boom"}}, flags=0x02)
+        )
+        expected = ConnectCodec.parse_streaming_frames(stream)
+
+        rng = random.Random(42)
+        for _ in range(50):
+            i = rng.randrange(0, len(stream) + 1)
+            j = rng.randrange(0, len(stream) + 1)
+            cuts = sorted((i, j))
+            chunks = [stream[: cuts[0]], stream[cuts[0] : cuts[1]], stream[cuts[1] :]]
+            parser = EnvelopeStreamParser()
+            assert _feed_all(parser, chunks) == expected

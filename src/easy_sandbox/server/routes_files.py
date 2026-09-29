@@ -387,7 +387,7 @@ def _handle_files_upload_stream(request: ServerRequest) -> ServerResponse:
     # Decode the full base64 first to validate, then write in chunks
     try:
         data = base64.b64decode(content_b64, validate=True)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ServerResponse.error(400, f"Invalid base64: {exc}", "ValueError")
 
     max_size = _max_upload_size()

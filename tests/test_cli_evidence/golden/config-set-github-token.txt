@@ -1,0 +1,2 @@
+Set github_token = ghp***890
+[exit_code:0]

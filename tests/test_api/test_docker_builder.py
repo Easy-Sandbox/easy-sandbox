@@ -461,7 +461,7 @@ class TestBuildAndRegisterOfficial:
             namespace="ns",
             repo="repo",
             username="acr-cfg-user",
-            password="test-placeholder-token",  # noqa: S106
+            password="test-placeholder-token",
         )
 
         with (
@@ -479,9 +479,9 @@ class TestBuildAndRegisterOfficial:
                 template_dir=tmp_path,
                 acr=acr,
                 acr_access_key_id="explicit-acr-ak",
-                acr_access_key_secret="test-placeholder-token",  # noqa: S106
+                acr_access_key_secret="test-placeholder-token",
                 api_access_key_id="platform-api-ak",
-                api_access_key_secret="test-placeholder-token",  # noqa: S106
+                api_access_key_secret="test-placeholder-token",
             )
 
         # ACR login must use the explicit ACR credentials
@@ -508,7 +508,7 @@ class TestBuildAndRegisterOfficial:
             namespace="ns",
             repo="repo",
             username="cfg-user",
-            password="test-placeholder-token",  # noqa: S106
+            password="test-placeholder-token",
         )
 
         with (
@@ -527,7 +527,7 @@ class TestBuildAndRegisterOfficial:
                 acr=acr,
                 # No acr_access_key_id → should fall back to acr.username
                 api_access_key_id="platform-ak",
-                api_access_key_secret="test-placeholder-token",  # noqa: S106
+                api_access_key_secret="test-placeholder-token",
             )
 
         login_args = builder.login_acr_with_aksk.call_args
@@ -570,7 +570,7 @@ class TestBuildAndRegisterOfficial:
                 acr=acr,
                 # Old-style: only legacy params, no acr_*/api_* params
                 access_key_id="legacy-ak",
-                access_key_secret="test-placeholder-token",  # noqa: S106
+                access_key_secret="test-placeholder-token",
             )
 
         # Both should fall back to legacy params

@@ -3,6 +3,17 @@
 Provides a single ``OutputManager`` that every CLI command should use instead
 of bare ``click.echo`` calls.  Supports normal, verbose, quiet, JSON, and
 CI output modes.
+
+Channel policy (task 167):
+
+* **stdout** carries only what a user or a script consumes as the final
+  result: ``data``, ``table``, ``success``.
+* **stderr** carries progress state and diagnostics: ``info``, ``progress``,
+  ``warning``, ``error``, ``debug``, and every stdlib ``logging`` record
+  (bridged through a single root handler).
+
+Machine-readable output can therefore never be polluted by status lines or
+log records, in any mode (plain / ``--quiet`` / ``--json`` / ``--ci``).
 """
 
 from __future__ import annotations
@@ -11,7 +22,7 @@ import json as json_module
 import logging
 import os
 import sys
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING, Any
 
 import click
@@ -57,6 +68,40 @@ def is_ci_env() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# logging bridge
+# ---------------------------------------------------------------------------
+
+
+class _LogBridgeHandler(logging.Handler):
+    """Forward stdlib ``logging`` records into the CLI's stderr channel.
+
+    A *single* instance of this handler is installed on the root logger by
+    :class:`OutputManager`, replacing the handler that
+    ``easy_sandbox.utils.logging`` installs for standalone SDK use.  That is
+    what keeps a library warning (e.g. the capability-resolver fallback) from
+    being rendered twice — once with the SDK's timestamped format on the
+    package logger and once through the root handler.
+
+    Records are formatted once (``LEVELNAME: message``) and handed to the
+    manager so that live spinners are paused before anything is written.
+    """
+
+    def __init__(self, manager: OutputManager) -> None:
+        super().__init__(level=manager._level)
+        self._manager = manager
+        self.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+
+    def emit(self, record: logging.LogRecord) -> None:
+        """Write the formatted record to the manager's diagnostic channel."""
+        try:
+            message = self.format(record)
+        except Exception:  # pragma: no cover - defensive (bad %-args)
+            self.handleError(record)
+            return
+        self._manager._emit_log(message)
+
+
+# ---------------------------------------------------------------------------
 # OutputManager
 # ---------------------------------------------------------------------------
 
@@ -83,6 +128,15 @@ class OutputManager:
     log_level:
         Explicit log level string (``DEBUG`` / ``INFO`` / ``WARNING`` /
         ``ERROR``).  Takes precedence over *verbose* / *quiet*.
+
+    Channel policy
+    --------------
+    Results meant to be consumed (``data`` / ``table`` / ``success``) are
+    written to **stdout**; progress state and diagnostics (``info`` /
+    ``progress`` / ``warning`` / ``error`` / ``debug``) are written to
+    **stderr**, together with every bridged stdlib log record.  In ``--json``
+    mode the diagnostic messages stay JSON, but on stderr, so ``stdout``
+    remains a single machine-parseable document.
     """
 
     def __init__(
@@ -119,18 +173,20 @@ class OutputManager:
             # normal usage; users can use --verbose for DEBUG output.
             self._level = logging.WARNING
 
-        # Configure the root logger once so that library-level logging
-        # respects the chosen verbosity.
-        logging.basicConfig(
-            level=self._level,
-            format="%(levelname)s: %(message)s",
-            force=True,
-        )
+        #: Status objects currently rendering on stderr.  Output written
+        #: while any of them is live is wrapped in a pause/resume guard so
+        #: that Rich's live display never garbles a warning or a result.
+        self._spinner_stack: list[Any] = []
+        self._log_bridge: _LogBridgeHandler | None = None
+
+        # Configure logging once so that library-level logging respects the
+        # chosen verbosity and lands on the diagnostic channel exactly once.
+        self._configure_logging()
 
     # -- public helpers for the existing OutputFormatter context keys --------
 
     @property
-    def use_json(self) -> bool:  # noqa: D401
+    def use_json(self) -> bool:
         """Alias kept for backward compatibility with ``OutputFormatter``."""
         return self.json_mode
 
@@ -142,49 +198,43 @@ class OutputManager:
         """
         self.verbose = enabled
         self._level = logging.DEBUG if enabled else logging.WARNING
-        logging.basicConfig(
-            level=self._level,
-            format="%(levelname)s: %(message)s",
-            force=True,
-        )
+        self._apply_log_level()
 
     # -- output methods -----------------------------------------------------
 
     def info(self, message: str, **kwargs: Any) -> None:
-        """Print an informational message (suppressed in *quiet* mode)."""
+        """Print an informational message to *stderr* (suppressed in *quiet*)."""
         if self.quiet:
             return
         if self.json_mode:
-            self._json({"level": "info", "message": message, **kwargs})
+            self._json({"level": "info", "message": message, **kwargs}, err=True)
         else:
-            click.echo(message)
+            self._write_stderr(message)
 
     def success(self, message: str, **kwargs: Any) -> None:
-        """Print a success message (suppressed in *quiet* mode)."""
+        """Print a success message to *stdout* (suppressed in *quiet* mode).
+
+        A success notice belongs to the result channel: it is what a human
+        reads after the command did its job.
+        """
         if self.quiet:
             return
         if self.json_mode:
             self._json({"status": "success", "message": message, **kwargs})
         else:
-            if self.no_color:
-                click.echo(message)
-            else:
-                click.echo(click.style(message, fg="green"))
+            self._write_stdout(message, color="green")
 
     def warning(self, message: str, **kwargs: Any) -> None:
-        """Print a warning message (always shown unless *quiet*)."""
+        """Print a warning to *stderr* (always shown unless *quiet*)."""
         if self.quiet:
             return
         if self.json_mode:
-            self._json({"level": "warning", "message": message, **kwargs})
+            self._json({"level": "warning", "message": message, **kwargs}, err=True)
         else:
-            if self.no_color:
-                click.echo(f"Warning: {message}", err=True)
-            else:
-                click.echo(click.style(f"Warning: {message}", fg="yellow"), err=True)
+            self._write_stderr(f"Warning: {message}", color="yellow")
 
     def error(self, message: str, *, code: str = "", suggestion: str = "", **kwargs: Any) -> None:
-        """Print an error message (**always** shown, even in *quiet* mode)."""
+        """Print an error message to *stderr* (**always** shown, even in *quiet*)."""
         if self.json_mode:
             payload: dict[str, Any] = {"status": "error", "message": message}
             if code:
@@ -192,41 +242,47 @@ class OutputManager:
             if suggestion:
                 payload["suggestion"] = suggestion
             payload.update(kwargs)
-            self._json(payload)
+            self._json(payload, err=True)
         else:
             parts: list[str] = []
             if code:
                 parts.append(f"[{code}] ")
             parts.append(message)
             text = "".join(parts)
-            if self.no_color:
-                click.echo(text, err=True)
-            else:
-                click.echo(click.style(text, fg="red"), err=True)
+            self._write_stderr(text, color="red")
             if suggestion and not self.quiet:
-                click.echo(f"  Suggestion: {suggestion}", err=True)
+                self._write_stderr(f"  Suggestion: {suggestion}")
 
     def debug(self, message: str, **kwargs: Any) -> None:
-        """Print a debug message (only in *verbose* mode)."""
+        """Print a debug message to *stderr* (only in *verbose* mode)."""
         if not self.verbose:
             return
         if self.json_mode:
-            self._json({"level": "debug", "message": message, **kwargs})
+            self._json({"level": "debug", "message": message, **kwargs}, err=True)
         else:
-            if self.no_color:
-                click.echo(f"DEBUG: {message}", err=True)
-            else:
-                click.echo(click.style(f"DEBUG: {message}", fg="cyan"), err=True)
+            self._write_stderr(f"DEBUG: {message}", color="cyan")
 
     def data(self, data: dict[str, Any] | list[Any] | Any, **kwargs: Any) -> None:
-        """Print structured data.
+        """Print structured data — the user-consumable result — to *stdout*.
 
-        In JSON mode the data is emitted as a JSON object.  Otherwise it is
-        formatted as a key-value list (for dicts), a table (for lists of
-        dicts), or plain ``str()`` for anything else.
+        In JSON mode the data is emitted as a single JSON document on stdout.
+        In quiet mode only the bare values are written (one per line) so that
+        shell pipelines keep working.  Otherwise dicts become aligned
+        key/value lines, lists one line per item, and anything else ``str()``.
         """
         if self.json_mode:
             self._json(data)
+            return
+
+        if self.quiet:
+            if isinstance(data, dict):
+                for value in data.values():
+                    self._write_stdout(str(value))
+            elif isinstance(data, list):
+                for item in data:
+                    self._write_stdout(str(item))
+            else:
+                self._write_stdout(str(data))
             return
 
         if isinstance(data, dict):
@@ -234,12 +290,12 @@ class OutputManager:
                 return
             max_key = max(len(str(k)) for k in data)
             for k, v in data.items():
-                click.echo(f"{str(k).ljust(max_key)}  {v}")
+                self._write_stdout(f"{str(k).ljust(max_key)}  {v}")
         elif isinstance(data, list):
             for item in data:
-                click.echo(str(item))
+                self._write_stdout(str(item))
         else:
-            click.echo(str(data))
+            self._write_stdout(str(data))
 
     def table(self, headers: list[str], rows: list[list[str]]) -> None:
         """Print tabular data.
@@ -253,42 +309,41 @@ class OutputManager:
             return
         if self.quiet:
             for row in rows:
-                click.echo("\t".join(row))
+                self._write_stdout("\t".join(row))
             return
         # Rich table with fallback
         try:
             from rich.console import Console
             from rich.table import Table
 
-            console = Console(no_color=self.no_color)
+            console = Console(no_color=self.no_color, file=sys.stdout)
             table = Table()
             for h in headers:
                 table.add_column(h, style="bold")
             for row in rows:
                 table.add_row(*row)
-            console.print(table)
+            with self._spinner_guard():
+                console.print(table)
         except ImportError:
             header_line = "\t".join(headers)
-            click.echo(header_line)
-            click.echo("-" * len(header_line))
+            self._write_stdout(header_line)
+            self._write_stdout("-" * len(header_line))
             for row in rows:
-                click.echo("\t".join(row))
+                self._write_stdout("\t".join(row))
 
     def progress(self, message: str) -> None:
-        """Print a progress / status message.
+        """Print a progress / status message to *stderr*.
 
-        In CI mode this is a simple one-liner; in interactive mode callers
-        should prefer :meth:`spinner` for long-running operations.
+        Status updates are diagnostics, never results: they stay on stderr in
+        every mode so ``ebx ... | jq`` (or any other consumer of stdout) is
+        unaffected.  In CI/quiet mode they are suppressed.
         """
         if self.quiet:
             return
         if self.json_mode:
-            self._json({"level": "progress", "message": message})
+            self._json({"level": "progress", "message": message}, err=True)
         else:
-            if self.no_color:
-                click.echo(f"... {message}")
-            else:
-                click.echo(click.style(f"... {message}", fg="blue"))
+            self._write_stderr(f"... {message}", color="blue")
 
     @property
     def use_rich_spinner(self) -> bool:
@@ -331,8 +386,12 @@ class OutputManager:
             yield
             return
         console = Console(stderr=True)
-        with console.status(f"[bold blue]{message}...", spinner="dots"):
-            yield
+        with console.status(f"[bold blue]{message}...", spinner="dots") as status:
+            self._spinner_stack.append(status)
+            try:
+                yield
+            finally:
+                self._spinner_stack.pop()
 
     @contextmanager
     def live_spinner(self, message: str) -> Iterator[Any]:
@@ -348,7 +407,7 @@ class OutputManager:
             if self.verbose:
                 # Print poll updates as plain lines so progress is visible
                 # alongside DEBUG logs without conflicting with a spinner.
-                yield lambda text: click.echo(f"... {text}", err=True)
+                yield lambda text: self._write_stderr(f"... {text}")
             else:
                 yield lambda _text: None  # no-op in non-TTY / quiet / json
             return
@@ -359,18 +418,101 @@ class OutputManager:
             return
         console = Console(stderr=True)
         with console.status(f"[bold blue]{message}...", spinner="dots") as status:
-            yield lambda text: status.update(f"[bold blue]{text}...")
+            self._spinner_stack.append(status)
+            try:
+                yield lambda text: status.update(f"[bold blue]{text}...")
+            finally:
+                self._spinner_stack.pop()
 
     # -- private helpers ----------------------------------------------------
 
-    def _json(self, data: Any) -> None:
-        """Emit a single JSON value to stdout."""
+    def _configure_logging(self) -> None:
+        """Install the single stdlib-logging bridge used by this manager.
+
+        The bridge handler lives on the *root* logger and replaces whatever a
+        previous ``logging.basicConfig`` (or the SDK's standalone fallback
+        handler) installed, so a library warning is rendered exactly once, on
+        stderr.  Its level follows the CLI's verbosity — that is what
+        ``--quiet`` / ``--verbose`` / ``--log-level`` mean during a CLI run —
+        while propagation stays enabled so that ``caplog``-style handlers
+        keep working.
+        """
+        root_logger = logging.getLogger()
+        root_logger.setLevel(self._level)
+        for handler in list(root_logger.handlers):
+            root_logger.removeHandler(handler)
+        # The SDK's standalone handler would render every record a second
+        # time; the bridge supersedes it.  The package logger's own level is
+        # left untouched: the handler gate already implements the CLI level.
+        package_logger = logging.getLogger("easy_sandbox")
+        for handler in list(package_logger.handlers):
+            package_logger.removeHandler(handler)
+        self._log_bridge = _LogBridgeHandler(self)
+        root_logger.addHandler(self._log_bridge)
+
+    def _apply_log_level(self) -> None:
+        """Re-align the root logger and the bridge after a level change."""
+        logging.getLogger().setLevel(self._level)
+        if self._log_bridge is not None:
+            self._log_bridge.setLevel(self._level)
+
+    def _emit_log(self, message: str) -> None:
+        """Write a bridged stdlib log record to stderr."""
+        self._write_stderr(message)
+
+    def _pause_spinner(self) -> None:
+        """Stop every live status display so raw output is not garbled."""
+        for status in reversed(self._spinner_stack):
+            with suppress(Exception):  # pragma: no cover - defensive
+                status.stop()
+
+    def _resume_spinner(self) -> None:
+        """Restart the status displays paused by :meth:`_pause_spinner`."""
+        for status in self._spinner_stack:
+            with suppress(Exception):  # pragma: no cover - defensive
+                status.start()
+
+    @contextmanager
+    def _spinner_guard(self) -> Iterator[None]:
+        """Hide live spinners around a write, then restore them.
+
+        Without this, a Rich live display and a plain ``click.echo`` line
+        written at the same time interleave into unreadable output
+        (``⠋ Waiting...Warning: ...``).
+        """
+        if not self._spinner_stack:
+            yield
+            return
+        self._pause_spinner()
+        try:
+            yield
+        finally:
+            self._resume_spinner()
+
+    def _write_stdout(self, message: str, *, color: str | None = None) -> None:
+        """Write one result line to stdout, pausing any live spinner first."""
+        self._write(message, err=False, color=color)
+
+    def _write_stderr(self, message: str, *, color: str | None = None) -> None:
+        """Write one status/diagnostic line to stderr, pausing any spinner."""
+        self._write(message, err=True, color=color)
+
+    def _write(self, message: str, *, err: bool, color: str | None) -> None:
+        """Low-level writer shared by every channel helper."""
+        text = message if (self.no_color or color is None) else click.style(message, fg=color)
+        with self._spinner_guard():
+            click.echo(text, err=err)
+
+    def _json(self, data: Any, *, err: bool = False) -> None:
+        """Emit a single JSON value to stdout (``err=True`` → stderr)."""
         try:
             import orjson
 
-            click.echo(orjson.dumps(data, option=orjson.OPT_INDENT_2).decode())
+            text = orjson.dumps(data, option=orjson.OPT_INDENT_2).decode()
         except ImportError:
-            click.echo(json_module.dumps(data, indent=2, default=str))
+            text = json_module.dumps(data, indent=2, default=str)
+        with self._spinner_guard():
+            click.echo(text, err=err)
 
 
 # ---------------------------------------------------------------------------

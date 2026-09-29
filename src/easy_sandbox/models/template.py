@@ -147,30 +147,23 @@ class CustomCommand(BaseModel):
     args: list[CustomCommandArg] = Field(default_factory=list)
 
 
-# ---- Legacy models (used by utils/registry.py) ----
+# ---- Template model (used by utils/registry.py, api/capability.py) ----
 
 
 class SandboxTemplate(BaseModel):
-    """template.yaml 的 Pydantic 模型（向后兼容）。"""
+    """template.yaml 的 Pydantic 模型。
+
+    构建相关字段（base, system_packages, python_packages, node_packages,
+    commands, copy_files）已移除——实际构建流程直接使用 Dockerfile +
+    语言原生依赖文件（requirements.txt / package.json）。
+    """
 
     name: str
     version: str = "1.0.0"
     description: str = ""
 
-    # 基础环境
-    base: str = "ubuntu:22.04"
-
-    # 构建步骤
-    system_packages: list[str] = Field(default_factory=list)
-    python_packages: list[str] = Field(default_factory=list)
-    node_packages: list[str] = Field(default_factory=list)
-    commands: list[str] = Field(default_factory=list)
-
     # 环境变量
     env: dict[str, str] = Field(default_factory=dict)
-
-    # 文件复制
-    copy_files: dict[str, str] = Field(default_factory=dict)  # src -> dst
 
     # 资源规格（可选）
     cpu_count: int | None = None
@@ -193,6 +186,8 @@ class SandboxTemplate(BaseModel):
     custom_commands: dict[str, CustomCommand] = Field(default_factory=dict)
     """Named commands exposed by this template."""
 
+    model_config = {"extra": "ignore"}
+
     @field_validator("capabilities")
     @classmethod
     def _validate_capabilities(cls, v: list[str] | None) -> list[str] | None:
@@ -203,28 +198,6 @@ class SandboxTemplate(BaseModel):
                         f"Unknown capability {cap!r}; allowed: {sorted(STANDARD_CAPABILITIES)}"
                     )
         return v
-
-    def to_dockerfile(self) -> str:
-        """将模板定义转换为 Dockerfile。"""
-        lines = [f"FROM {self.base}"]
-        if self.system_packages:
-            pkgs = " ".join(self.system_packages)
-            lines.append(
-                f"RUN apt-get update && apt-get install -y {pkgs} && rm -rf /var/lib/apt/lists/*"
-            )
-        if self.python_packages:
-            pkgs = " ".join(self.python_packages)
-            lines.append(f"RUN pip install --no-cache-dir {pkgs}")
-        if self.node_packages:
-            pkgs = " ".join(self.node_packages)
-            lines.append(f"RUN npm install -g {pkgs}")
-        for cmd in self.commands:
-            lines.append(f"RUN {cmd}")
-        for key, val in self.env.items():
-            lines.append(f"ENV {key}={val}")
-        for src, dst in self.copy_files.items():
-            lines.append(f"COPY {src} {dst}")
-        return "\n".join(lines)
 
 
 class TemplateRef(BaseModel):

@@ -1,7 +1,5 @@
 # SDK 使用指南
 
-> **项目更名说明**：本项目已从 Serverless Sandbox 更名为 **Easy Sandbox**。PyPI 包名: `easy-sandbox`（`pip install easy-sandbox`），CLI 命令: `ebx`，Python 导入: `easy_sandbox`。
-
 本文详述 Easy Sandbox Python SDK 的完整使用方法。
 
 ---
@@ -56,7 +54,7 @@ async with await Sandbox.create(template="base") as sandbox:
 
 ### 自然语言创建
 
-当提供 `description` 且 `template` 保持默认值时，SDK 会将其记录为 hint 日志条目。通过 LLM 推断模板发生在 **CLI / Agent 层**，而非 `Sandbox.create()` 自身：
+当提供 `description` 且 `template` 保持默认值时，SDK 会将其记录为 hint 日志条目，模板选择不发生在 `Sandbox.create()` 内部；CLI 的 `ebx create "<描述>"` 会调用 Qwen Code 生成 AI 模板后创建沙箱（显式传 `--template` 时跳过 AI 生成）：
 
 ```python
 sandbox = await Sandbox.create(

@@ -1,7 +1,5 @@
 # E2B Compatibility
 
-> **Renaming Notice**: This project has been renamed from Serverless Sandbox to **Easy Sandbox**. PyPI package: `easy-sandbox` (`pip install easy-sandbox`), CLI command: `ebx`, Python import: `easy_sandbox`.
-
 This document explains Easy Sandbox's compatibility strategy with the E2B Python SDK — what is compatible, what is not, and the design rationale behind the decisions.
 
 ---
@@ -119,7 +117,6 @@ Easy Sandbox adds the following features on top of E2B compatibility:
 | Session Management | Named session persistence |
 | NL Deployment | Natural language-driven project deployment |
 | Secret Management | Environment variables and `.env` file secure storage |
-| Skill System | CLI entry point to be re-opened after stabilization |
 
 ---
 

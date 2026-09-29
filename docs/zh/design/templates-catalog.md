@@ -1,415 +1,242 @@
 # 模板目录（Templates Catalog）设计
 
-> `examples/templates/` 是 Easy Sandbox 的**官方模板集合**，被刻意设计成
-> 「一个 README + 一堆模板文件夹」的极简形态，以便**整份原样**抽出为独立仓库
-> `awesome-easy-sandbox-templates`。本文档定义该目录的形态契约、发布流程、
-> 主仓库与独立仓库之间的链接方式，以及让两侧都能跑的离线校验方法。
+> 模板目录采用**单一事实来源（SSOT）**架构：官方与社区模板的内容、机器可读索引
+> （`awesome-templates.yaml`）、发布与 CI 全部收敛到独立仓库
+> [`Easy-Sandbox/awesome-templates`](https://github.com/Easy-Sandbox/awesome-templates)。
+> 主仓库**不再维护可发布模板集合**，仅在 `examples/templates/` 保留一个最小
+> `python-hello` **离线测试夹具（fixture）**，并显式标记为 fixture。
 >
 > 相关文档：[模板体系设计](./template-system.md)（模板分层与分发机制）、
-> [CLI 设计](./cli-design.md)（`ebx install` / `ebx run` / `ebx exec`）、
-> [能力模型](./template-system.md#关键设计要点)（capabilities 门控，见「关键设计要点」的能力模型条目；权威定义见 ADR `2026-09-03-capability-model.md`）。
+> [CLI 设计](./cli-design.md)（`ebx template search` / `install` / `deploy`）。
 
 ---
 
-## 1. 为什么是「README + 文件夹」
+## 1. 架构总览
 
-模板集合的索引方案有两条路：
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Easy-Sandbox/awesome-templates（唯一真源）                      │
+│  ├── awesome-templates.yaml   ← 机器可读索引（search/install 数据源）│
+│  ├── README.md / CONTRIBUTING.md  ← 人类索引 + 贡献规范           │
+│  ├── <template>/              ← 模板内容（template.yaml + Dockerfile
+│  │                               + README.md[+ commands.py]）    │
+│  ├── tests/                   ← 目录/索引一致性离线校验（308 用例） │
+│  └── .github/workflows/ci.yml ← Py3.10–3.13 矩阵 CI              │
+└─────────────────────────────────────────────────────────────────┘
+          ▲ raw.githubusercontent.com（CDN，无 API 限流）
+          │ fetch_index()：缓存 ~/.ebx/index/ + ETag 条件请求
+┌─────────┴───────────────────────────────────────────────────────┐
+│  主仓库 easy-sandbox                                             │
+│  ├── src/easy_sandbox/utils/template_index.py  ← 远程索引客户端   │
+│  ├── src/easy_sandbox/cli/commands/template.py ← search/install  │
+│  ├── examples/templates/python-hello/          ← 最小离线夹具     │
+│  └── tests/（test_templates / test_utils / test_cli）← 全离线    │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-| 方案 | 形态 | 问题 |
+**职责划分**：
+
+| 资产 | 归属 | 说明 |
 |------|------|------|
-| 结构化清单 | `registry.json` / `index.json` / 多层 manifest | 清单与模板文件**双写**，必然漂移；抽仓库时要重写路径；贡献者要先学会清单格式 |
-| **极简目录**（本方案） | `README.md` + 每模板一个文件夹 | 索引是**给人看的**，一致性由测试保证而非靠人肉同步 |
+| 官方/社区模板内容 | 真源仓库 | 每个目录 `template.yaml` + `Dockerfile` + `README.md`（需要服务端命令时加 `commands.py`） |
+| 机器可读索引 | 真源仓库根 `awesome-templates.yaml` | `search` / `install` 的唯一数据源；主仓库**不存在**同名文件 |
+| 发布与版本 | 真源仓库 git tag / 分支 | 条目 `ref` 字段可锁定版本；无需 GitHub Release |
+| 目录一致性校验 | 真源仓库 `tests/` + CI | 索引 ↔ 文件夹 ↔ README 表格逐字段对账 |
+| 离线开发夹具 | 主仓库 `examples/templates/python-hello/` | 仅供主仓库单测/集成测试离线运行，**禁止**在此新增可发布模板 |
+| 索引客户端与降级行为 | 主仓库 `utils/template_index.py` | 缓存、条件请求、限流/断网降级 |
 
-选择极简形态的理由：
+### 1.1 为什么不用「主仓库副本 + 定时同步」
 
-1. **模板文件夹本身就是自描述的**。`template.yaml` 是唯一权威定义，
-   `Dockerfile` 是可独立构建的等价产物，`README.md` 是人类说明。
-   任何额外的 index 文件都是这三者的投影，投影就有失真风险。
-2. **抽出为独立仓库是零成本操作**。`git filter-repo` 或直接 `cp -r` 即可，
-   不需要改写任何路径引用——因为**没有任何文件引用绝对位置**。
-3. **贡献门槛最低**。新增模板 = 复制一个文件夹、改三个文件、在总览表加一行。
-4. **一致性可以机器保证**。见 [§5 离线校验](#5-离线校验让独立仓库能跑同样的检查)。
+早期方案让主仓库持有完整模板副本、通过 `git subtree push` 发布到独立仓库。
+该方案有两个结构性问题：
 
-### 1.1 目录契约
+1. **双写必然漂移**：Qwen 参数契约（`max_turns` → `max_session_turns`）曾在两侧
+   出现分歧，就是双副本的直接后果。
+2. **用户拿到的是过期副本**：CLI 内置的模板清单只能随 SDK 版本发布更新，
+   社区模板必须等新版本才能被发现。
 
-```
-examples/templates/                 ← 抽出后即独立仓库根
-├── README.md                       ← 唯一索引（模板总览表 + 安装/使用/贡献指南 + schema）
-├── browser-automation/
-│   ├── template.yaml       ← 必需：权威定义
-│   ├── Dockerfile                  ← 必需：与 YAML 等价的构建产物
-│   └── README.md                   ← 必需：模板说明
-├── claude-code/
-├── codex/
-├── deepseek-harness/
-├── hermes-agent/
-├── node-web/
-├── openclaw/
-├── python-hello/
-├── qoder/
-└── qwen-code/
-```
-
-硬性约束：
-
-- **文件夹名 == `template.yaml` 的 `name` == 安装后的默认 `alias`**。
-  三者一致，`api/capability.py::resolve_capabilities()` 才能在
-  `~/.ebx/templates/` 里按名字反查到模板；否则 capabilities 会静默回落到
-  `DEFAULT_CAPABILITIES`（只打 warning，不报错），是最难排查的一类故障。
-- 命名 kebab-case，无空格、无下划线、无大写。
-- 三个必需文件缺一不可，且不能为空。
-- 索引表在 `README.md` 内，**不新增任何 json/yaml 清单文件**。
-
-### 1.2 索引表字段
-
-`README.md` 的「模板总览」表是 7 列，全部来自 YAML：
-
-| 列 | 数据来源 |
-|----|----------|
-| 模板 | 文件夹名（链接到 `./<name>/`） |
-| 描述 | `description` |
-| 关键词 | `tags`（顺序敏感） |
-| base 镜像 | `base` |
-| resources | `resources.cpu` / `resources.memory` / `ports` |
-| capabilities | `capabilities`（顺序敏感；`*` 号标注见下） |
-| custom commands | `custom_commands` 的键 + 各自 `args`，形如 `` `run(task*)` ``，`*` = `required: true` |
-
-「顺序敏感」是刻意的：测试做的是**列表相等**而不是集合相等，
-这样表格能真实反映 YAML 的声明顺序，而不是被排序掩盖差异。
+收敛后：内容只有一个写入口（真源仓库 PR），发现只有一条路径
+（远程索引），主仓库的 SDK 发布节奏与模板演进完全解耦。
 
 ---
 
-## 2. 发布流程（定义完成的标准）
-
-模板集合的发布是一条**四段式流水线**，任何一段没过都不算完成：
-
-```
-①  离线校验 + 本地 install E2E 全绿
-        │   python -m pytest tests/test_templates/ -q
-        ▼
-②  用户 push 到 GitHub（推 git tag / 分支即可，无需发 Release）
-        │   （人工步骤，Agent 不代为执行 git push）
-        ▼
-③  真实 ebx install <owner>/<repo>//<template> --registry-type github 端到端通过
-        │   （真网络、真 GitHub API、真 ~/.ebx/templates 缓存）
-        ▼
-④  才算完成
-```
-
-### 2.1 阶段①：本地 install 测试（Agent 的硬 gate）
-
-`tests/test_templates/test_local_install.py` 用 `CliRunner` 驱动真实 CLI：
-
-```bash
-python -m pytest tests/test_templates/ -q
-```
-
-它跑的是**真实代码路径**：`RegistryClient.resolve()` → `RegistryClient.fetch()` →
-`load_template_from_yaml()` → `SandboxTemplate.to_dockerfile()` → 构造
-`POST /templates` 请求体。只在两处打桩：
-
-| 被打桩的边界 | 原因 |
-|--------------|------|
-| `transport.config.load_config` / `transport.auth.create_auth_provider` / `transport.http.HttpClient` | 需要真实后端与凭据 |
-| `httpx.AsyncClient.get` | 需要真实网络（GitHub tarball 字节） |
-
-注意 `_download_and_extract()` **没有**被打桩——tarball 顶层目录剥离与 `//subdir`
-子目录抽取、路径穿越防护都是被真实执行的，喂给它的是内存里现造的
-GitHub 风格 .tar.gz 副本（`build_repo_tarball()`）。因此「ref 解析 → 下载 → 解压
-→ 缓存 → 加载 → 生成 Dockerfile → 提交构建」整条链路除了 HTTP 字节本身，全部走过真实代码。
-
-整个模块还挂了一个 `socket.getaddrinfo` / `socket.create_connection` 绊线
-（autouse fixture），任何意外的域名解析都会让测试直接失败——「全离线」是**可执行**的
-承诺，不是注释里的口号。
-
-> 绊线刻意**不**patch `socket.socket`：asyncio 的 self-pipe（`socketpair()`）
-> 依赖它，patch 掉会让 `run_sync()` 里的 `asyncio.run()` 直接崩。
-> `getaddrinfo` 与 `create_connection` 才是所有出站 HTTP 的必经收口。
-
-### 2.2 阶段②：人工 push（tag / 分支即可）
-
-由用户执行，Agent 不碰：
-
-```bash
-# 独立仓库形态
-git remote add templates git@github.com:<owner>/awesome-easy-sandbox-templates.git
-git subtree push --prefix=examples/templates templates main
-git tag v1.0.0 && git push origin v1.0.0     # 推一个 git tag 即可
-```
-
-**无需发 GitHub Release**：`RegistryClient` 走 GitHub tarball API
-（`/repos/{owner}/{repo}/tarball[/{ref}]`）按 tag/branch/sha 拉取，GitHub 会
-自动把 ref 解析为 tag/branch/sha；不带 `@ref` 时拉取默认分支。只有默认分支、
-只推 git tag、甚至仅用 commit sha 都能 `ebx install`。
-
-### 2.3 阶段③：真实 GitHub 端到端
-
-发布后必须用**真网络**验证一次，覆盖阶段①无法覆盖的部分
-（真实 API 响应结构、真实 tarball 顶层前缀、真实鉴权、真实缓存目录）：
-
-```bash
-# 清掉缓存，确保不是命中阶段①留下的东西
-ebx template cache --clear
-
-# 单模板（本集合的标准用法）
-ebx install <owner>/awesome-easy-sandbox-templates//node-web \
-  --registry-type github --registry-url https://github.com
-
-# 锁版本
-ebx install <owner>/awesome-easy-sandbox-templates//node-web@v1.0.0 \
-  --registry-type github
-
-# 验证缓存落地
-ebx template cache
-ls ~/.ebx/templates/<owner>/awesome-easy-sandbox-templates/v1.0.0/node-web
-
-# 验证 capabilities / custom_commands 真的被解析到（不是回落到默认值）
-ebx create --template node-web
-ebx run <sandbox_id> start
-ebx exec <sandbox_id> "node -v"
-ebx kill <sandbox_id> -y
-```
-
-`ebx run <sandbox_id> start` 能成功，就证明 `custom_commands` 从缓存里的
-YAML 正确解析出来了——这是整条链路最有信息量的一次断言。
-
-### 2.4 为什么整仓库 ref（不带 `//`）不适用
-
-```bash
-ebx install <owner>/awesome-easy-sandbox-templates --registry-type github
-```
-
-会把**仓库根**解到缓存目录，而仓库根只有 `README.md` 与各模板文件夹，
-没有自己的 `template.yaml`，install 会以
-`No template.yaml found in ...` 失败。
-
-这是**设计如此**而非缺陷：本集合是多模板仓库，`//<template>` 才是正确用法。
-`test_github_install_whole_repo_without_subdir_fails` 把这条行为钉住了，
-`README.md` 的安装章节也明确写了子目录语法。只有「一个仓库 = 一个模板」时
-整仓库 ref 才成立。
-
----
-
-## 3. 主仓库 ↔ 独立仓库的链接方式
-
-两种形态并存，靠**引用格式**而非文件内容区分：
-
-### 3.1 留在主仓库内（当前状态）
-
-```bash
-ebx install ./examples/templates/node-web --registry-type local
-```
-
-主仓库的关联点：
-
-| 位置 | 关联方式 | 是否随抽出而失效 |
-|------|----------|------------------|
-| `README.md`（根）→ `examples/templates/` | 相对链接 | 抽出后需改指向独立仓库 URL |
-| `examples/README.md` 目录树 | 相对路径说明 | 抽出后需删该段 |
-| `src/easy_sandbox/agent/infer.py::TEMPLATE_CATALOG` | **按模板名**引用，不含路径 | ❌ 不失效 |
-| `examples/templates/README.md` 内的 schema 链接 | `../../src/...` 相对链接 | 抽出后需改为主仓库 blob URL |
-| `tests/test_templates/` | `parents[2] / "examples" / "templates"` | 抽出后按 §5.3 调整 |
-
-关键设计：**`TEMPLATE_CATALOG` 只按名字引用模板，不引用路径**。
-所以模板目录被抽走后，自然语言推断（`ebx create "……"`）依然工作——
-它推荐的是模板名，用户拿到名字后自行 `ebx install <owner>/<repo>//<name>`。
-
-### 3.2 抽出为独立仓库后
-
-主仓库侧只保留**指针**，不再持有内容：
-
-````markdown
-<!-- 主仓库 README.md -->
-## Templates
-
-开箱即用的沙箱模板见独立仓库
-[awesome-easy-sandbox-templates](https://github.com/<owner>/awesome-easy-sandbox-templates)：
-
-```bash
-ebx install <owner>/awesome-easy-sandbox-templates//node-web --registry-type github
-```
-````
-
-同步方式二选一：
-
-| 方式 | 说明 | 适用 |
-|------|------|------|
-| `git subtree push --prefix=examples/templates` | 主仓库仍是唯一编辑入口，独立仓库是发布产物 | 模板改动频繁、由核心团队维护 |
-| `git submodule` / 直接删除主仓库副本 | 独立仓库是唯一入口，主仓库只留链接 | 想接受社区 PR、模板生态外溢 |
-
-**当前推荐 subtree push**：`tests/test_templates/` 依赖主仓库的
-`easy_sandbox` 包（真实加载器、真实 CLI），submodule 化后离线校验会分裂成两套。
-
-### 3.3 版本对齐
-
-独立仓库的 git tag/ref 与每个模板 `template.yaml` 的 `version` 字段
-是**两个独立维度**：
-
-- git tag/ref（`v1.0.0`）= 整个集合的快照版本，用于 `@ref` 锁定与缓存分目录。
-- 模板 `version` = 单个模板的语义版本，用于展示与兼容性判断。
-
-约定：集合推新 git tag 时，若有模板内容变更则同步 bump 该模板的 `version`。
-缓存路径按 ref 分目录（`~/.ebx/templates/<owner>/<repo>/<ref|default>/`），
-所以两个维度的不一致不会造成缓存串味。
-
----
-
-## 4. `ebx run` vs `ebx exec` 的边界
-
-模板集合的存在让这条边界变得有意义，因此写进设计文档而非只写在 README：
-
-| | `ebx run <id> <command_name>` | `ebx exec <id> "<shell>"` |
-|---|---|---|
-| 命令来源 | 模板 `custom_commands` 声明 | 调用方临时拼写 |
-| 参数模型 | `--arg k=v` 填充 `{placeholder}`，`shlex.quote` 自动转义 | 无，全靠自己 |
-| `cwd` / `env` / `timeout` | 模板声明，调用方不重复指定 | `--cwd` / `--timeout` 显式传，`env` 不可传 |
-| 可发现性 | `sandbox.list_commands()` 可枚举 | 不可枚举 |
-| 失败模式 | 命令名不存在 / 必填参数缺失 / 占位符未填充 → 明确 `ValueError` | shell 语法错误、非零退出码 |
-| 依赖 | 需要 capabilities 解析成功（见 §1.1 命名约束） | 只需 `shell` capability |
-
-设计意图：`custom_commands` 是模板作者对「这个环境应该怎么用」的**声明式封装**，
-把 `cwd`/`env`/`timeout`/转义这些易错细节从每个调用点收敛到模板里一次。
-`ebx exec` 保留给一次性探索与调试。两者不是替代关系。
-
----
-
-## 5. 离线校验：让独立仓库能跑同样的检查
-
-### 5.1 校验清单
-
-`tests/test_templates/test_template_catalog.py` 逐模板参数化断言：
-
-| # | 契约 | 说明 |
-|---|------|------|
-| a | YAML 可被**真实加载器**解析 | `utils.registry.load_template_from_yaml()` → `SandboxTemplate`，不复刻解析逻辑 |
-| b1 | 必需字段齐全 | `name` / `version` / `description` / `base` / `author` / `tags` 显式声明（模型有默认值，但发布的模板必须写出来） |
-| b2 | capabilities 合法 | 全部落在 `STANDARD_CAPABILITIES`；显式声明；无重复；`ports` capability 与顶层 `ports:` 列表互为充要 |
-| b3 | custom_commands 结构合法 | 命令名 kebab/identifier；`cmd` 非空；`timeout > 0`；`cwd` 绝对路径；`env` 为 `str→str`；`{placeholder}` 与 `args` **双向**覆盖；`required: true` 不得同时有 `default`，非必填**必须**有 `default` |
-| c | 三个必需文件存在且非空 | `template.yaml` / `Dockerfile` / `README.md`；并拦截 `sandbox_template.yaml`、`dockerfile` 之类拼写变体 |
-| d | 与 `TEMPLATE_CATALOG` 对账 | 无孤儿、无缺失（见 §5.2） |
-| e | `README.md` 索引表与 YAML 逐字段一致 | 描述/关键词/base/cpu/memory/ports/capabilities/custom commands；外加 capabilities 分布矩阵；外加安装与 schema 章节存在性 |
-| f | `Dockerfile` 的 `FROM` == YAML `base` | 防止手写 Dockerfile 与 YAML 各说各话 |
-
-### 5.2 对账规则（契约 d）
-
-`TEMPLATE_CATALOG`（`src/easy_sandbox/agent/infer.py`）与磁盘文件夹
-不是 1:1，因此用两张显式白名单把「有意为之的不对称」写死，
-剩下任何偏差都是 bug：
-
-```python
-# 由平台内置镜像 / 在线目录提供，本集合刻意不含本地文件夹
-PLATFORM_ONLY_TEMPLATES = {"base"}
-
-# 仅作示例与测试夹具，不参与自然语言推断
-EXAMPLE_ONLY_TEMPLATES = {"python-hello"}
-```
-
-四条断言：
-
-1. `TEMPLATE_CATALOG` 的每一项，要么有对应文件夹，要么在 `PLATFORM_ONLY_TEMPLATES`（**无缺失**）。
-2. 每个文件夹，要么在 `TEMPLATE_CATALOG` 里，要么在 `EXAMPLE_ONLY_TEMPLATES`（**无孤儿**）。
-3. `PLATFORM_ONLY_TEMPLATES` 的名字**不得**出现为文件夹（避免遮蔽平台内置模板，
-   `utils.registry.BUILTIN_TEMPLATES` 会把裸名 `base` 直接判为内置而跳过拉取）。
-4. 有对应文件夹的条目，其 `cpu` / `memory` / `ports` 必须与 YAML 的
-   `resources` / `ports` 一致（推断引擎给出的资源默认值不能和模板真实声明打架）。
-
-> 刻意**不**断言「catalog keywords 必须包含 YAML tags」。
-> keywords 是面向自然语言匹配的**人类措辞**（`node.js`、`web服务`、`做网站`），
-> tags 是面向检索的**规范标识符**（`nodejs`、`web`、`api`），两者本就不该强行对齐；
-> 强行断言会逼着 `infer.py` 塞进一批没人会说的关键词，反而降低推断质量。
-
-### 5.3 在独立仓库里跑同一套检查
-
-`tests/test_templates/` 只依赖 `pydantic` + `pyyaml` + `click` + `pytest` +
-`easy_sandbox` 包本身，不依赖主仓库任何其它资产。抽出时：
-
-**步骤 1 — 复制测试**
-
-```bash
-mkdir -p tests/test_templates
-cp <main-repo>/tests/__init__.py tests/__init__.py
-cp <main-repo>/tests/test_templates/*.py tests/test_templates/
-```
-
-（`tests/__init__.py` 与 `tests/test_templates/__init__.py` 都必须存在，
-测试模块用的是包内相对导入 `from .conftest import ...`。）
-
-**步骤 2 — 改路径常量**
-
-`tests/test_templates/conftest.py` 顶部只有一处需要动：
-
-```python
-# 主仓库：tests/test_templates/conftest.py → parents[2] 是仓库根
-REPO_ROOT = Path(__file__).resolve().parents[2]
-TEMPLATES_DIR = REPO_ROOT / "examples" / "templates"
-
-# 独立仓库：模板文件夹就在仓库根下
-REPO_ROOT = Path(__file__).resolve().parents[2]
-TEMPLATES_DIR = REPO_ROOT                      # ← 只改这一行
-```
-
-**步骤 3 — 装 SDK**
-
-独立仓库 CI 需要装 `easy-sandbox[cli]`（测试要用真实加载器与真实 CLI）：
+## 2. 机器可读索引（`awesome-templates.yaml`）
 
 ```yaml
-# .github/workflows/validate.yml
-name: validate-templates
-on: [push, pull_request]
-jobs:
-  validate:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-      - run: pip install "easy-sandbox[cli]>=0.1" pytest
-      - run: python -m pytest tests/test_templates/ -q
+schema_version: 1
+templates:
+  - name: node-web                       # 必填；唯一；kebab-case
+    description: "Node.js Web 服务运行环境"  # 人类可读描述（搜索命中源）
+    repo: https://github.com/Easy-Sandbox/awesome-templates  # 必填；仅支持 github.com
+    path: node-web                       # 仓库内子目录；省略则整个仓库是一个模板
+    ref: v1.0.0                          # 可选；锁定 tag/branch/sha
+    tags: [nodejs, web, express, api]    # 搜索标签
+    author: Easy-Sandbox
+    capabilities: [shell, files, code, ports]
+    status: official                     # official | community | experimental
 ```
 
-**步骤 4 — 关掉需要主仓库上下文的两条断言**
+约定：
 
-契约 d（`TEMPLATE_CATALOG` 对账）依赖 `easy_sandbox.agent.infer`，
-装好 SDK 就能跑，无需改动。
-契约 e 中对 `../../src/...` 相对链接的引用只出现在 README 文本里，
-测试不校验链接可达性，因此同样无需改动。
-
-> 结论：**独立仓库跑的是同一份测试文件，只改 `TEMPLATES_DIR` 一行。**
-
-### 5.4 本地快速验证
-
-```bash
-# 全量（约 400 个参数化用例，2~3 秒）
-python -m pytest tests/test_templates/ -q
-
-# 只看目录契约
-python -m pytest tests/test_templates/test_template_catalog.py -q
-
-# 只看 install 端到端
-python -m pytest tests/test_templates/test_local_install.py -q
-
-# 只验某一个模板
-python -m pytest tests/test_templates/ -q -k node-web
-
-# 手动离线加载一次（不经过 CLI）
-python -c "
-from pathlib import Path
-from easy_sandbox.utils.registry import load_template_from_yaml
-t = load_template_from_yaml(Path('examples/templates/node-web/template.yaml'))
-print(t.name, t.base, t.capabilities, list(t.custom_commands))
-print(t.to_dockerfile())
-"
-```
+- **`schema_version`**：索引格式版本，当前为 `1`。缺失按 1 处理（向后兼容）；
+  比客户端支持版本更新时**明确报错**并提示升级 SDK，绝不静默误读。
+- **`repo`**：仅接受 `github.com` 的 `owner/repo` 或完整 URL（解析时归一化）。
+- **`path` / `ref` 组合**：条目合成为 Terraform 风格的
+  `owner/repo//path@ref` 引用（`TemplateIndexEntry.install_ref`），直接交给
+  `RegistryClient.resolve()`；省略 `path` 时退化为 `owner/repo`。
+- **`name` 唯一**：重复条目在解析期即报错，避免解析结果依赖顺序。
+- 契约校验由真源仓库 `tests/test_index.py` 保证：每个文件夹恰好一条索引、
+  字段与 `template.yaml` 逐项一致、`install_ref` 可被 registry 客户端解析。
 
 ---
 
-## 6. 不做的事（明确边界）
+## 3. 远程索引客户端行为（`utils/template_index.py`）
+
+### 3.1 默认位置与覆盖
+
+| 项 | 值 |
+|----|-----|
+| 默认索引 URL | `https://raw.githubusercontent.com/Easy-Sandbox/awesome-templates/main/awesome-templates.yaml` |
+| 环境变量覆盖 | `EBX_TEMPLATE_INDEX_URL`（HTTP(S) URL 或本地文件路径） |
+| CLI 覆盖 | `ebx template search/install --index-url <URL或路径>` |
+| 认证 | `--token` > `GITHUB_TOKEN` > 持久化 `github_token`（`ebx config set github_token`；私有镜像、提升限流额度） |
+
+选择 `raw.githubusercontent.com` 而非 `api.github.com` 是刻意的：raw 文件由 CDN
+提供服务，**不受** API 匿名 60 次/小时的限流约束；本地文件路径则让企业内网镜像
+与完全离线的部署成为一等公民。
+
+### 3.2 缓存与条件请求
+
+- 缓存目录 `~/.ebx/index/`（与 `~/.ebx/templates/` 隔离，避免被误认为已安装模板）；
+  文件为索引正文 + `awesome-templates.meta.json`（`source_url` / `etag` / `fetched_at`）。
+- TTL `INDEX_MAX_AGE_SECONDS = 3600`：新鲜缓存**不发网络请求**（`search`/`install` 的
+  常规路径零网络开销）。
+- 过期后发送 `If-None-Match` 条件请求；`304` 仅刷新元数据时间戳，索引正文复用缓存。
+- `--refresh` / `force=True` 绕过缓存强制拉取。
+- 缓存损坏（不可解析）时丢弃并重新拉取，不把坏数据当作降级输入。
+
+### 3.3 降级行为矩阵（明确、可预期）
+
+| 场景 | 有缓存 | 无缓存 |
+|------|--------|--------|
+| 网络不可达（DNS/超时/拒连） | 过期缓存 + `stale=True` + warning「使用缓存的索引」 | `NetworkError`，建议检查网络 / `GITHUB_TOKEN` / `--index-url` |
+| GitHub 限流（403 且 `X-RateLimit-Remaining: 0`，或 429） | 同上 + warning 提示 `GITHUB_TOKEN` / `ebx config set github_token` | `GitHubRateLimitError`（E5000），包含经官方核验的 fine-grained PAT 预填 URL、`ebx config set github_token` / `GITHUB_TOKEN` 修复建议、`--token` 泄漏提醒与镜像提示；交互终端下还会引导一次性脱敏配置并只重试一次 |
+| `404` | 落入通用网络错误路径 | `NetworkError`，suggestion 提示校验索引 URL（`--index-url`） |
+| 服务端错误（5xx） | 过期缓存 + warning | `NetworkError` |
+| 其他非 2xx | 过期缓存 + warning | `NetworkError`，报告具体状态码 |
+| `schema_version` 过新 | 不降级 | `TemplateParseError`，提示 `pip install -U easy-sandbox` |
+| 索引无 `templates` 列表 / 非法 YAML | 不降级 | `TemplateParseError`（含来源 URL） |
+
+降级呈现统一走 `TemplateIndex.stale` + `notice` 两个字段：CLI 在结果前打印
+warning，退出码保持成功——过期的索引仍然可用，只是可见地陈旧。
+
+---
+
+## 4. CLI 行为（`ebx template search` / `install`）
+
+### 4.1 `ebx template search <query>`
+
+- 查询远程索引，按 `name` / `description` / `tags` / `author` 做子串匹配；
+  `--tag` / `--status` 精确过滤；`--refresh` 强制刷新；`-j` 输出 JSON。
+- 输出表格（Name / Description / Tags / Status）+ 安装提示
+  `Install one with: ebx template install <name> (index: <source_url>)`。
+- 降级时先打印 `notice` warning 再输出结果。
+
+### 4.2 `ebx template install <name>` 的裸名解析顺序
+
+```
+<name> 是本地路径？           → 直接使用（不打桩、不触网）
+<name> 是内置模板？           → BUILTIN_TEMPLATES = {base, code-interpreter-v1}
+                              （平台镜像，免拉取，不触网络索引）
+<name> 形如 owner/repo[//path][@ref]？ → 直接交给 RegistryClient（不查索引）
+否则（裸名）                  → 查询远程索引：
+                                命中 → 得到 install_ref（可能带 ref 锁定）→ 继续常规安装
+                                未命中且缓存非 stale → force 刷新一次给新发布模板机会
+                                仍未命中 → TemplateNotFoundError
+                                  suggestion: 'ebx template search' / 直接 owner/repo//subdir
+```
+
+命中索引时打印 `Resolved '<name>' via the template index: <owner>/<repo>//<path>[@ref]`，
+让用户对最终拉取的来源与版本可审计。
+
+### 4.3 版本锁定与缓存分目录
+
+`ref` 锁定（条目声明或用户显式 `@ref`）最终体现在缓存路径
+`~/.ebx/templates/<owner>/<repo>/<ref|default>/<path>`，不同 ref 的模板互不串味。
+未声明 `ref` 的条目跟随真源仓库默认分支——「跟随最新」与「锁定版本」都是显式选择。
+
+---
+
+## 5. 主仓库 fixture 契约（`examples/templates/`）
+
+`examples/templates/` 是**测试资源目录**，不是模板目录：
+
+- 只允许存在 `python-hello`（`EXPECTED_FIXTURE_TEMPLATES`），任何新增文件夹都会
+  让 `tests/test_templates/test_template_catalog.py::TestFixtureBoundary` 直接失败。
+- 三层显式标记，防止被误认为可发布模板：
+  1. 目录级 `README.md` 声明「本目录不是模板发布真源」+ 真源链接 + 远程安装命令；
+  2. `python-hello/template.yaml` 顶部 `FIXTURE` banner 注释；
+  3. `python-hello/README.md` fixture 提示块。
+- fixture 自身仍须通过全部模板契约校验（真实加载器解析、capabilities 合法、
+  Dockerfile 有 `FROM`、custom_commands 占位符与 args 双向覆盖等）——它代表
+  「模板规范」的可执行样本。
+- `python-hello` 同时被多个集成测试与 golden 文件引用（CLI help、workflow E2E），
+  因此**不删除、不改名**。
+
+---
+
+## 6. 测试策略（离线可运行是第一约束）
+
+### 6.1 主仓库（全部离线，无网络）
+
+| 套件 | 覆盖 |
+|------|------|
+| `tests/test_utils/test_template_index.py` | 索引解析/校验、`install_ref` 构造、缓存生命周期（新鲜短路/强制刷新/304）、降级矩阵（断网/限流/404/5xx/损坏缓存）、token 与 env 覆盖 |
+| `tests/test_cli/test_template_index_commands.py` | `search` 输出/过滤/JSON/降级 notice/参数透传；`install` 裸名经索引解析、`@ref` 锁定、内置名不触索引、未命中报错与强制刷新 |
+| `tests/test_templates/test_template_catalog.py` | fixture 边界（唯一性/标记/README 契约）+ fixture 的 YAML/Dockerfile/custom_commands 契约 |
+| `tests/test_templates/test_local_install.py` | 真实 CLI install 链路（本地 tarball 打桩，`socket` 绊线保证零外网） |
+
+网络拦截全部通过 `pytest-httpx`（`httpx_mock`）或 `fetch_index` 打桩完成；
+无网络环境（CI 沙箱、企业内网）下全量单测可运行。
+
+### 6.2 真源仓库（自测试，随模板内容演进）
+
+`tests/test_catalog.py`（32 用例）+ `tests/test_index.py`（11 用例）+
+`tests/test_commands_e2e.py`（10 用例）：目录契约、索引对账、README 表格
+逐字段比对、qwen-code `max_session_turns` 契约守卫等。CI 在 Python
+3.10–3.13 矩阵上运行，依赖 `requirements-dev.txt`（`easy-sandbox[cli]` git main +
+pytest + pyyaml）。
+
+> 真源仓库与主仓库测试的分工：**内容正确性**归真源仓库（模板改动必须同 PR 更新
+> 索引与 README 表格）；**客户端行为**归主仓库（缓存、降级、解析顺序）。
+> 两侧都不依赖对方的仓库布局，只通过「索引文件格式」这一公开契约耦合。
+
+---
+
+## 7. 发布与贡献流程
+
+1. **贡献**：向真源仓库提 PR（`CONTRIBUTING.md` 定义模板解剖、capability 分组规则、
+   本地开发流程）；PR 必须同步更新 `awesome-templates.yaml` 与 README 表格，
+   CI 离线校验全绿。
+2. **发布**：合并到 `main` 即生效（索引随仓库内容原子更新）；需要稳定引用时打
+   git tag（`v1.0.0`），用户通过 `@v1.0.0` 锁定。**无需 GitHub Release**——
+   `RegistryClient` 走 tarball API，tag/branch/sha 均可解析。
+3. **消费**：用户 `ebx template search` 发现 → `ebx template install <name>` 安装；
+   新发布模板在缓存未命中时会被一次强制刷新立即发现，无需等待 TTL。
+4. **回滚**：索引条目 `ref` 指向已知良好版本；紧急下线移除条目（新用户不可见，
+   已安装缓存不受影响）。
+
+---
+
+## 8. 不做的事（明确边界）
 
 | 不做 | 原因 |
 |------|------|
-| 不引入 `registry.json` / `index.json` / 多层 manifest | 双写必然漂移；索引由 README + 测试保证 |
-| 不在测试里真实构建 docker 镜像 | 需要 docker daemon，破坏离线与 CI 可复现性；`Dockerfile` 只校验 `FROM` 与 YAML 一致 |
-| 不在测试里真实调用平台 `POST /templates` | 需要凭据与配额；build 边界一律打桩 |
-| 不由 Agent 执行 `git push` / 发 Release | 发布是人工决策点，见 §2.2 |
-| 不重命名 / 移动任何既有模板文件夹 | `TEMPLATE_CATALOG` 与多份文档按名字引用，改名是破坏性变更 |
-| 不把 `TEMPLATE_CATALOG` 的 keywords 与 YAML tags 强行对齐 | 见 §5.2 末尾说明 |
+| 不把模板内容镜像回主仓库 | 双写是本设计要消除的根本问题 |
+| 不在主仓库保留 `awesome-templates.yaml` 副本 | 索引唯一真源在真源仓库；主仓库只有客户端 |
+| 不让 SDK 发布成为模板上新的前置条件 | 索引机制已解耦两侧发布节奏 |
+| 不在单测里真实访问 GitHub | 离线可运行是第一约束；网络测试属集成/手工验证 |
+| 不自动跨仓库同步（subtree/submodule/定时任务） | 真源仓库即唯一入口，无需同步动作，自然无同步漂移 |
+| 不由 Agent 执行 `git push` | 发布是人工决策点 |
+| 不删除/改名 `python-hello` fixture | 集成测试与 golden 文件按路径引用，删除即断裂 |
+| 不回退 `max_session_turns` 契约 | 任务 181 确立的参数名由两侧测试守卫（真源 `test_commands_e2e.py`） |

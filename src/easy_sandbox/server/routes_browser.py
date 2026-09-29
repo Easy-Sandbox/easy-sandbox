@@ -63,14 +63,14 @@ def _get_playwright() -> Any:
     Raises:
         RuntimeError: If ``playwright`` is not installed.
     """
-    global _playwright_instance, _browser, _page  # noqa: PLW0603
+    global _playwright_instance, _browser, _page
 
     if _page is not None and not _page.is_closed():
         return _page
 
     try:
         from playwright.sync_api import (  # type: ignore[import-not-found]
-            sync_playwright,  # noqa: PLC0415
+            sync_playwright,
         )
     except ImportError:
         raise RuntimeError(  # noqa: B904
@@ -100,7 +100,7 @@ def _get_playwright() -> Any:
 
 def _cleanup_browser() -> None:
     """Shut down the Playwright browser instance and release resources."""
-    global _playwright_instance, _browser, _page  # noqa: PLW0603
+    global _playwright_instance, _browser, _page
 
     with _browser_lock:
         if _page is not None and not _page.is_closed():
@@ -166,7 +166,7 @@ def handle_browser_navigate(request: ServerRequest) -> ServerResponse:
 
         try:
             resp = page.goto(url, wait_until=wait_until, timeout=timeout)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return ServerResponse.error(500, str(exc), error_type=type(exc).__name__)
 
     nav_status = resp.status if resp else 0
@@ -197,7 +197,7 @@ def handle_browser_screenshot(request: ServerRequest) -> ServerResponse:
     Returns:
         A :class:`ServerResponse` with ``image_base64``, ``width``, and ``height``.
     """
-    import base64  # noqa: PLC0415
+    import base64
 
     body: dict[str, Any] = request.body or {}
     selector: str | None = body.get("selector")
@@ -230,7 +230,7 @@ def handle_browser_screenshot(request: ServerRequest) -> ServerResponse:
                 viewport = page.viewport_size or {}
                 width = viewport.get("width", 0)
                 height = viewport.get("height", 0)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return ServerResponse.error(500, str(exc), error_type=type(exc).__name__)
 
     encoded = base64.b64encode(raw).decode("ascii")
@@ -274,7 +274,7 @@ def handle_browser_content(request: ServerRequest) -> ServerResponse:
             content = page.inner_text("body") if content_type == "text" else page.content()
             url = page.url
             title = page.title()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return ServerResponse.error(500, str(exc), error_type=type(exc).__name__)
 
     return ServerResponse.ok({"content": content, "url": url, "title": title})
@@ -319,7 +319,7 @@ def handle_browser_click(request: ServerRequest) -> ServerResponse:
 
         try:
             page.click(selector, timeout=timeout)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return ServerResponse.error(500, str(exc), error_type=type(exc).__name__)
 
     return ServerResponse.ok({"clicked": True, "selector": selector})
@@ -371,7 +371,7 @@ def handle_browser_type(request: ServerRequest) -> ServerResponse:
             if clear:
                 page.fill(selector, "")
             page.type(selector, text, delay=delay)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return ServerResponse.error(500, str(exc), error_type=type(exc).__name__)
 
     return ServerResponse.ok({"typed": True, "selector": selector, "text": text})
@@ -418,7 +418,7 @@ def handle_browser_evaluate(request: ServerRequest) -> ServerResponse:
             # Set a default navigation timeout that also limits evaluate.
             page.set_default_timeout(timeout)
             result = page.evaluate(script)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return ServerResponse.error(500, str(exc), error_type=type(exc).__name__)
 
     return ServerResponse.ok({"result": result})
@@ -442,7 +442,7 @@ def handle_browser_pdf(request: ServerRequest) -> ServerResponse:
     Returns:
         A :class:`ServerResponse` with ``pdf_base64`` and ``pages``.
     """
-    import base64  # noqa: PLC0415
+    import base64
 
     body: dict[str, Any] = request.body or {}
     page_format: str = str(body.get("format", "A4"))
@@ -456,7 +456,7 @@ def handle_browser_pdf(request: ServerRequest) -> ServerResponse:
 
         try:
             raw = page.pdf(format=page_format, landscape=landscape)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             return ServerResponse.error(500, str(exc), error_type=type(exc).__name__)
 
     encoded = base64.b64encode(raw).decode("ascii")

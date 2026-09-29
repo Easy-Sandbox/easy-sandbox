@@ -1,7 +1,5 @@
 # 配置参考
 
-> **项目更名说明**：本项目已从 Serverless Sandbox 更名为 **Easy Sandbox**。PyPI 包名: `easy-sandbox`（`pip install easy-sandbox`），CLI 命令: `ebx`，Python 导入: `easy_sandbox`。
-
 本文档列出 Easy Sandbox 的所有配置项、环境变量、默认值和优先级规则。
 
 ---
@@ -37,6 +35,7 @@
 | `SANDBOX_HTTP_TIMEOUT` | `http_timeout` | Sandbox | HTTP 超时秒数 |
 | `ALICLOUD_ACCESS_KEY_ID` | `access_key_id` | AK/SK | 阿里云 AK |
 | `ALICLOUD_ACCESS_KEY_SECRET` | `access_key_secret` | AK/SK | 阿里云 SK |
+| `GITHUB_TOKEN` | `github_token` | GitHub | GitHub token（模板下载用；用 `ebx config set github_token` 保存，CI 以 Secret 注入） |
 
 当 `E2B_API_KEY` 和 `SANDBOX_API_KEY` 同时存在时，`E2B_API_KEY` 优先。
 
@@ -124,9 +123,16 @@ ebx config set api_key your-new-key
 ebx config set region cn-beijing
 ebx config set http_timeout 60
 
-# 重置所有配置
-ebx config reset --yes
+# 模板下载用的 GitHub token（省略 VALUE → 星号脱敏提示输入）
+ebx config set github_token
+ebx config set github_token ghp_xxxxxxxxxxxx
+
+# 清除单个已存储的值（回到默认值 / not set）
+ebx config set region ""
+ebx config set github_token ""
 ```
+
+此处设置的 `region` 键是区域相关命令的**持久默认值**。单次调用可通过命令级 `--region`/`-r` 选项覆盖（`ebx list`、`ebx kill --all`、模板控制面命令与 `ebx mcp deploy` 支持）。解析优先级：命令 `--region` > `ebx config set region` / `SANDBOX_REGION` 环境变量 > `cn-hangzhou`。
 
 ### 可通过 ebx config 设置的键
 
@@ -138,9 +144,29 @@ ebx config reset --yes
 | `http_timeout` | HTTP 超时秒数 |
 | `max_retries` | 最大重试次数 |
 | `domain` | 数据平面域名 |
-| `llm_api_key` | LLM API Key（deploy 用） |
+| `llm_api_key` | LLM API Key（deploy 用；亦作为 Qwen Code 凭证的兼容回退） |
 | `llm_model` | LLM 模型名称（deploy 用） |
 | `llm_base_url` | LLM API Base URL（deploy 用） |
+| `qwen_code_api_key` | Qwen Code API Key（AI 模板生成用，存 `~/.ebx/.env`） |
+| `qwen_code_base_url` | Qwen Code OpenAI 兼容 Base URL（默认 DashScope compatible-mode） |
+| `qwen_code_model` | Qwen Code 模型名称（默认 `qwen3-coder-plus`） |
+| `access_key_id` | 阿里云 AccessKey ID（🧪 实验性 AK/SK 认证） |
+| `access_key_secret` | 阿里云 AccessKey Secret（🧪 实验性 AK/SK 认证） |
+| `github_token` | GitHub token（模板下载用，`ebx template install` / `ebx template search`；对应 `GITHUB_TOKEN`，存 `~/.ebx/.env`，脱敏显示） |
+
+### 引导式配置（ebx config init）
+
+```bash
+ebx config init
+```
+
+交互式向导依次提示：平台 API Key（隐藏输入，存为 `E2B_API_KEY`）、默认区域、Qwen Code API Key（隐藏输入，存为 `EBX_QWEN_CODE_API_KEY`）。非 TTY 环境或 `--yes` 下不阻塞，打印等效的 `ebx config set` 命令。
+
+### AK/SK 认证配置（实验性）
+
+`access_key_id` 和 `access_key_secret` 通过 `ebx config set` 设置后，存储在 `~/.ebx/.env` 中（分别对应环境变量 `ALICLOUD_ACCESS_KEY_ID` 和 `ALICLOUD_ACCESS_KEY_SECRET`）。用于 AK/SK → API Key 的 token 交换认证。
+
+> **注意**：此功能为实验性支持，token 交换端点待 FC 平台确认。详见 [认证详解](../guide/authentication.md#aksk-阿里云扩展认证-)。
 
 ---
 
@@ -175,7 +201,7 @@ E2B_API_KEY=your-api-key
 SANDBOX_REGION=cn-beijing
 ```
 
-`ebx config set api_key <KEY>` 命令将 API Key 保存到 `~/.ebx/.env`（文件权限 600）。
+`ebx config set api_key <KEY>` 命令将 API Key 保存到 `~/.ebx/.env`（文件权限 600）。`github_token`（对应 `GITHUB_TOKEN`）等凭证键以同样方式存储。
 
 ---
 
@@ -184,7 +210,7 @@ SANDBOX_REGION=cn-beijing
 | 文件 | 路径 | 说明 |
 |------|------|------|
 | config.toml | `~/.ebx/config.toml` | SDK 扩展配置 |
-| .env | `~/.ebx/.env` | 认证凭证（auth login 写入） |
+| .env | `~/.ebx/.env` | 认证凭证（auth login / `ebx config set` 写入） |
 | .env（本地） | `./.env` | 项目级环境变量 |
 | 会话存储 | `~/.ebx/sessions/*.json` | 本地会话数据 |
 | 模板缓存 | `~/.ebx/templates/` | 已安装的模板 |

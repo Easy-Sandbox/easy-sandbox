@@ -1,14 +1,40 @@
 Usage: cli install [OPTIONS] TEMPLATE_REF
 
-  Install a template (shortcut for 'ebx template install').
+  Install a template from TEMPLATE_REF (shortcut for 'ebx template install').
 
-  Downloads and (by default) builds + deploys a template. Use --download-only to
-  skip the build/deploy step.
+  Downloads and (by default) builds + deploys a template: local docker build,
+  ACR push, and CreateTemplate registration — cloud-side steps that can incur
+  Alibaba Cloud costs. Use --download-only to only fetch it into the local cache
+  (~/.ebx/templates/) without building.
+
+  TEMPLATE_REF formats:
+    <name>                Template name from the official index
+    owner/repo            GitHub repo (default registry)
+    owner/repo@v1.0       Pinned to a tag/branch/commit
+    owner/repo//subdir    A subdirectory within a repo
+    ./path/to/template    Local directory
+
+  Examples:
+    ebx install python-hello --download-only       # install by index name
+    ebx install owner/repo --acr-namespace my-ns  # download + build + deploy
+    ebx install owner/repo --acr-namespace my-ns --region cn-shanghai
+    ebx install owner/repo --download-only         # download only
+    ebx install ./my-template --acr-namespace ns   # local dir + deploy
+
+  Related commands:
+    ebx template search QUERY
+    ebx template list
+    ebx create --template TEMPLATE
 
 Options:
   --registry-url TEXT             Registry URL (default: GitHub)
   --registry-type [github|local]  Registry type (auto-detected if not specified)
-  --token TEXT                    Access token (required for private repos)
+  --token TEXT                    GitHub token for private repos / higher rate
+                                  limits. Prefer 'ebx config set github_token'
+                                  (masked input, stored once in ~/.ebx/.env);
+                                  --token is a temporary override that may leak
+                                  into shell history and the process list (env:
+                                  GITHUB_TOKEN).
   -a, --alias TEXT                Template alias
   --download-only                 Only download to local cache (skip build and
                                   deploy)
@@ -18,5 +44,8 @@ Options:
   --cpu INTEGER                   CPU cores
   --memory INTEGER                Memory in MB
   -y, --yes                       Skip confirmation prompt
-  --help                          Show this message and exit.
+  -r, --region TEXT               Region override for this command (default:
+                                  'ebx config set region' value, else cn-
+                                  hangzhou)
+  -h, --help                      Show this message and exit.
 [exit_code:0]

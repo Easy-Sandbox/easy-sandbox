@@ -1,12 +1,25 @@
 Usage: cli template info [OPTIONS] TEMPLATE_ID
 
-  View template details.
+  Show details for a template ID.
 
-  Pass ``--official-api`` to use the official Alibaba Cloud FCSandbox
-  ``GetTemplate`` API (requires AccessKey/AccessSecret in env).
+  Pass --official-api to use the Alibaba Cloud FCSandbox GetTemplate API; that
+  mode requires configured AccessKey credentials.
+
+  Examples:
+    ebx template info tmpl-abc123
+    ebx template info tmpl-abc123 --official-api
+    ebx template info tmpl-abc123 --region cn-shanghai
+    ebx --json template info tmpl-abc123
+
+  Related commands:
+    ebx template list
+    ebx create --template TEMPLATE_ID
+    ebx template delete TEMPLATE_ID
 
 Options:
-  --official-api  Query the template via the official Alibaba Cloud FCSandbox
-                  API (AK/SK).
-  --help          Show this message and exit.
+  --official-api     Query the template via the official Alibaba Cloud FCSandbox
+                     API (AK/SK).
+  -r, --region TEXT  Region override for this command (default: 'ebx config set
+                     region' value, else cn-hangzhou)
+  -h, --help         Show this message and exit.
 [exit_code:0]

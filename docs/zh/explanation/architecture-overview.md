@@ -1,7 +1,5 @@
 # 架构概览
 
-> **项目更名说明**：本项目已从 Serverless Sandbox 更名为 **Easy Sandbox**。PyPI 包名: `easy-sandbox`（`pip install easy-sandbox`），CLI 命令: `ebx`，Python 导入: `easy_sandbox`。
-
 本文档简述 Easy Sandbox 的整体架构，帮助理解 SDK、CLI、Server 之间的关系。
 
 ---
@@ -44,7 +42,7 @@ graph TB
 
 - **ebx 命令**：基于 Click 的 CLI 工具
 - **LazyGroup**：延迟加载子命令，加速 `--help` 响应
-- **命令组**：auth、config、session、secret、template、mcp、deploy、skill、sandbox
+- **命令组**：config、template、mcp、sandbox（另有顶层快捷命令：create、list、info、kill、exec、connect、upload、download、run、install、init、deploy）
 
 ### Server 层（沙箱内部）
 

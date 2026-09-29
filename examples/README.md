@@ -54,18 +54,15 @@ examples/
 │   ├── modal_compute.py       # Modal-style scientific computing
 │   ├── modal_data_analysis.py # Modal-style data analysis
 │   └── comparison.py          # E2B vs Modal style comparison
-└── templates/                 # Sandbox templates (Dockerfile + template.yaml)
-    ├── python-hello/
-    ├── node-web/
-    ├── browser-automation/
-    ├── claude-code/
-    ├── codex/
-    ├── qoder/
-    ├── qwen-code/
-    ├── deepseek-harness/
-    ├── hermes-agent/
-    └── openclaw/
+└── templates/                 # Offline test fixture (NOT the publishing source)
+    └── python-hello/          # Publishable templates: github.com/Easy-Sandbox/awesome-templates
 ```
+
+> `templates/` keeps only the minimal `python-hello` **fixture** used by offline
+tests.  Official & community templates — content, index (`awesome-templates.yaml`),
+releases and CI — live in the single-source-of-truth repository
+[`Easy-Sandbox/awesome-templates`](https://github.com/Easy-Sandbox/awesome-templates);
+discover and install them with `ebx template search` / `ebx template install <name>`.
 
 ## Example Catalog
 

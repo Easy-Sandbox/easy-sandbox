@@ -1,8 +1,8 @@
 # Authentication
 
-> **Rename notice**: This project has been renamed from Serverless Sandbox to **Easy Sandbox**. PyPI package: `easy-sandbox` (`pip install easy-sandbox`), CLI command: `ebx`, Python import: `easy_sandbox`.
-
 Easy Sandbox supports two authentication modes: **API Key** and **AK/SK (Alibaba Cloud AccessKey)**.
+
+> **Historical note**: the `ebx auth` CLI command group (`login`/`logout`/`status`/`switch`) was removed before the first stable release (`0.1.0`). Credentials are configured with the environment variables and `ebx config set api_key` shown below; check the effective state with `ebx config list`.
 
 ---
 
@@ -11,7 +11,7 @@ Easy Sandbox supports two authentication modes: **API Key** and **AK/SK (Alibaba
 Easy Sandbox provides three authentication paths for different scenarios:
 
 - **API Key mode**: The most common approach. Accesses the platform API via the `Authorization: Bearer {api_key}` header. Suitable for personal development, CI/CD, SDK calls, and most other scenarios.
-- **AK/SK mode (Alibaba Cloud AccessKey)**: Uses an Alibaba Cloud AccessKey pair to obtain a temporary API Key via token exchange. Suitable for Alibaba Cloud ecosystem integration and enterprise environments using RAM role authorization.
+- **AK/SK mode (Alibaba Cloud AccessKey) 🧪 Experimental**: Uses an Alibaba Cloud AccessKey pair to obtain a temporary API Key via token exchange. The framework is implemented but the token exchange endpoint is pending FC platform confirmation; the recommended approach is still API Key mode. Suitable for Alibaba Cloud ecosystem integration and enterprise environments using RAM role authorization.
 - **envd internal authentication**: After sandbox creation, the SDK communicates with the in-sandbox envd service using `envdAccessToken` (obtained from the creation response). This is an internal mechanism managed automatically by the SDK — no manual handling required.
 
 ---
@@ -87,20 +87,33 @@ sandbox = await Sandbox.connect("sbx-xxxx", api_key="your-api-key")
 
 ---
 
-## AK/SK Alibaba Cloud Extended Authentication
+## AK/SK Alibaba Cloud Extended Authentication 🧪
 
-AK/SK mode uses an Alibaba Cloud AccessKey pair to obtain a temporary API Key via token exchange (TTL 3600 seconds, auto-refreshed 300 seconds before expiry).
+> **⚠️ Experimental Feature**: The AK/SK → API Key token exchange framework is implemented in the SDK (`transport/auth.py`), but the token exchange endpoint’s action name (`CreateApiKey`) and response field parsing **are still pending FC platform team confirmation**. TTL (3600s) and early refresh time (300s) are assumed values, not validated against a real endpoint. This feature can be used for local debugging; **API Key authentication is still recommended for production environments**.
+
+AK/SK mode uses an Alibaba Cloud AccessKey pair to obtain a temporary API Key via token exchange (designed TTL 3600 seconds, auto-refreshed 300 seconds before expiry).
 
 ### Configuration Methods
 
-#### Environment Variables
+#### 1. Environment Variables
 
 ```bash
 export ALICLOUD_ACCESS_KEY_ID="your-access-key-id"
 export ALICLOUD_ACCESS_KEY_SECRET="your-access-key-secret"
 ```
 
-#### Code Parameters
+#### 2. ebx config set (persisted to local file)
+
+```bash
+ebx config set access_key_id your-access-key-id
+ebx config set access_key_secret your-access-key-secret
+# Writes to ~/.ebx/.env
+# File permissions: 600 (owner read/write only)
+```
+
+Stored as `ALICLOUD_ACCESS_KEY_ID=...` / `ALICLOUD_ACCESS_KEY_SECRET=...` in `~/.ebx/.env`.
+
+#### 3. Code Parameters
 
 ```python
 sandbox = await Sandbox.create(
@@ -111,10 +124,12 @@ sandbox = await Sandbox.create(
 
 ### How AK/SK Works
 
-1. The SDK uses the AK/SK to call the token exchange endpoint to obtain a temporary API Key
+1. The SDK uses the AK/SK to call the token exchange endpoint at `https://fcsandbox.{region}.aliyuncs.com` via Alibaba Cloud RPC (POP) V1 HMAC-SHA1 signing to obtain a temporary API Key
 2. The temporary key is cached in memory (not persisted to disk)
-3. Valid for 3600 seconds; the SDK auto-refreshes 300 seconds before expiry
+3. Designed validity of 3600 seconds; the SDK auto-refreshes 300 seconds before expiry (actual parameters subject to FC platform final confirmation)
 4. Subsequent requests use the temporary key as a Bearer Token
+
+> **Note**: The above parameters (TTL, endpoint action name, etc.) are based on the ACR token exchange pattern and may be adjusted before production release.
 
 ---
 
@@ -142,12 +157,17 @@ Within the same level, API Key takes precedence over AK/SK:
 # Set API Key
 ebx config set api_key your-api-key
 
+# Set AK/SK (experimental)
+ebx config set access_key_id your-access-key-id
+ebx config set access_key_secret your-access-key-secret
+
 # View current configuration
 ebx config list
-# Output includes the source of api_key (user/default)
+# Output includes the source of api_key / access_key_id etc. (user/default)
 
 # Or view api_key directly
 ebx config get api_key
+ebx config get access_key_id
 ```
 
 ---

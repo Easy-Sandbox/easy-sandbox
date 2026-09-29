@@ -41,7 +41,7 @@ ACR_NAMESPACE=your-acr-namespace
 
 ## 替代起点：从 registry 安装现成模板
 
-如果不打算从零编写模板，可以直接用 `ebx install`（`ebx template install` 的别名）从 GitHub 仓库安装现成模板（如 [awesome-templates](https://github.com/Easy-Sandbox/awesome-templates) 中的示例）。
+如果不打算从零编写模板，可以直接用 `ebx install`（`ebx template install` 的别名）从 GitHub 仓库安装现成模板。官方与社区模板的真源是 [awesome-templates](https://github.com/Easy-Sandbox/awesome-templates)——先用 `ebx template search <query>` 在远程索引中发现模板，再用 `ebx template install <name>` 按名安装（也支持完整的 `owner/repo[//subdir][@ref]` 引用）。
 
 > **`install` 现在默认运行完整流水线。** `ebx install <ref> --acr-namespace <ns>` 会在一条命令内完成**下载 → 构建镜像 → 推送 ACR → 通过官方 CreateTemplate API 部署**。若只想把源码下载到本地缓存（`~/.ebx/templates/`）而不构建、不部署，加上 `--download-only`，然后再执行 `ebx template build` / `ebx template deploy`。
 
@@ -68,7 +68,7 @@ owner/repo//subdir@v1.0   # 子目录 + 指定 tag/branch/commit sha
 ./my-template             # 本地目录
 ```
 
-子目录用双斜杠 `//` 分隔，版本引用用 `@` 后缀（tag、分支或 commit sha 均可，通过 GitHub tarball API 拉取，无需仓库发布 Release）。私有仓库需加 `--token <github-token>`。
+子目录用双斜杠 `//` 分隔，版本引用用 `@` 后缀（tag、分支或 commit sha 均可，通过 GitHub tarball API 拉取，无需仓库发布 Release）。私有仓库与更高限流额度：推荐 `ebx config set github_token`（星号脱敏输入，一次性保存到 `~/.ebx/.env`），而非单次 `--token <github-token>` 覆盖（可能泄漏到 shell history 或进程列表）。
 
 ### 仅下载：先检查源码
 
@@ -197,7 +197,7 @@ ebx install Easy-Sandbox/awesome-templates//python-hello --acr-namespace my-ns
 
 ### 脚手架生成新模板（推荐）
 
-最快的起步方式是内置脚手架。`ebx init`（`ebx template init` 的别名）会生成一个开箱即用的模板目录，你不再需要凭记忆手写 `template.yaml` / `Dockerfile` / `commands.py`。
+最快的起步方式是内置脚手架。`ebx template init` 会生成一个开箱即用的模板目录，你不再需要凭记忆手写 `template.yaml` / `Dockerfile` / `commands.py`。
 
 省略 `DIRECTORY` 参数时，脚手架会在当前工作目录下新建 `./<name>` 子目录。`<name>` 按优先级解析：`--name` > 脚手架案例名（`-t` 的值） > `--from` 拉取到的模板名。
 
@@ -226,21 +226,7 @@ Next steps:
   ebx install ./my-template --acr-namespace <ns>
 ```
 
-顶层快捷方式 `ebx init` 接受相同的选项，DIRECTORY 自动创建行为也一致：
-
-```text
-Usage: ebx init [OPTIONS] [DIRECTORY]
-
-  Scaffold a new template (shortcut for 'ebx template init').
-
-Options:
-  -t, --template TEXT  Built-in scaffold case (python, node, minimal)
-  --from TEXT          Fetch template source from a registry ref
-  --name TEXT          Template name
-  --list               List available scaffold cases
-  --force              Overwrite existing files
-  --help               Show this message and exit.
-```
+> 脚手架与凭证配置是两条独立命令：`ebx template init`（本节）只写本地文件，`ebx config init` 存储凭证，`ebx create` 启动云端沙箱。顶层 `ebx init` 快捷方式与 `ebx template init` 委托到完全相同的命令。
 
 ### 理解生成的文件
 
@@ -342,7 +328,7 @@ custom_commands:
         description: "测试路径"
 ```
 
-更复杂的模板（含 `commands.py` 服务端命令注册）参见 [node-web 示例](../../../examples/templates/node-web/)。
+更复杂的模板（含 `commands.py` 服务端命令注册）参见 [node-web 示例](https://github.com/Easy-Sandbox/awesome-templates/tree/main/node-web)（模板真源仓库）。
 
 ---
 
@@ -461,7 +447,7 @@ CLI 参数 > `template.yaml` 中的声明 > 硬编码默认值。详见 [CLI 参
 
 ### CLI 工作流（真实运行记录）
 
-> **关于以下输出**：均为 **2026-09-28 在 cn-hangzhou 区域真实执行** `ebx` 命令捕获，未做任何虚构。为聚焦关键结果，每条命令在 stderr 上的 capability 回退 WARNING（`base` 无本地缓存 `template.yaml` 时的预期行为）与重复时间戳日志已省略。沙箱 ID `sbx-93276a52-1559-466a-8de9-19d5af644283` 为本次真实创建生成，格式为 `sbx-<UUID>`；下文命令中的 `<SANDBOX_ID>` 请替换为你自己的 ID。
+> **关于以下输出**：均为 **2026-09-28 在 cn-hangzhou 区域真实执行** `ebx` 命令捕获，未做任何虚构。为聚焦关键结果，每条命令在 stderr 上**仅打印一次**的 capability 回退 WARNING（`base` 无本地缓存 `template.yaml` 时的预期行为）已省略。任务 167 起该警告是诊断通道上的单行 `WARNING:`，结果只走 stdout、不再与之混排，原先重复的时间戳日志行已消失。沙箱 ID `sbx-93276a52-1559-466a-8de9-19d5af644283` 为本次真实创建生成，格式为 `sbx-<UUID>`；下文命令中的 `<SANDBOX_ID>` 请替换为你自己的 ID。
 
 **① 创建沙箱**
 
@@ -765,4 +751,4 @@ ebx template delete <template-id>
 - [认证配置](authentication.md) — API Key / AK-SK 双认证模式
 - [环境变量](environment-variables.md) — 沙箱环境变量注入与作用域
 - [SDK 使用指南](sdk-usage.md) — Python SDK 完整用法
-- [示例模板集合](../../../examples/templates/) — 可直接使用的模板示例
+- [模板真源 awesome-templates](https://github.com/Easy-Sandbox/awesome-templates) — 官方与社区模板内容、索引与发布的唯一真源（`ebx template search` / `ebx template install`）

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 # Deploy all 10 templates one by one via CLI deploy
+# Templates live in the SSOT repo Easy-Sandbox/awesome-templates; this repo only
+# keeps the python-hello offline fixture.  Non-fixture templates are fetched into
+# the local cache first via `ebx template install <name> --download-only`.
 # Usage: bash scripts/deploy_all_templates.sh
 set -euo pipefail
 
@@ -8,6 +11,7 @@ CLI="$PYTHON -m easy_sandbox.cli.main"
 REGION="cn-hangzhou"
 ACR_NS="serverless-sandbox-test"
 TAG="e2e-20260922"
+CATALOG_CACHE="$HOME/.ebx/templates/Easy-Sandbox/awesome-templates/default"
 
 # Template name -> cpu memory
 declare -A TEMPLATES
@@ -35,11 +39,21 @@ for name in "${ORDER[@]}"; do
   echo "========================================="
   echo "Deploying: $name (cpu=$cpu, memory=$mem)"
   echo "========================================="
-  
+
+  # python-hello ships in this repo as an offline fixture; everything else is
+  # pulled from the catalog repo (single source of truth) into the cache.
+  if [[ -d "examples/templates/$name" ]]; then
+    SRC="examples/templates/$name"
+  else
+    echo "Fetching $name from Easy-Sandbox/awesome-templates..."
+    $CLI --region "$REGION" template install "$name" --download-only
+    SRC="$CATALOG_CACHE/$name"
+  fi
+
   START_TIME=$(date +%s)
   
   $CLI --region "$REGION" template deploy \
-    "examples/templates/$name" \
+    "$SRC" \
     --acr-namespace "$ACR_NS" \
     --acr-repo "$name" \
     --tag "$TAG" \

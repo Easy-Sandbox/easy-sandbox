@@ -20,7 +20,7 @@ from unittest import mock
 import pytest
 
 # Import the browser routes so they register on the default table.
-import easy_sandbox.server.routes_browser as routes_browser_mod  # noqa: F401
+import easy_sandbox.server.routes_browser as routes_browser_mod
 from easy_sandbox.server.app import SandboxRequestHandler
 from easy_sandbox.server.registry import CommandRegistry
 from easy_sandbox.server.router import CapabilityGroup, default_table

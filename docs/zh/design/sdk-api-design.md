@@ -755,7 +755,15 @@ await pool.shutdown()
 
 ## FC Extensions
 
+> **计划中 — 尚未实现。** `easy_sandbox.extensions` 包目前仅包含数据模型
+> （`VPCConfig`、`OSSMount`、`DomainConfig`），尚无任何消费者：VPC 接入、
+> OSS 挂载与自定义域名绑定均为路线图规划。当前 `Sandbox.create()` **不**接受
+> `vpc=`、`mounts=` 参数，也不接受 `extensions.DomainConfig` 作为 `domain=`。
+> 本节示例均为设计草图，**不可运行**。
+
 ### VPC 网络配置
+
+> **计划中 — 尚未实现。** 仅为设计草图，当前不可运行。
 
 ```python
 from easy_sandbox import Sandbox
@@ -775,6 +783,8 @@ result = await sb.commands.run("curl http://10.0.1.100:3306")
 ```
 
 ### OSS 挂载
+
+> **计划中 — 尚未实现。** 仅为设计草图，当前不可运行。
 
 ```python
 from easy_sandbox.extensions import OSSMount
@@ -806,6 +816,8 @@ df.to_csv('/output/result.csv')        # 写入 OSS
 ```
 
 ### 自定义域名
+
+> **计划中 — 尚未实现。** 仅为设计草图，当前不可运行。
 
 ```python
 from easy_sandbox.extensions import DomainConfig

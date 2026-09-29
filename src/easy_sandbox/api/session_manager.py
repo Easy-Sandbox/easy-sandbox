@@ -136,7 +136,7 @@ class SessionManager:
             try:
                 await Sandbox.kill_by_id(session.sandbox_id)
                 logger.info("Sandbox %s killed for session %r", session.sandbox_id, name)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.warning(
                     "Failed to kill sandbox %s for session %r",
                     session.sandbox_id,

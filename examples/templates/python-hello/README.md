@@ -1,5 +1,10 @@
 # Python Hello 模板
 
+> **Fixture**：本目录是主仓库的**离线测试夹具**（`tests/test_templates/` 使用），
+> 不是发布真源。模板内容、索引与发布以
+> [`Easy-Sandbox/awesome-templates`](https://github.com/Easy-Sandbox/awesome-templates/tree/main/python-hello)
+> 为准。
+
 基础 Python 开发环境模板。
 
 ## 安装

@@ -37,6 +37,7 @@ cli = [
     "click>=8.0",
     "rich>=13.0",
     "pyyaml>=6.0",
+    "questionary>=2.0",
 ]
 mcp = [
     "mcp>=1.0.0",
@@ -91,6 +92,7 @@ include = [
     "src/easy_sandbox/",
     "tests/",
     "README.md",
+    "SKILL.md",
     "LICENSE",
     "NOTICE",
     "CHANGELOG.md",

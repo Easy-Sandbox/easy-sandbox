@@ -1,5 +1,9 @@
 {
   "api_key": null,
+  "access_key_id": null,
+  "access_key_secret": null,
+  "qwen_code_api_key": null,
+  "github_token": null,
   "api_url": "https://api.cn-hangzhou.e2b.fc.aliyuncs.com",
   "domain": "cn-hangzhou.e2b.fc.aliyuncs.com",
   "http2": true,
@@ -8,6 +12,8 @@
   "llm_base_url": null,
   "llm_model": null,
   "max_retries": 3,
+  "qwen_code_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "qwen_code_model": "qwen3-coder-plus",
   "region": "cn-hangzhou"
 }
 [exit_code:0]

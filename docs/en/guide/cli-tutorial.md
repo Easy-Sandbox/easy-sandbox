@@ -1,7 +1,5 @@
 # CLI Tutorial
 
-> **Rename notice**: This project has been renamed from Serverless Sandbox to **Easy Sandbox**. PyPI package: `easy-sandbox` (`pip install easy-sandbox`), CLI command: `ebx`, Python import: `easy_sandbox`.
-
 This tutorial walks you through mastering the `ebx` CLI step by step, covering the complete sandbox lifecycle, template usage, and MCP integration.
 
 ---
@@ -40,6 +38,14 @@ export E2B_API_KEY="your-api-key"
 
 ## Step 3: Create a Sandbox
 
+### Quick Orientation: `config init` vs `template init` vs `create`
+
+| I want to... | Command |
+|--------------|---------|
+| Store credentials / endpoints (run first) | `ebx config init` — guided interactive wizard |
+| Create a cloud sandbox (default, existing template, or AI-generated) | `ebx create [DESCRIPTION]` |
+| Scaffold an editable local template project | `ebx template init [DIRECTORY]` — writes files only, no build or deploy |
+
 ### Using the Default Template
 
 ```bash
@@ -48,11 +54,36 @@ ebx create --template base
 # ✓ Sandbox created: sbx-xxxx
 ```
 
-### Natural Language Creation
+### Natural Language Creation (AI-generated templates)
 
 ```bash
+# First run: guided setup for platform credentials and Qwen Code
+# ebx config init
+
+# Qwen Code generates Dockerfile + template.yaml → build & deploy → create sandbox
 ebx create "a Python data analysis environment"
-# The SDK infers the best template and configuration via LLM
+```
+
+Before generating, the agent first researches the publicly verifiable facts itself — whether the tool is Node.js-based, its official install method, common runtimes and dependencies — then assesses the description for completeness (target: 80%). Only user preferences, private constraints, and business decisions it cannot infer become questions, asked **one at a time** and numbered `Question 1`, `Question 2`, … with no total shown; press Enter to cancel:
+
+```text
+Description is about 40% complete. I'll ask for the missing details one question at a time — press Enter to cancel.
+Question 1: Which region and resource size should the sandbox use?
+```
+
+Answers like "you decide" / "use the default" delegate the choice back to the agent (safe defaults apply), and already-answered topics are never asked again.
+
+Non-interactive environments (CI, piped input) must pass `-y` to skip confirmations and the clarification assessment; otherwise the install/credential/build steps fail fast with a Quick Setup guide, and a description below the completeness threshold fails fast with `E2008` (missing details + a ready-to-use example description):
+
+```bash
+# ebx create -y "a node.js api server"
+# ebx create "run python"    # non-interactive, incomplete → E2008
+```
+
+An explicit `--template` skips AI generation and takes the direct template path (`ebx create --template <name>`). `DESCRIPTION` and `--template` are mutually exclusive — passing both is rejected with a usage error instead of silently ignoring one of them:
+
+```bash
+# ebx create "a node.js api server" --template base   # rejected (exit code 1)
 ```
 
 ### Upload Files on Creation
@@ -94,8 +125,22 @@ ebx exec sbx-xxxx "pip install flask" --timeout 120
 
 ```bash
 ebx connect sbx-xxxx
-# Enters interactive mode; type commands and press Enter to execute
-# Type exit, quit, or Ctrl+D to leave
+```
+
+This is a line-based REPL, not a PTY or an SSH session: each line runs in its own
+process with a 30-second timeout, so `cd`, environment variables and shell state
+do not persist between lines (use `cd /path && <cmd>` on one line, or
+`ebx exec --cwd`). Interactive terminals get basic line editing and history
+(Up/Down, Ctrl+R, Ctrl+A/E). Type `exit`, `quit`, or `Ctrl+D` to leave; `Ctrl+C`
+also disconnects. Failed commands are reported as a single friendly message.
+
+```text
+ebx:sbx-xxxx> ls /app
+main.py  data/
+ebx:sbx-xxxx> cd /app && python main.py
+Hello from main.py
+ebx:sbx-xxxx> exit
+Disconnected.
 ```
 
 ---
@@ -202,6 +247,32 @@ ebx install owner/repo
 ebx create --template my-template
 ```
 
+### Scaffold a Template Locally
+
+```bash
+# Create ./python/ from the built-in 'python' case
+ebx template init -t python
+
+# Or scaffold into an explicit directory
+ebx template init -t python ./my-template
+```
+
+`ebx init` is a top-level shortcut that delegates to the exact same command as `ebx template init` (guided credentials setup remains `ebx config init`).
+
+#### Interactive case selection
+
+- **TTY**: running `ebx init` / `ebx template init` without `-t` shows an arrow-key (Up/Down) selector over the built-in cases; `Enter` confirms, `Ctrl+C` aborts without writing anything.
+- **Non-TTY / CI / `--json`**: the selector never blocks — the command fails fast with the list of valid cases (use `-t python|node|minimal` or `--list`), keeping scripts deterministic.
+
+#### Advanced usage: top-level shortcuts vs your own commands
+
+- Built-in top-level shortcuts (`create`, `list`, `init`, `install`, `deploy`, `run`, …) are registered by **project maintainers** in the `lazy_subcommands` map of `src/easy_sandbox/cli/main.py`. It is an internal registration point, not a user extension mechanism.
+- To add your own commands, declare `custom_commands` in the template's `template.yaml` or register them on a SandboxServer (`@registry.command`), then invoke them with `ebx run <SANDBOX_ID> <COMMAND_NAME>`.
+- The `config.toml [shortcuts]` section from the early CLI design draft was **never implemented** — do not expect user-declared aliases in `~/.ebx/config.toml` to work.
+- Unknown top-level commands get targeted hints: `ebx crate` → `Did you mean 'create'?`; with no close match the error points to `custom_commands` + `ebx run`.
+
+See the [CLI design doc](../design/cli-design.md) for the full boundary description.
+
 ### One-Click Deploy Custom Templates
 
 ```bash
@@ -224,11 +295,15 @@ ebx config get api_key
 ebx config set region cn-beijing
 ebx config set http_timeout 60
 
-# Reset
-ebx config reset --yes
+# Clear one stored value (returns to default / not set)
+ebx config set region ""
 ```
 
-Available configuration keys: `api_key`, `api_url`, `region`, `http_timeout`, `max_retries`, `domain`, `llm_api_key`, `llm_model`, `llm_base_url`.
+Available configuration keys: `api_key`, `api_url`, `region`, `http_timeout`, `max_retries`, `domain`, `llm_api_key`, `llm_model`, `llm_base_url`, `qwen_code_api_key`, `qwen_code_base_url`, `qwen_code_model`, `github_token`, `access_key_id`, `access_key_secret`.
+
+> **Tip:** hit a GitHub anonymous rate limit while using `ebx template search` / `ebx install`? Run `ebx config set github_token` in an interactive terminal (masked input, stored in `~/.ebx/.env`), or inject `GITHUB_TOKEN` as a CI secret. See [Authentication](authentication.md) and the CLI reference for the `--token` precedence notes.
+>
+> **Local pre-CI check:** run `make ci` before pushing — it mirrors the GitHub Actions pipeline (ruff check + format check, mypy, non-integration tests, package build, `twine check`, `py.typed` in wheel) on a single local interpreter.
 
 ---
 
@@ -277,7 +352,7 @@ The `ebx` command supports the following global options, which can be used befor
 | `--no-color` | Disable colored output |
 | `--ci` | CI/CD mode (equivalent to `--quiet --no-color --json`) |
 
-For a detailed list of global options (including `--verbose`, `--log-level`, `--timeout`, `--region`, etc.), see [CLI Reference — Global Options](../reference/cli-reference.md#global-options).
+For a detailed list of global options (including `--verbose`, `--log-level`, `--timeout`, etc.), see [CLI Reference — Global Options](../reference/cli-reference.md#global-options). Note that `--region`/`-r` is a command-level option (accepted by `ebx list`, `ebx kill`, the template control-plane commands, and `ebx mcp deploy`), not a global one; set the persistent default via `ebx config set region`.
 
 ---
 

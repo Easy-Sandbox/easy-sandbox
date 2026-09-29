@@ -23,7 +23,7 @@ from easy_sandbox.cli.main import cli
 from easy_sandbox.transport.config import reset_config
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from scripts.evidence_cases import REGISTRY, EvidenceCase, format_result, normalize  # noqa: E402
+from scripts.evidence_cases import REGISTRY, EvidenceCase, format_result, normalize
 
 GOLDEN_DIR = Path(__file__).parent / "golden"
 UPDATE = os.environ.get("EBX_UPDATE_EVIDENCE", "") == "1"
@@ -79,7 +79,10 @@ def test_evidence_snapshot(case: EvidenceCase) -> None:
     else:
         result = runner.invoke(cli, cmd)
 
-    raw = format_result(result.output or "", _safe_stderr(result), result.exit_code)
+    # ``result.stdout`` (pure stdout): on Click >= 8.2 ``result.output``
+    # interleaves stdout+stderr and would duplicate diagnostics in the golden
+    # stdout section, hiding the channel split the evidence must prove.
+    raw = format_result(result.stdout or "", _safe_stderr(result), result.exit_code)
     actual = normalize(raw)
 
     golden_path = GOLDEN_DIR / f"{case.output_file}.txt"

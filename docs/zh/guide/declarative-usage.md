@@ -1,7 +1,5 @@
 # 声明式用法（@sandbox 装饰器）
 
-> **项目更名说明**：本项目已从 Serverless Sandbox 更名为 **Easy Sandbox**。PyPI 包名: `easy-sandbox`（`pip install easy-sandbox`），CLI 命令: `ebx`，Python 导入: `easy_sandbox`。
-
 `@sandbox` 装饰器让你以声明式方式在远程沙箱中执行 Python 函数，无需手动管理沙箱生命周期。
 
 ---

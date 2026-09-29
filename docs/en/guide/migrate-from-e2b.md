@@ -1,7 +1,5 @@
 # Migrating from E2B
 
-> **Rename notice**: This project has been renamed from Serverless Sandbox to **Easy Sandbox**. PyPI package: `easy-sandbox` (`pip install easy-sandbox`), CLI command: `ebx`, Python import: `easy_sandbox`.
-
 Easy Sandbox is designed to maintain a high degree of API compatibility with the E2B Python SDK. This document provides a migration guide.
 
 ---

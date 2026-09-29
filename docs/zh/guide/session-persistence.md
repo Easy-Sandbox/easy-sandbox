@@ -1,7 +1,5 @@
 # 会话持久化
 
-> **项目更名说明**：本项目已从 Serverless Sandbox 更名为 **Easy Sandbox**。PyPI 包名: `easy-sandbox`（`pip install easy-sandbox`），CLI 命令: `ebx`，Python 导入: `easy_sandbox`。
-
 会话（Session）将沙箱与一个人类可读名称关联，方便在不同终端或时间点反复连接同一个沙箱。
 
 ---

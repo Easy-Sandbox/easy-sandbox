@@ -1,7 +1,21 @@
 Usage: cli config list [OPTIONS]
 
-  List all configuration values.
+  List all effective configuration values and their sources.
+
+  Sources: ``(env)`` a process environment variable, ``(user)`` a value stored
+  with ``ebx config set``, ``(default)`` a built-in default, and ``(not set)``
+  when no value exists anywhere. Sensitive values are always masked.
+
+  Examples:
+    ebx config list
+    ebx --json config list
+    ebx config get http_timeout
+
+  Related commands:
+    ebx config get KEY        Inspect one effective value
+    ebx config set KEY VALUE
+    ebx config set KEY ""     Clear one stored value
 
 Options:
-  --help  Show this message and exit.
+  -h, --help  Show this message and exit.
 [exit_code:0]

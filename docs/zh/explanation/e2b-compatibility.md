@@ -1,7 +1,5 @@
 # E2B 兼容性
 
-> **项目更名说明**：本项目已从 Serverless Sandbox 更名为 **Easy Sandbox**。PyPI 包名: `easy-sandbox`（`pip install easy-sandbox`），CLI 命令: `ebx`，Python 导入: `easy_sandbox`。
-
 本文档说明 Easy Sandbox 对 E2B Python SDK 的兼容策略、兼容了什么、未兼容什么，以及背后的设计原因。
 
 ---
@@ -119,7 +117,6 @@ Easy Sandbox 在 E2B 兼容基础上增加了以下功能：
 | 会话管理 | 命名会话持久化 |
 | NL 部署 | 自然语言驱动的项目部署 |
 | 密钥管理 | 环境变量和 `.env` 文件安全存储 |
-| Skill 系统 | 待稳定后重新开放 CLI 入口 |
 
 ---
 

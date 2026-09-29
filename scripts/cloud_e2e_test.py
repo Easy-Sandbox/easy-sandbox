@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import os
 import shutil
 import subprocess
 import sys
@@ -56,7 +57,13 @@ from easy_sandbox.transport.http import HttpClient
 # ---------------------------------------------------------------------------
 # 常量
 # ---------------------------------------------------------------------------
-TEMPLATES_DIR = PROJECT_ROOT / "examples" / "templates"
+# 模板真源：Easy-Sandbox/awesome-templates（本仓库只保留 python-hello 离线夹具）。
+# 解析顺序：EBX_CATALOG_DIR 环境变量（本地 clone）→ examples/templates/ 夹具
+# → `ebx template install <name> --download-only` 后的本地缓存。
+FIXTURE_TEMPLATES_DIR = PROJECT_ROOT / "examples" / "templates"
+CATALOG_CACHE_DIR = (
+    Path.home() / ".ebx" / "templates" / "Easy-Sandbox" / "awesome-templates" / "default"
+)
 EBX_TEMPLATES_CACHE = Path.home() / ".ebx" / "templates"
 
 CUSTOM_TEMPLATES = [
@@ -123,8 +130,22 @@ def _log(tag: str, msg: str) -> None:
     print(f"  [{tag:22s}] {msg}")
 
 
+def _template_dir(name: str) -> Path:
+    """Locate a template folder across the fixture / catalog-cache locations."""
+    candidates: list[Path] = []
+    catalog_dir = os.environ.get("EBX_CATALOG_DIR")
+    if catalog_dir:
+        candidates.append(Path(catalog_dir) / name)
+    candidates.append(FIXTURE_TEMPLATES_DIR / name)
+    candidates.append(CATALOG_CACHE_DIR / name)
+    for candidate in candidates:
+        if candidate.is_dir():
+            return candidate
+    return candidates[-1]
+
+
 def _load_template_yaml(name: str) -> SandboxTemplate | None:
-    yaml_path = TEMPLATES_DIR / name / "template.yaml"
+    yaml_path = _template_dir(name) / "template.yaml"
     if not yaml_path.exists():
         return None
     try:
@@ -143,7 +164,7 @@ def _load_template_yaml(name: str) -> SandboxTemplate | None:
 def _install_templates_to_cache() -> None:
     """同步模板到 ~/.ebx/templates/ 以便 resolve_capabilities 发现自定义命令。"""
     for name in CUSTOM_TEMPLATES:
-        src = TEMPLATES_DIR / name
+        src = _template_dir(name)
         dst = EBX_TEMPLATES_CACHE / name
         if not src.exists():
             continue
@@ -500,7 +521,7 @@ def _test_cli(template_name: str, template_id: str) -> TemplateTestResult:
 async def test_part2_custom_templates(
     existing_map: dict[str, str],
 ) -> list[TemplateTestResult]:
-    """并行构建并测试 examples/templates/ 下的所有自定义模板。"""
+    """并行构建并测试自定义模板（夹具 + 真源仓库缓存，见 _template_dir）。"""
     print()
     print("=" * 94)
     print("  Part 2: 自定义模板构建 — 验证 CLI + SDK envd + Sandbox Server 能力")

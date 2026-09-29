@@ -1,7 +1,5 @@
 # template.yaml Specification
 
-> **Renaming Notice**: This project has been renamed from Serverless Sandbox to **Easy Sandbox**. PyPI package: `easy-sandbox` (`pip install easy-sandbox`), CLI command: `ebx`, Python import: `easy_sandbox`.
-
 This document precisely defines all fields of the `template.yaml` file (from the user's perspective).
 
 ---
@@ -33,19 +31,6 @@ After installation, it resides at `~/.ebx/templates/<template-name>/template.yam
 | `author` | `str` | ❌ | `""` | Author |
 | `license` | `str` | ❌ | `""` | License identifier (e.g., `"MIT"`) |
 | `tags` | `list[str]` | ❌ | `[]` | Classification tags |
-
-### Build Configuration
-
-| Field | Type | Required | Default | Description |
-|-------|------|----------|---------|-------------|
-| `base` | `str` | ❌ | `"ubuntu:22.04"` | Base Docker image |
-| `system_packages` | `list[str]` | ❌ | `[]` | System packages installed via `apt-get install` |
-| `python_packages` | `list[str]` | ❌ | `[]` | Python packages installed via `pip install` |
-| `node_packages` | `list[str]` | ❌ | `[]` | Node.js packages installed via `npm install -g` |
-| `commands` | `list[str]` | ❌ | `[]` | Shell commands executed sequentially during build (each generates a `RUN` instruction) |
-| `copy_files` | `dict[str, str]` | ❌ | `{}` | File copy mappings; keys are source paths, values are destination paths (generates `COPY` instructions) |
-
-> When a `Dockerfile` exists in the template directory, the `Dockerfile` takes priority over the above build fields.
 
 ### Runtime Configuration
 
@@ -130,27 +115,9 @@ tags:
   - web
   - flask
 
-base: python:3.11-slim
-
-system_packages:
-  - curl
-  - git
-  - postgresql-client
-
-python_packages:
-  - flask>=3.0
-  - sqlalchemy>=2.0
-  - gunicorn
-
-commands:
-  - "mkdir -p /app"
-
 env:
   PYTHONUNBUFFERED: "1"
   FLASK_ENV: "development"
-
-copy_files:
-  ./requirements.txt: /app/requirements.txt
 
 ports:
   - 5000
@@ -202,14 +169,6 @@ custom_commands:
 
 ---
 
-## Dockerfile Conversion
+## Build Notes
 
-Build fields in `template.yaml` generate Dockerfile instructions in the following order:
-
-1. `base` → `FROM {base}`
-2. `system_packages` → `RUN apt-get update && apt-get install -y {pkgs} && rm -rf /var/lib/apt/lists/*`
-3. `python_packages` → `RUN pip install --no-cache-dir {pkgs}`
-4. `node_packages` → `RUN npm install -g {pkgs}`
-5. `commands` → `RUN {cmd}` for each command
-6. `env` → `ENV {key}={value}` for each variable
-7. `copy_files` → `COPY {src} {dst}` for each mapping
+`template.yaml` only defines runtime configuration (capabilities, commands, environment variables, resources). Image building is entirely handled by the `Dockerfile` in the template directory, using language-native dependency files (`requirements.txt` / `package.json`) for dependency management.

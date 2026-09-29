@@ -2,6 +2,10 @@ Usage: cli template build [OPTIONS] TEMPLATE_DIR
 
   Build Docker image locally, push to ACR, and create a sandbox template.
 
+  Full pipeline with cloud side effects: the local docker build is local-only,
+  but the ACR push and the remote template registration can incur Alibaba Cloud
+  costs (ACR storage/traffic, template resources).
+
   Supports two modes:
 
   --official-api (default):
@@ -12,7 +16,10 @@ Usage: cli template build [OPTIONS] TEMPLATE_DIR
     local docker build → ACR push → legacy v3/v2 platform API.
     Use --legacy-api to keep the old behaviour.
 
-  Requires Docker daemon running and ACR credentials.
+  Requires Docker daemon running and ACR credentials. In automation/CI, pass
+  --acr-namespace and TEMPLATE_DIR explicitly instead of relying on
+  ACR_NAMESPACE / EBX_TEMPLATE_DIR environment variables or .env files, so the
+  build cannot drift with the surrounding environment.
 
   Examples:
     ebx template build ./examples/templates/python-hello \
@@ -23,6 +30,12 @@ Usage: cli template build [OPTIONS] TEMPLATE_DIR
       --acr-namespace prod --disk-size 10240 --internet-access
     ebx template build ./my-template \
       --acr-namespace prod --legacy-api
+    ebx template build ./my-template --acr-namespace prod --region cn-shanghai
+
+  Related commands:
+    ebx template init DIRECTORY    Scaffold template source files
+    ebx template push IMAGE        Push an existing local image only
+    ebx create --template ID       Launch the completed template
 
 Options:
   --acr-registry TEXT             ACR registry host
@@ -66,5 +79,8 @@ Options:
                                   derived with random suffix if omitted)
   -y, --yes                       Skip confirmation prompt
   -v, --verbose                   Verbose output (DEBUG level)
-  --help                          Show this message and exit.
+  -r, --region TEXT               Region override for this command (default:
+                                  'ebx config set region' value, else cn-
+                                  hangzhou)
+  -h, --help                      Show this message and exit.
 [exit_code:0]

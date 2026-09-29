@@ -86,6 +86,6 @@ class LocalSessionStore:
             try:
                 raw = fp.read_text(encoding="utf-8")
                 sessions.append(SessionInfo.model_validate_json(raw))
-            except Exception:  # noqa: BLE001
+            except Exception:
                 continue
         return sessions

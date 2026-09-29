@@ -217,7 +217,7 @@ GitHub 会自动把 `ref` 解析为 tag/branch/sha，无需区分。公开仓库
 my-template/
 ├── template.yaml     # 模板规范配置（必须，详见第 4 章）
 ├── Dockerfile            # 镜像定义（可选，template.yaml 中可指定 base）
-├── SKILL.md              # Agent 使用说明（可选）
+├── AGENTS.md             # 面向外部 Agent 工具的说明文件（可选；由所使用的 Agent 工具自行消费，不属于 Easy Sandbox 能力）
 ├── scripts/
 │   ├── setup.sh          # 初始化脚本（可选）
 │   └── healthcheck.sh    # 健康检查（可选）
@@ -238,15 +238,23 @@ ebx create alicloud/sandbox-templates/browser-automation  # 官方 Tier 2
 ebx create browser-automation      # 自动解析为官方模板
 ```
 
-### 2.6 GitHub Token 配置（私有仓库）
+### 2.6 GitHub Token 配置（私有仓库与限流）
+
+GitHub 匿名请求限流为 **60 次/小时**；携带 token 认证后提升至 **5000 次/小时**。建议一次性保存 token，而不是在每条命令上重复传递 —— 显式 `--token` 仅作为临时覆盖存在，且可能泄漏到 shell history 或进程列表中。
 
 ```bash
-# 配置 GitHub Token 以访问私有模板仓库
-ebx config set github_token ghp_xxxxxxxxxxxx
+# 推荐：交互式、星号脱敏输入，保存到 ~/.ebx/.env（权限 600）
+ebx config set github_token            # 终端下可省略 VALUE
+ebx config set github_token ghp_xxxxxxxxxxxx   # 也可显式传入
+ebx config set github_token ""         # 清除已保存的 token
 
-# 或通过环境变量
-export SANDBOX_GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+# 进程环境变量（CI 场景：请以 Secret 注入）
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
 ```
+
+优先级：`--token` > 进程环境变量 `GITHUB_TOKEN` > 持久化的 `github_token` > 无 token。token 不会被打印、记录日志或回显；`ebx config get github_token` / `ebx config list` 均脱敏显示（`ghp***xxx`）。
+
+`ebx template search` / `ebx template install` 遇到匿名限流（E5000）时，CLI 会展示经官方文档核验的 fine-grained PAT 预填 URL（公共仓库无需额外权限，建议 90 天有效期）；仅在交互终端下询问是否配置，星号（脱敏）粘贴保存后 **只自动重试一次**。拒绝配置或重试仍失败时，返回原始错误。非交互 / CI 场景则提示通过 Secret 注入 `GITHUB_TOKEN` 或在交互终端执行 `ebx config set github_token`；CLI 不会自动读取 `gh auth token`，不会自动打开浏览器，也不会在任何地方记录 token。
 
 ### 2.7 本地缓存管理
 
@@ -390,7 +398,7 @@ workdir: /app
 将模板推送到 GitHub，供其他用户通过 `owner/repo[//subdir][@ref]` 格式引用（无需发布 Release）：
 
 ```bash
-# 1. 初始化模板项目（生成 template.yaml, Dockerfile, SKILL.md 等脚手架）
+# 1. 初始化模板项目（生成 template.yaml, Dockerfile 等脚手架）
 ebx template init my-template
 
 # 2. 本地开发和测试
@@ -511,11 +519,6 @@ custom_commands:
         required: false                  # 是否必填（缺省 false）
         description: "监听端口"
 
-# === Skills 绑定 ===
-skills:
-  bundled: ["jupyter", "pandas-stack"] # 内置绑定的 Skills
-  recommended: ["matplotlib-extra"]    # 推荐的可选 Skills
-
 # === Agent 提示 ===
 agent:
   description: "适用于数据分析、CSV 处理、统计计算、图表生成场景"
@@ -581,8 +584,6 @@ healthcheck:
 | | `<name>.env` | | 附加环境变量（默认空） |
 | | `<name>.timeout` | | 超时秒数（默认 60） |
 | | `<name>.args` | | 参数列表，每项 `{name, default, required, description}` |
-| **skills** | `bundled` | | 内置绑定的 Skills 列表，随模板自动加载 |
-| | `recommended` | | 推荐的可选 Skills 列表 |
 | **agent** | `description` | | 面向 AI Agent 的场景描述 |
 | | `triggers` | | 触发关键词列表，用于自然语言模板匹配 |
 | | `instructions` | | Agent 使用指南，描述如何在此沙箱中工作 |
@@ -598,10 +599,9 @@ healthcheck:
 1. **`base` 双模式**：`image` 直接指定 Docker 镜像，`from` 继承另一个模板（支持 GitHub owner/repo 引用），形成模板继承链
 2. **`agent` 字段是 AI-Friendly 的关键**：让 AI Agent 通过 `triggers` 和 `description` 理解模板适用场景，通过 `instructions` 获取使用指南
 3. **`resources` 默认值语义**：模板声明的是推荐默认值，用户创建沙箱时可通过 SDK 参数或 CLI 选项覆盖
-4. **`skills.bundled` + `skills.recommended`**：让模板和 Skills 系统联动 — `bundled` 随模板自动加载，`recommended` 仅作推荐提示
-5. **`readiness_probe`**：支持 `tcp`（端口探测）和 `exec`（命令执行）两种就绪检测方式，确保沙箱真正可用后才返回
-6. **`capabilities` 能力模型**：命令能力由模板声明，不再假设所有沙箱都具备 shell/upload/download。标准能力词汇表为 `shell` / `files` / `code` / `terminal` / `ports`（可扩展）。系统默认基线为单一常量 `DEFAULT_CAPABILITIES = {shell, files, code}`；模板可显式声明子集或加入 `terminal`/`ports`，省略 `capabilities` 时继承默认基线。**仅 `code` 能力在运行时强制执行（fail-closed）**：`CodeContextModule` 方法在 `code` 不在有效能力集时抛出 `CapabilityNotSupportedError`（E3004）。其他模块（`commands`、`files`、`network`）直接转发请求，无运行时门控——能力对这些模块仅用于发现和文档。详见 ADR `2026-09-03-capability-model.md`
-7. **`custom_commands` 自定义命令**：模板可声明命名命令，用户参数经 `shlex.quote()` 转义后填充 `{占位符}` 防注入；通过 CLI `ebx run` 与 SDK `sandbox.custom("name", **kwargs)` 分发。详见 ADR `2026-09-03-custom-commands-schema.md`
+4. **`readiness_probe`**：支持 `tcp`（端口探测）和 `exec`（命令执行）两种就绪检测方式，确保沙箱真正可用后才返回
+5. **`capabilities` 能力模型**：命令能力由模板声明，不再假设所有沙箱都具备 shell/upload/download。标准能力词汇表为 `shell` / `files` / `code` / `terminal` / `ports`（可扩展）。系统默认基线为单一常量 `DEFAULT_CAPABILITIES = {shell, files, code}`；模板可显式声明子集或加入 `terminal`/`ports`，省略 `capabilities` 时继承默认基线。**仅 `code` 能力在运行时强制执行（fail-closed）**：`CodeContextModule` 方法在 `code` 不在有效能力集时抛出 `CapabilityNotSupportedError`（E3004）。其他模块（`commands`、`files`、`network`）直接转发请求，无运行时门控——能力对这些模块仅用于发现和文档。详见 ADR `2026-09-03-capability-model.md`
+6. **`custom_commands` 自定义命令**：模板可声明命名命令，用户参数经 `shlex.quote()` 转义后填充 `{占位符}` 防注入；通过 CLI `ebx run` 与 SDK `sandbox.custom("name", **kwargs)` 分发。详见 ADR `2026-09-03-custom-commands-schema.md`
 
 ### 示例：基于 GitHub 模板的扩展
 
@@ -635,10 +635,6 @@ resources:
   cpu: 4
   memory: 8192
   gpu: A10
-
-skills:
-  bundled: ["pytorch", "transformers"]
-  recommended: ["huggingface-hub"]
 
 agent:
   description: "适用于 PyTorch 模型训练、Transformers 微调、ML 实验"
@@ -750,7 +746,8 @@ ebx template cache clean                     # 清理所有缓存
 ebx template cache clean hello/world         # 清理指定模板缓存
 
 # ── 配置管理 ──────────────────────────────
-ebx config set github_token ghp_xxxxxxxxxxxx # 配置 GitHub Token（私有仓库）
+ebx config set github_token            # GitHub token：星号脱敏输入，保存到 ~/.ebx/.env（私有仓库 + 限流）
+ebx config set github_token ""         # 清除已保存的 token
 ```
 
 ### 模板安全

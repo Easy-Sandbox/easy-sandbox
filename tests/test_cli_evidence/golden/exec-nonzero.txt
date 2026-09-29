@@ -1,4 +1,3 @@
-command not found
 [exit_code:127]
 [stderr]
 command not found

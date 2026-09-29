@@ -1,7 +1,5 @@
 # API Reference
 
-> **Renaming Notice**: This project has been renamed from Serverless Sandbox to **Easy Sandbox**. PyPI package: `easy-sandbox` (`pip install easy-sandbox`), CLI command: `ebx`, Python import: `easy_sandbox`.
-
 This document lists all public API signatures, parameters, return values, and exceptions of the Easy Sandbox Python SDK.
 
 ---
@@ -139,7 +137,7 @@ async def deploy(
     description: str,
     *,
     max_wall_time: str = "10m",
-    max_tool_calls: int = 100,
+    max_session_turns: int = 100,
     llm_api_key: str | None = None,
     openai_base_url: str | None = None,
     openai_model: str | None = None,

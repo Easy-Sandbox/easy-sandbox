@@ -45,6 +45,18 @@ pip install "easy-sandbox[all]"
 pip install -e ".[dev]"
 ```
 
+## 配合 AI 编码工具使用
+
+仓库内置静态 Agent Skills 指南（[`SKILL.md`](SKILL.md)），教 Qoder、Claude Code、Cursor、Qwen Code、Codex 等工具如何操作 Easy Sandbox——**可先于（或无需）`ebx` CLI 安装**：
+
+```bash
+# 快捷方式（需 Node.js）；把 qoder 换成 claude-code / cursor / qwen-code / codex，
+# 加 -g 安装到用户级，加 --list 仅预览
+npx skills add Easy-Sandbox/easy-sandbox --skill easy-sandbox -a qoder -y
+```
+
+没有 Node.js？把 `SKILL.md` 复制到你的工具技能目录（例如 `~/.qoder/skills/easy-sandbox/SKILL.md`）。完整工具目录矩阵、版本锁定、升级、卸载与安全提示见 [Agent Skill 安装与分发](docs/zh/guide/agent-skill-installation.md)（[English](docs/en/guide/agent-skill-installation.md)）。
+
 ## 快速开始
 
 ```python
@@ -149,22 +161,23 @@ ebx kill <sandbox-id>
 
 ## 模板
 
-预置沙箱模板位于 [`examples/templates/`](examples/templates/)：
+官方与社区模板统一维护在
+[`Easy-Sandbox/awesome-templates`](https://github.com/Easy-Sandbox/awesome-templates)
+仓库——模板内容、索引与发布的唯一真源。通过远程索引发现与安装：
 
-| 模板 | 说明 |
-|------|------|
-| `python-hello` | 最小 Python 沙箱 |
-| `node-web` | Node.js Web 应用 |
-| `browser-automation` | 基于 Playwright 的无头浏览器 |
-| `claude-code` | Claude Code Agent Harness |
-| `codex` | OpenAI Codex Agent Harness |
-| `qoder` | Qoder Agent Harness |
-| `qwen-code` | Qwen-Code Agent Harness |
-| `deepseek-harness` | DeepSeek Agent Harness |
-| `hermes-agent` | Hermes Agent Harness |
-| `openclaw` | OpenClaw Agent Harness |
+```bash
+# 通过远程索引发现模板
+$ ebx template search web
+Name      Description       Tags           Status
+node-web  Node.js web app   nodejs, web    official
 
-每个模板目录包含 `Dockerfile`、`template.yaml` 和 `README.md`。
+$ ebx template install node-web                                        # 按索引名安装
+$ ebx template install Easy-Sandbox/awesome-templates//node-web@v1.0.0 # 或锁定版本
+```
+
+[`examples/templates/`](examples/templates/) 仅保留一个最小的 `python-hello`
+**测试夹具（fixture）**用于离线测试，并非模板发布真源。夹具契约与索引行为
+（缓存、离线回退、锁定版本）详见 [examples/templates/README.md](examples/templates/README.md)。
 
 ## 架构
 
@@ -233,7 +246,6 @@ graph TB
 | 贡献指南 | [CONTRIBUTING.md](.github/CONTRIBUTING.md) |
 | 许可证 | [Apache-2.0](LICENSE) |
 | 示例代码 | [examples/](examples/) |
-| 路线图 | [路线图](docs/zh/roadmap.md) |
 
 ## 贡献
 

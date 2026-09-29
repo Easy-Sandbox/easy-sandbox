@@ -1,6 +1,8 @@
 #!/bin/bash
 # Deploy remaining templates using stepped approach to avoid OOM
 # Each step is a separate process
+# Templates live in the SSOT repo Easy-Sandbox/awesome-templates (this repo keeps
+# only the python-hello fixture); they are fetched into the cache on demand.
 set -euo pipefail
 
 WORKDIR="/Users/anycodes/Documents/Qoder/2026-09-01/chat-1"
@@ -10,13 +12,29 @@ ACR_NS="serverless-sandbox-test"
 ACR_REGISTRY="registry.cn-hangzhou.aliyuncs.com"
 WHEEL="$WORKDIR/dist/easy_sandbox-0.1.0.dev0-py3-none-any.whl"
 REGION="cn-hangzhou"
+CATALOG_CACHE="$HOME/.ebx/templates/Easy-Sandbox/awesome-templates/default"
+
+resolve_template_dir() {
+    local name="$1"
+    if [ -d "$WORKDIR/examples/templates/$name" ]; then
+        echo "$WORKDIR/examples/templates/$name"
+        return
+    fi
+    if [ ! -d "$CATALOG_CACHE/$name" ]; then
+        echo "Fetching $name from Easy-Sandbox/awesome-templates..." >&2
+        $PYTHON -m easy_sandbox.cli.main --region "$REGION" \
+            template install "$name" --download-only >&2
+    fi
+    echo "$CATALOG_CACHE/$name"
+}
 
 deploy_template() {
     local name="$1"
     local cpu="$2"
     local mem="$3"
     local alias="${4:-$name}"
-    local tdir="$WORKDIR/examples/templates/$name"
+    local tdir
+    tdir="$(resolve_template_dir "$name")"
     local acr_ref="$ACR_REGISTRY/$ACR_NS/$name:$TAG"
 
     echo ""

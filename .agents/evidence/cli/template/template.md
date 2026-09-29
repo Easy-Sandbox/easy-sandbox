@@ -34,3 +34,32 @@ $ ebx template install base
 Use it directly: ebx create --template base
 Exit code: 0
 ```
+
+### template search（匿名限流：统一引导）
+
+```
+$ ebx template search qwen
+Exit code: 1
+```
+
+**stderr:**
+
+```
+[E5000] GitHub API rate limit exceeded while fetching the template index (anonymous requests are limited to 60/hour). No cached copy of the template index is available (https://raw.githubusercontent.com/Easy-Sandbox/awesome-templates/main/awesome-templates.yaml).
+  Suggestion: Authenticate to raise the limit to 5000/hour: run 'ebx config set github_token' in an interactive terminal (masked input; stored in ~/.ebx/.env and reused automatically). Create a fine-grained token here - public repositories need no extra permissions and a 90-day expiry is recommended: https://github.com/settings/personal-access-tokens/new?name=ebx-template-token&description=Read-only+access+for+ebx+template+installs&expires_in=90&contents=read In CI / non-interactive sessions, inject GITHUB_TOKEN as a secret instead. The explicit '--token <value>' flag also works but may leak into shell history and process listings. Alternatively wait for the window to reset, or point at a mirror via --index-url / EBX_TEMPLATE_INDEX_URL.
+```
+
+### template install owner/repo//subdir@ref（匿名限流）
+
+```
+$ ebx template install Easy-Sandbox/awesome-templates//codex-agent-api@v1.0
+Fetching template from Easy-Sandbox/awesome-templates...
+Exit code: 1
+```
+
+**stderr:**
+
+```
+[E5000] GitHub API rate limit exceeded while fetching Easy-Sandbox/awesome-templates//codex-agent-api@v1.0 (anonymous requests are limited to 60/hour).
+  Suggestion: Authenticate to raise the limit to 5000/hour: run 'ebx config set github_token' in an interactive terminal (masked input; stored in ~/.ebx/.env and reused automatically). Create a fine-grained token here - public repositories need no extra permissions and a 90-day expiry is recommended: https://github.com/settings/personal-access-tokens/new?name=ebx-template-token&description=Read-only+access+for+ebx+template+installs&expires_in=90&contents=read In CI / non-interactive sessions, inject GITHUB_TOKEN as a secret instead. The explicit '--token <value>' flag also works but may leak into shell history and process listings.
+```

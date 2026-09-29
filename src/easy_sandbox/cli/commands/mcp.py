@@ -15,6 +15,7 @@ import click
 
 from easy_sandbox.cli.formatters import get_formatter
 from easy_sandbox.cli.main import handle_errors
+from easy_sandbox.cli.region import region_option, resolve_region
 
 # ---------------------------------------------------------------------------
 # IDE config paths
@@ -99,7 +100,23 @@ def _build_mcp_server_config() -> dict[str, Any]:
 
 @click.group()
 def mcp() -> None:
-    """MCP Server management — IDE integration."""
+    """Configure and run Easy Sandbox as an MCP server.
+
+    Use local STDIO transport for IDE integrations, or generate a Streamable
+    HTTP deployment artifact for manual deployment to Alibaba Cloud FC.
+
+    \b
+    Examples:
+      ebx mcp install --target cursor
+      ebx mcp start --template base
+      ebx mcp deploy --generate-token --output-dir ./mcp-artifact
+
+    \b
+    Related commands:
+      ebx config set api_key VALUE  Configure sandbox authentication
+      ebx mcp status                Inspect local MCP configuration
+      ebx mcp deploy                Generate an FC deployment artifact
+    """
 
 
 @mcp.command()
@@ -114,8 +131,20 @@ def mcp() -> None:
 def install(ctx: click.Context, target: str) -> None:
     """Install MCP Server configuration to a target IDE.
 
-    Generates the correct MCP config and writes it to the IDE's
-    configuration file.
+    Generates the correct MCP config and merges it into the selected IDE's
+    configuration file. Supported targets are cursor, claude, and vscode.
+
+    \b
+    Examples:
+      ebx mcp install --target cursor
+      ebx mcp install --target claude
+      ebx mcp install --target vscode
+
+    \b
+    Related commands:
+      ebx mcp status  Verify installed IDE configurations
+      ebx mcp start   Run the configured STDIO server
+      ebx config get api_key
     """
     fmt = get_formatter(ctx)
 
@@ -173,7 +202,11 @@ def install(ctx: click.Context, target: str) -> None:
 
 
 @mcp.command()
-@click.option("--template", default="code-interpreter-v1", help="Default sandbox template.")
+@click.option(
+    "--template",
+    default="code-interpreter-v1",
+    help="Default sandbox template ID or alias (default: code-interpreter-v1).",
+)
 @click.option("--api-key", default=None, envvar="E2B_API_KEY", help="API key override.")
 @click.option("--api-url", default=None, envvar="E2B_API_URL", help="API URL override.")
 @click.option("--domain", default=None, envvar="E2B_DOMAIN", help="Domain override.")
@@ -186,8 +219,21 @@ def start(
 ) -> None:
     """Start MCP Server in STDIO mode.
 
-    This is typically called by the IDE, not manually.
-    The server reads JSON-RPC messages from stdin and writes responses to stdout.
+    This is typically called by the IDE, not manually. The server reads
+    JSON-RPC messages from stdin and writes responses to stdout.
+
+    \b
+    Examples:
+      ebx mcp start
+      ebx mcp start --template base
+      ebx mcp start --template python-hello \
+        --api-url https://api.cn-hangzhou.e2b.fc.aliyuncs.com
+
+    \b
+    Related commands:
+      ebx mcp install --target cursor  Register the STDIO command in an IDE
+      ebx mcp status                   Check authentication and IDE setup
+      ebx config set api_key VALUE     Persist the API key
     """
     from easy_sandbox.agent.mcp import SandboxMCPServer
 
@@ -208,7 +254,19 @@ def start(
 @click.pass_context
 @handle_errors
 def status(ctx: click.Context) -> None:
-    """Show MCP Server status and configuration."""
+    """Show MCP tools, authentication state, and IDE installation status.
+
+    \b
+    Examples:
+      ebx mcp status
+      ebx --json mcp status
+
+    \b
+    Related commands:
+      ebx mcp install --target cursor
+      ebx mcp start
+      ebx config get api_key
+    """
     fmt = get_formatter(ctx)
 
     api_key = _read_api_key()
@@ -280,7 +338,7 @@ def _read_token_file(path: str) -> str:
 
 @mcp.command()
 @click.option("--name", default="easy-sandbox-mcp", help="FC function name for the artifact.")
-@click.option("--region", default="cn-hangzhou", help="FC region.")
+@region_option
 @click.option(
     "--template",
     default="base",
@@ -327,7 +385,7 @@ def _read_token_file(path: str) -> str:
 def deploy(
     ctx: click.Context,
     name: str,
-    region: str,
+    region: str | None,
     template: str,
     memory: int,
     fc_timeout: int,
@@ -343,16 +401,32 @@ def deploy(
     Creates a Streamable HTTP ASGI application artifact and prints manual
     FC deployment steps. Automatic FC API deployment is not implemented.
 
+    The artifact contains ``requirements.txt``, ``app.py`` (ASGI entry
+    point), and ``config.yaml`` (a YAML deployment manifest with FC function
+    settings and environment variables).
+
+    ``--region`` overrides the FC region for this invocation; without it the
+    region comes from ``ebx config set region`` / the ``SANDBOX_REGION``
+    environment variable and defaults to ``cn-hangzhou``.
+
     POST and DELETE /mcp are implemented. GET /mcp currently returns 501;
     SSE server notifications are planned for Phase 2.
 
     \b
-    Example:
+    Examples:
       ebx mcp deploy --generate-token --api-key $E2B_API_KEY
       ebx mcp deploy --auth-token-file ./token.txt --region cn-shanghai
       ebx mcp deploy --output-dir ./deploy-artifact
+
+    \b
+    Related commands:
+      ebx mcp start                 Run the local STDIO server
+      ebx mcp status                Inspect MCP authentication state
+      ebx config set api_key VALUE  Configure sandbox authentication
     """
     fmt = get_formatter(ctx)
+
+    region = resolve_region(region)
 
     # --- Resolve auth token ---
     auth_token: str | None = None
@@ -405,7 +479,7 @@ def deploy(
     # app.py — ASGI entry point
     (artifact_dir / "app.py").write_text(_DEPLOY_APP_PY)
 
-    # config.yaml — provider-neutral deployment manifest, not an FC API payload
+    # config.yaml — provider-neutral YAML deployment manifest, not an FC API payload
     env_vars: dict[str, str] = {}
     if api_key:
         env_vars["E2B_API_KEY"] = api_key
@@ -433,8 +507,10 @@ def deploy(
     if custom_domain:
         fc_config["custom_domain"] = custom_domain
 
+    import yaml  # provided by the cli extra, same as cli/commands/template.py
+
     (artifact_dir / "config.yaml").write_text(
-        json.dumps(fc_config, indent=2, ensure_ascii=False) + "\n"
+        yaml.safe_dump(fc_config, default_flow_style=False, sort_keys=False, allow_unicode=True)
     )
 
     fmt.print_success(f"FC deployment artifact written to {artifact_dir}")

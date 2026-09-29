@@ -1,9 +1,25 @@
 Usage: cli kill [OPTIONS] [SANDBOX_ID]
 
-  Kill (destroy) a sandbox or all sandboxes.
+  Permanently destroy one sandbox or all running sandboxes.
+
+  Confirmation is required unless --yes is supplied. Use --yes for scripts and
+  other non-interactive environments.
+
+  Examples:
+    ebx kill abc123
+    ebx kill abc123 --yes
+    ebx kill --all --yes
+    ebx kill --all --yes --region cn-shanghai
+
+  Related commands:
+    ebx list              Find running sandbox IDs
+    ebx info SANDBOX_ID   Verify a sandbox before deletion
+    ebx create            Create a replacement sandbox
 
 Options:
-  --all      Kill all running sandboxes
-  -y, --yes  Skip confirmation
-  --help     Show this message and exit.
+  --all              Kill all running sandboxes
+  -y, --yes          Skip confirmation
+  -r, --region TEXT  Region override for this command (default: 'ebx config set
+                     region' value, else cn-hangzhou)
+  -h, --help         Show this message and exit.
 [exit_code:0]

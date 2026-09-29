@@ -1,7 +1,5 @@
 # Deploy and Build
 
-> **Rename notice**: This project has been renamed from Serverless Sandbox to **Easy Sandbox**. PyPI package: `easy-sandbox` (`pip install easy-sandbox`), CLI command: `ebx`, Python import: `easy_sandbox`.
-
 Easy Sandbox provides two build and deployment mechanisms: **NL (Natural Language) Deploy** and **Image Chained Build**.
 
 ---
@@ -36,7 +34,7 @@ sandbox = await Sandbox.deploy(
     project_path="./my-flask-app",
     description="Deploy this Flask app on port 8080",
     max_wall_time="10m",         # Max agent runtime (default 10m)
-    max_tool_calls=100,          # Max agent tool calls
+    max_session_turns=100,       # Max qwen-code session turns (default 100)
     timeout=900,                 # Sandbox timeout in seconds (default 900)
     cpu=2,                       # CPU cores (default 2)
     memory=4096,                 # Memory in MB (default 4096)

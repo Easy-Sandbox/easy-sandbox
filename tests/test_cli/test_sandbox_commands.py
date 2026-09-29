@@ -78,7 +78,9 @@ class TestCreate:
         mock_sb = _make_sandbox()
 
         with patch("easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb):
-            result = runner.invoke(cli, ["create", "-e", "FOO=bar", "-e", "BAZ=qux"])
+            result = runner.invoke(
+                cli, ["create", "--template", "base", "-e", "FOO=bar", "-e", "BAZ=qux"]
+            )
 
         assert result.exit_code == 0
         assert "sbx-cli-test-001" in result.output
@@ -96,7 +98,9 @@ class TestCreate:
         mock_sb = _make_sandbox()
 
         with patch("easy_sandbox.utils.async_bridge.run_sync", return_value=mock_sb):
-            result = runner.invoke(cli, ["create", "-m", "owner=test", "-m", "env=dev"])
+            result = runner.invoke(
+                cli, ["create", "--template", "base", "-m", "owner=test", "-m", "env=dev"]
+            )
 
         assert result.exit_code == 0
 
@@ -488,7 +492,7 @@ class TestErrorHandling:
             "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=AuthenticationError("bad key"),
         ):
-            result = runner.invoke(cli, ["create"])
+            result = runner.invoke(cli, ["create", "--template", "base"])
 
         assert result.exit_code == 3
 
@@ -499,7 +503,7 @@ class TestErrorHandling:
             "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=TemplateNotFoundError("no such template"),
         ):
-            result = runner.invoke(cli, ["create"])
+            result = runner.invoke(cli, ["create", "--template", "base"])
 
         assert result.exit_code == 4
 
@@ -525,7 +529,7 @@ class TestErrorHandling:
             "easy_sandbox.utils.async_bridge.run_sync",
             side_effect=QuotaExceededError("quota exceeded"),
         ):
-            result = runner.invoke(cli, ["create"])
+            result = runner.invoke(cli, ["create", "--template", "base"])
 
         assert result.exit_code == 6
 

@@ -1,11 +1,5 @@
 # Easy Sandbox SDK — 文档中心
 
-> **更名注记**：本项目已从 Serverless Sandbox 完成全量改名为 **Easy Sandbox**。
-> - **PyPI 包名**：`easy-sandbox`（`pip install easy-sandbox`）
-> - **Python 导入名**：`easy_sandbox`
-> - **CLI 命令**：`ebx`
-> - **GitHub 仓库名**：`easy-sandbox`
-
 Easy Sandbox 是基于阿里云函数计算的云端沙箱 SDK，提供 E2B 兼容 API、Modal 风格装饰器和内置 AI Agent 三种使用范式。
 
 ---
@@ -18,12 +12,11 @@ Easy Sandbox 是基于阿里云函数计算的云端沙箱 SDK，提供 E2B 兼�
 | 2 | [SDK API 设计](design/sdk-api-design.md) | **核心文档** — 三种使用范式、自然语言创建、完整 API 定义 |
 | 3 | [CLI 命令体系](design/cli-design.md) | 命令树、自然语言创建、项目直接部署、AI Friendly 原则 |
 | 4 | [沙箱类型体系](design/sandbox-types.md) | 临时/持久/休眠三种模式、生命周期状态机、计费模型 |
-| 5 | [Skills 系统](design/skills-system.md) | Skill 定义、分类体系、CLI 命令、分发机制 |
-| 6 | [MCP Server](design/mcp-server.md) | Tools 定义（P0/P1/P2）、会话绑定、传输方式、IDE 配置 |
-| 7 | [模板体系](design/template-system.md) | 官方模板、自定义模板、sandbox.yaml 规范、模板市场 |
-| 8 | [内置 Agent](design/built-in-agents.md) | 配置推断 Agent、5 种内置 Agent、自定义 Agent、Agent Chain |
-| 9 | [Server API](design/server-api.md) | 容器内 HTTP Server 端点定义、42 端点、8 个能力组 |
-| 10 | [模板目录](design/templates-catalog.md) | 官方模板集合形态契约、发布流程、离线校验 |
+| 5 | [MCP Server](design/mcp-server.md) | 7 个 P0 工具定义、会话绑定、STDIO 与 Streamable HTTP 传输、IDE 配置 |
+| 6 | [模板体系](design/template-system.md) | 官方模板、自定义模板、sandbox.yaml 规范、模板市场 |
+| 7 | [内置 Agent](design/built-in-agents.md) | Agent 模块（`commands.run()` 语法糖）与按 Agent 划分的专用模板（BYO） |
+| 8 | [Server API](design/server-api.md) | 容器内 HTTP Server 端点定义、42 端点、8 个能力组 |
+| 9 | [模板目录](design/templates-catalog.md) | 官方模板集合形态契约、发布流程、离线校验 |
 
 ## 用户文档
 
@@ -45,6 +38,8 @@ Easy Sandbox 是基于阿里云函数计算的云端沙箱 SDK，提供 E2B 兼�
 | [环境变量](guide/environment-variables.md) | 沙箱环境变量作用域、注入方式与直接执行语义 |
 | [故障排查](guide/troubleshooting.md) | 常见问题与解决方案 |
 | [端到端模板工作流](guide/e2e-template-workflow.md) | 从零构建模板到沙箱使用完整指南 |
+| [Agent Skill 安装与分发](guide/agent-skill-installation.md) | 把静态 SKILL.md 指南安装到 Qoder / Claude Code / Cursor / Qwen Code / Codex |
+| [自带 Agent（BYO）集成](guide/byo-agent-integration.md) | 在沙箱内运行自带 Agent CLI：职责边界、custom_commands 契约、凭证白名单、版本锁定与许可边界 |
 
 ### [`reference/`](reference/) — CLI / API / 配置参考
 
@@ -69,7 +64,6 @@ Easy Sandbox 是基于阿里云函数计算的云端沙箱 SDK，提供 E2B 兼�
 | 文档 | 说明 |
 |------|------|
 | [完整设计文档](DESIGN.md) | 所有设计决策汇总 |
-| [项目路线图](roadmap.md) | Phase 1-4 交付计划与里程碑 |
 
 ---
 
@@ -78,9 +72,9 @@ Easy Sandbox 是基于阿里云函数计算的云端沙箱 SDK，提供 E2B 兼�
 ### 按角色
 
 - **SDK 用户**：[SDK API 设计](design/sdk-api-design.md) → [沙箱类型](design/sandbox-types.md) → [模板体系](design/template-system.md)
-- **CLI 用户**：[CLI 命令体系](design/cli-design.md) → [模板体系](design/template-system.md) → [Skills 系统](design/skills-system.md)
-- **AI Agent 开发者**：[内置 Agent](design/built-in-agents.md) → [MCP Server](design/mcp-server.md) → [Skills 系统](design/skills-system.md)
-- **架构师**：[系统架构](design/architecture.md) → [Server API](design/server-api.md) → [项目路线图](roadmap.md)
+- **CLI 用户**：[CLI 命令体系](design/cli-design.md) → [模板体系](design/template-system.md) → [MCP 集成](guide/mcp-integration.md)
+- **AI Agent 开发者**：[内置 Agent](design/built-in-agents.md) → [自带 Agent（BYO）集成](guide/byo-agent-integration.md) → [MCP Server](design/mcp-server.md)
+- **架构师**：[系统架构](design/architecture.md) → [Server API](design/server-api.md)
 
 ### 按功能
 
@@ -90,5 +84,5 @@ Easy Sandbox 是基于阿里云函数计算的云端沙箱 SDK，提供 E2B 兼�
 
 ### 其他资源
 
-- **社区模板索引**：[`awesome-templates.yaml`](../../awesome-templates.yaml) — 官方与社区贡献的沙箱模板统一索引
+- **模板真源（awesome-templates）**：[Easy-Sandbox/awesome-templates](https://github.com/Easy-Sandbox/awesome-templates) — 官方与社区模板内容、索引（`awesome-templates.yaml`）与发布的唯一真源，通过 `ebx template search` / `ebx template install` 使用
 - **English Documentation**：[English docs](../en/README.md)

@@ -1,13 +1,26 @@
 Usage: cli mcp [OPTIONS] COMMAND [ARGS]...
 
-  MCP Server management — IDE integration.
+  Configure and run Easy Sandbox as an MCP server.
+
+  Use local STDIO transport for IDE integrations, or generate a Streamable HTTP
+  deployment artifact for manual deployment to Alibaba Cloud FC.
+
+  Examples:
+    ebx mcp install --target cursor
+    ebx mcp start --template base
+    ebx mcp deploy --generate-token --output-dir ./mcp-artifact
+
+  Related commands:
+    ebx config set api_key VALUE  Configure sandbox authentication
+    ebx mcp status                Inspect local MCP configuration
+    ebx mcp deploy                Generate an FC deployment artifact
 
 Options:
-  --help  Show this message and exit.
+  -h, --help  Show this message and exit.
 
 Commands:
   deploy   Generate an Alibaba Cloud FC deployment artifact.
   install  Install MCP Server configuration to a target IDE.
   start    Start MCP Server in STDIO mode.
-  status   Show MCP Server status and configuration.
+  status   Show MCP tools, authentication state, and IDE installation status.
 [exit_code:0]

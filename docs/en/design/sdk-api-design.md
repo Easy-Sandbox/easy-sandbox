@@ -757,7 +757,17 @@ await pool.shutdown()
 
 ## FC Extensions
 
+> **Planned — Not Yet Implemented.** The `easy_sandbox.extensions` package
+> currently ships only data models (`VPCConfig`, `OSSMount`, `DomainConfig`)
+> with no consumers yet: VPC attachment, OSS mounting, and custom domain
+> binding are roadmap items. `Sandbox.create()` does **not** accept `vpc=`,
+> `mounts=`, or an `extensions.DomainConfig` object for `domain=` today.
+> The examples in this section are design sketches and are **not runnable**.
+
 ### VPC Network Configuration
+
+> **Planned — Not Yet Implemented.** Design sketch only; this example cannot
+> run against the current SDK.
 
 ```python
 from easy_sandbox import Sandbox
@@ -777,6 +787,9 @@ result = await sb.commands.run("curl http://10.0.1.100:3306")
 ```
 
 ### OSS Mounting
+
+> **Planned — Not Yet Implemented.** Design sketch only; this example cannot
+> run against the current SDK.
 
 ```python
 from easy_sandbox.extensions import OSSMount
@@ -808,6 +821,9 @@ df.to_csv('/output/result.csv')        # Write to OSS
 ```
 
 ### Custom Domain
+
+> **Planned — Not Yet Implemented.** Design sketch only; this example cannot
+> run against the current SDK.
 
 ```python
 from easy_sandbox.extensions import DomainConfig

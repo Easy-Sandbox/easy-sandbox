@@ -45,6 +45,18 @@ pip install "easy-sandbox[all]"
 pip install -e ".[dev]"
 ```
 
+## Using with AI coding tools
+
+The repository ships a static Agent Skills guide ([`SKILL.md`](SKILL.md)) that teaches Qoder, Claude Code, Cursor, Qwen Code, and Codex how to operate Easy Sandbox. Install it **before (or without) the `ebx` CLI**:
+
+```bash
+# Fast path (requires Node.js); swap qoder for claude-code / cursor / qwen-code / codex,
+# add -g for user-level scope, --list to preview
+npx skills add Easy-Sandbox/easy-sandbox --skill easy-sandbox -a qoder -y
+```
+
+No Node.js? Copy `SKILL.md` into your tool's skills directory (for example `~/.qoder/skills/easy-sandbox/SKILL.md`). Full tool matrix, version pinning, upgrades, uninstall, and security notes: [Agent Skill Installation & Distribution](docs/en/guide/agent-skill-installation.md) ([中文](docs/zh/guide/agent-skill-installation.md)).
+
 ## Quick Start
 
 ```python
@@ -121,7 +133,7 @@ ebx create --template python-base       # create a sandbox
 ebx list                                 # list running sandboxes
 ebx info <sandbox-id>                    # inspect a sandbox
 ebx exec <sandbox-id> "echo hello"       # run a shell command
-ebx connect <sandbox-id>                 # interactive shell
+ebx connect <sandbox-id>                 # line-based command REPL
 
 # File transfer
 ebx upload <sandbox-id> ./local.txt /remote/path.txt
@@ -149,22 +161,25 @@ ebx kill <sandbox-id>
 
 ## Templates
 
-Ready-made sandbox templates in [`examples/templates/`](examples/templates/):
+Official and community templates live in the
+[`Easy-Sandbox/awesome-templates`](https://github.com/Easy-Sandbox/awesome-templates)
+repository — the single source of truth for template content, the index, and
+publishing. Discover and install them through the remote index:
 
-| Template | Description |
-|----------|-------------|
-| `python-hello` | Minimal Python sandbox |
-| `node-web` | Node.js web application |
-| `browser-automation` | Headless browser with Playwright |
-| `claude-code` | Claude Code agent harness |
-| `codex` | OpenAI Codex agent harness |
-| `qoder` | Qoder agent harness |
-| `qwen-code` | Qwen-Code agent harness |
-| `deepseek-harness` | DeepSeek agent harness |
-| `hermes-agent` | Hermes agent harness |
-| `openclaw` | OpenClaw agent harness |
+```bash
+# Discover templates through the remote index
+$ ebx template search web
+Name      Description       Tags           Status
+node-web  Node.js web app   nodejs, web    official
 
-See each template's `Dockerfile`, `template.yaml`, and `README.md` for details.
+$ ebx template install node-web                                        # install by index name
+$ ebx template install Easy-Sandbox/awesome-templates//node-web@v1.0.0 # or pin a ref
+```
+
+[`examples/templates/`](examples/templates/) only keeps a minimal
+`python-hello` **fixture** for offline tests — it is not a publishing source.
+See [examples/templates/README.md](examples/templates/README.md) for the
+fixture contract and index behaviour (caching, offline fallback, pinned refs).
 
 ## Architecture
 
@@ -233,7 +248,6 @@ Lower layers never import upper layers. Full design: [`docs/en/design/architectu
 | Contributing Guide | [CONTRIBUTING.md](.github/CONTRIBUTING.md) |
 | License | [Apache-2.0](LICENSE) |
 | Examples | [examples/](examples/) |
-| Roadmap | [Roadmap](docs/en/roadmap.md) |
 
 ## Contributing
 

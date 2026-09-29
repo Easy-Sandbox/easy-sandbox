@@ -1,7 +1,5 @@
 # Session Persistence
 
-> **Rename notice**: This project has been renamed from Serverless Sandbox to **Easy Sandbox**. PyPI package: `easy-sandbox` (`pip install easy-sandbox`), CLI command: `ebx`, Python import: `easy_sandbox`.
-
 A session associates a sandbox with a human-readable name, making it easy to reconnect to the same sandbox from different terminals or at different times.
 
 ---

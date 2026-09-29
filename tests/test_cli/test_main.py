@@ -108,6 +108,61 @@ class TestCLIRoot:
         assert "Usage" in result.output or "ebx" in result.output
 
 
+class TestTopLevelInitRestored:
+    """The top-level ``ebx init`` scaffold shortcut is back (task 211).
+
+    It shares the exact same ``click.Command`` object as ``ebx template init``
+    (the scaffold logic is never duplicated), while ``ebx config init``
+    (credentials) and ``ebx create`` (cloud sandbox) keep their single
+    responsibilities.
+    """
+
+    def test_top_level_init_is_a_command(self) -> None:
+        ctx = click.Context(cli)
+        assert cli.get_command(ctx, "init") is not None
+
+    def test_invoking_init_without_case_requires_explicit_choice(self, runner: CliRunner) -> None:
+        """Non-TTY (CliRunner) never blocks: an explicit case or --from is required."""
+        result = runner.invoke(cli, ["init"])
+        # ``handle_errors`` re-wraps a callback-raised click.UsageError into
+        # the general error exit (1); the message keeps the usage contract.
+        assert result.exit_code == 1
+        assert "No scaffold case specified" in result.output
+        assert "Use -t/--template <case> or --from <ref>" in result.output
+
+    def test_init_help_shows_scaffold_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["init", "--help"])
+        assert result.exit_code == 0
+        assert "Scaffold a new sandbox template project" in result.output
+
+    def test_root_help_lists_init_command(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["--help"])
+        assert result.exit_code == 0
+        commands_block = result.output.split("Commands:", 1)[1]
+        listed = [line.strip().split()[0] for line in commands_block.splitlines() if line.strip()]
+        assert "init" in listed
+        # The real entry points survive.
+        assert {"create", "config", "template"}.issubset(set(listed))
+
+    def test_root_help_names_the_three_entry_points(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["--help"])
+        assert result.exit_code == 0
+        assert "Setup, create, or scaffold:" in result.output
+        assert "ebx config init" in result.output
+        assert "ebx create [DESCRIPTION]" in result.output
+        assert "ebx template init [DIR]" in result.output
+
+    def test_config_init_still_exists_with_guided_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["config", "init", "--help"])
+        assert result.exit_code == 0
+        assert "Guided setup" in result.output
+
+    def test_template_init_still_exists_with_scaffold_help(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["template", "init", "--help"])
+        assert result.exit_code == 0
+        assert "Scaffold a new sandbox template project" in result.output
+
+
 class TestVerboseSubcommandFlag:
     """The local ``-v/--verbose`` flag on subcommands flips the shared manager."""
 

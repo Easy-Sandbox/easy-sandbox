@@ -1,7 +1,5 @@
 # 部署与构建
 
-> **项目更名说明**：本项目已从 Serverless Sandbox 更名为 **Easy Sandbox**。PyPI 包名: `easy-sandbox`（`pip install easy-sandbox`），CLI 命令: `ebx`，Python 导入: `easy_sandbox`。
-
 Easy Sandbox 提供两种构建和部署机制：**NL（自然语言）部署** 和 **Image 链式构建**。
 
 ---
@@ -36,7 +34,7 @@ sandbox = await Sandbox.deploy(
     project_path="./my-flask-app",
     description="部署这个 Flask 应用到 8080 端口",
     max_wall_time="10m",         # agent 最大运行时间（默认 10m）
-    max_tool_calls=100,          # agent 最大工具调用次数
+    max_session_turns=100,       # qwen-code 会话轮次上限（默认 100）
     timeout=900,                 # 沙箱超时秒数（默认 900）
     cpu=2,                       # CPU 核数（默认 2）
     memory=4096,                 # 内存 MB（默认 4096）

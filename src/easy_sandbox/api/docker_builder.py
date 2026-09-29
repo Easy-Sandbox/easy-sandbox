@@ -28,7 +28,7 @@ import hashlib
 import hmac as hmac_mod
 import os
 import shutil
-import subprocess  # noqa: S404
+import subprocess
 import urllib.parse
 import uuid
 from dataclasses import dataclass, field
@@ -795,7 +795,7 @@ class DockerBuilder:
             )
         finally:
             for whl in injected_wheels:
-                whl.unlink(missing_ok=True)  # noqa: SIM105
+                whl.unlink(missing_ok=True)
 
         # Step 3: Login + tag + push to ACR
         acr_ref = acr.tagged_ref(tag)

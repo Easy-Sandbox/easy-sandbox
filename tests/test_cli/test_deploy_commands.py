@@ -181,8 +181,8 @@ class TestDeployOptions:
         call_kwargs = mock_deploy.call_args
         assert call_kwargs.kwargs.get("max_wall_time") == "20m"
 
-    def test_max_tool_calls_option(self, runner: CliRunner, temp_project: Path) -> None:
-        """Test --max-tool-calls option is accepted."""
+    def test_max_session_turns_option(self, runner: CliRunner, temp_project: Path) -> None:
+        """Test --max-session-turns option is accepted."""
         mock_sandbox = _make_mock_sandbox()
 
         with patch(
@@ -192,9 +192,26 @@ class TestDeployOptions:
         ) as mock_deploy:
             result = runner.invoke(
                 cli,
-                ["deploy", str(temp_project), "deploy", "--max-tool-calls", "50"],
+                ["deploy", str(temp_project), "deploy", "--max-session-turns", "50"],
             )
 
         assert result.exit_code == 0
         call_kwargs = mock_deploy.call_args
-        assert call_kwargs.kwargs.get("max_tool_calls") == 50
+        assert call_kwargs.kwargs.get("max_session_turns") == 50
+
+    def test_max_tool_calls_option_rejected(self, runner: CliRunner, temp_project: Path) -> None:
+        """The legacy ``--max-tool-calls`` flag must fail loudly, not silently.
+
+        The option was renamed to ``--max-session-turns`` because the value
+        is forwarded to qwen-code's ``--max-session-turns`` flag; the real
+        upstream ``--max-tool-calls`` budget is a semantically different
+        parameter. Unknown options must produce a usage error.
+        """
+        result = runner.invoke(
+            cli,
+            ["deploy", str(temp_project), "deploy", "--max-tool-calls", "50"],
+        )
+
+        assert result.exit_code != 0
+        assert "No such option" in result.output
+        assert "--max-tool-calls" in result.output

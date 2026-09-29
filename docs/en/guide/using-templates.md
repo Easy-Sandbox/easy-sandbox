@@ -1,7 +1,5 @@
 # Using Templates
 
-> **Rename notice**: This project has been renamed from Serverless Sandbox to **Easy Sandbox**. PyPI package: `easy-sandbox` (`pip install easy-sandbox`), CLI command: `ebx`, Python import: `easy_sandbox`.
-
 Templates are preconfigured sandbox environment definitions that include a base image, pre-installed software, capability declarations, and custom commands.
 
 ---
@@ -42,9 +40,15 @@ ebx template install owner/repo//path/to/template
 # Use an alias
 ebx template install owner/repo --alias my-python
 
-# Private repository
+# Private repository / higher rate limit: save the token once (masked asterisk prompt)
+ebx config set github_token
+ebx template install owner/private-repo
+
+# One-off override for a single command (may leak into shell history or the process list)
 ebx template install owner/private-repo --token ghp_xxx
 ```
+
+Anonymous GitHub downloads are limited to 60 requests/hour; a saved token raises the limit to 5000/hour. Prefer `ebx config set github_token` over `--token` — the latter is a one-off override that may leak into shell history or the process list. Resolution priority: `--token` > `GITHUB_TOKEN` environment variable > stored `github_token`. When no token is configured and the anonymous limit is hit, interactive terminals offer a guided one-shot setup (`--token` is never required).
 
 ### Install from a Local Directory
 
@@ -98,7 +102,7 @@ sandbox = await Sandbox.create(
 )
 ```
 
-The SDK records the `description` as a hint log entry. Template inference via LLM happens at the **CLI / Agent layer**, not inside `Sandbox.create()` itself. Inference is triggered only when `template` is left at the default value `"base"` and `description` is provided.
+The SDK records the `description` as a hint log entry; template selection does not happen inside `Sandbox.create()` itself. The CLI's `ebx create "<description>"` (without an explicit `--template`) takes the AI path: it calls Qwen Code to generate a Dockerfile + template.yaml, builds and deploys them, then creates the sandbox from the generated template.
 
 ---
 

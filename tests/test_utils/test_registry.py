@@ -601,10 +601,11 @@ class TestTarballFetchErrors:
 
     @pytest.mark.asyncio
     async def test_tarball_rate_limited(self, tmp_path: Path) -> None:
-        """403 + X-RateLimit-Remaining:0 → friendly NetworkError (token hint)."""
+        """403 + X-RateLimit-Remaining:0 → GitHubRateLimitError (task 206)."""
         import httpx
 
-        from easy_sandbox.models.errors import NetworkError
+        from easy_sandbox.models.errors import GitHubRateLimitError, NetworkError
+        from easy_sandbox.utils.github_token import FINE_GRAINED_PAT_URL
 
         client = RegistryClient()
         resp = httpx.Response(
@@ -615,7 +616,7 @@ class TestTarballFetchErrors:
         )
         with (
             patch("httpx.AsyncClient", return_value=self._patched_client(resp)),
-            pytest.raises(NetworkError) as ei,
+            pytest.raises(GitHubRateLimitError) as ei,
         ):
             await client._download_and_extract(
                 "https://api.github.com/repos/owner/repo/tarball",
@@ -624,13 +625,52 @@ class TestTarballFetchErrors:
                 repo="repo",
                 gh_ref=None,
             )
+        # Still a plain E5000 NetworkError for existing callers…
+        assert isinstance(ei.value, NetworkError)
+        assert ei.value.code == "E5000"
         assert "rate limit" in str(ei.value).lower()
+        assert "60/hour" in str(ei.value)
+        # The user-facing ref shape is preserved on the rate-limit message too.
+        assert "owner/repo" in str(ei.value)
+        # …while the suggestion recommends the persistent config flow first.
+        assert "ebx config set github_token" in ei.value.suggestion
+        assert FINE_GRAINED_PAT_URL in ei.value.suggestion
+        assert "public repositories need no extra permissions" in ei.value.suggestion
+        # The --token flag stays documented, explicitly marked as leak-prone.
         assert "--token" in ei.value.suggestion
-        assert "GITHUB_TOKEN" in ei.value.suggestion
+        assert "may leak" in ei.value.suggestion
+
+    @pytest.mark.asyncio
+    async def test_tarball_rate_limit_detected_by_message(self, tmp_path: Path) -> None:
+        """403 whose body says "rate limit" → same onboarding error."""
+        import httpx
+
+        from easy_sandbox.models.errors import GitHubRateLimitError
+
+        client = RegistryClient()
+        resp = httpx.Response(
+            status_code=403,
+            json={"message": "API rate limit exceeded for 1.2.3.4"},
+            request=httpx.Request("GET", "https://api.github.com/x"),
+        )
+        with (
+            patch("httpx.AsyncClient", return_value=self._patched_client(resp)),
+            pytest.raises(GitHubRateLimitError) as ei,
+        ):
+            await client._download_and_extract(
+                "https://api.github.com/repos/Easy-Sandbox/awesome-templates/tarball/v1.0",
+                tmp_path,
+                subdir="codex-agent-api",
+                owner="Easy-Sandbox",
+                repo="awesome-templates",
+                gh_ref="v1.0",
+            )
+        # The original owner/repo//subdir@ref shape stays visible in the message.
+        assert "Easy-Sandbox/awesome-templates//codex-agent-api@v1.0" in str(ei.value)
 
     @pytest.mark.asyncio
     async def test_tarball_403_private_repo(self, tmp_path: Path) -> None:
-        """403 without rate-limit signal → private-repo hint."""
+        """403 without a rate-limit signal → private-repo hint."""
         import httpx
 
         from easy_sandbox.models.errors import NetworkError
@@ -646,14 +686,54 @@ class TestTarballFetchErrors:
             pytest.raises(NetworkError) as ei,
         ):
             await client._download_and_extract(
-                "https://api.github.com/repos/owner/repo/tarball",
+                "https://api.github.com/repos/Easy-Sandbox/awesome-templates/tarball/v1.0",
                 tmp_path,
-                owner="owner",
-                repo="repo",
-                gh_ref=None,
+                subdir="codex-agent-api",
+                owner="Easy-Sandbox",
+                repo="awesome-templates",
+                gh_ref="v1.0",
             )
         assert "403" in str(ei.value)
+        # The original owner/repo//subdir@ref shape is preserved verbatim.
+        assert "Easy-Sandbox/awesome-templates//codex-agent-api@v1.0" in str(ei.value)
+        # Persistent config is the recommendation; --token is the leaky fallback.
+        assert "ebx config set github_token" in ei.value.suggestion
         assert "--token" in ei.value.suggestion
+        assert "may leak" in ei.value.suggestion
+
+    @pytest.mark.asyncio
+    async def test_tarball_401_rejected_token(self, tmp_path: Path) -> None:
+        """401 → token rejected hint with create/clear commands (no token echo)."""
+        import httpx
+
+        from easy_sandbox.models.errors import NetworkError
+        from easy_sandbox.utils.github_token import FINE_GRAINED_PAT_URL
+
+        client = RegistryClient(token="ghp-secret-value")
+        resp = httpx.Response(
+            status_code=401,
+            json={"message": "Bad credentials"},
+            request=httpx.Request("GET", "https://api.github.com/x"),
+        )
+        with (
+            patch("httpx.AsyncClient", return_value=self._patched_client(resp)),
+            pytest.raises(NetworkError) as ei,
+        ):
+            await client._download_and_extract(
+                "https://api.github.com/repos/Easy-Sandbox/awesome-templates/tarball/v1.0",
+                tmp_path,
+                subdir="codex-agent-api",
+                owner="Easy-Sandbox",
+                repo="awesome-templates",
+                gh_ref="v1.0",
+            )
+        assert "401" in str(ei.value)
+        assert "Easy-Sandbox/awesome-templates//codex-agent-api@v1.0" in str(ei.value)
+        assert FINE_GRAINED_PAT_URL in ei.value.suggestion
+        assert "ebx config set github_token" in ei.value.suggestion
+        # Clearing the stored value is offered and the token is never echoed.
+        assert 'github_token ""' in ei.value.suggestion
+        assert "ghp-secret-value" not in str(ei.value) + ei.value.suggestion
 
     @pytest.mark.asyncio
     async def test_tarball_not_found_is_template_not_found(self, tmp_path: Path) -> None:

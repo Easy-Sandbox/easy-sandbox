@@ -1,0 +1,15 @@
+Non-interactive setup. Run these commands to configure ebx:
+
+  ebx config set api_key <E2B_API_KEY>
+  ebx config set region cn-hangzhou
+  ebx config set qwen_code_api_key <DASHSCOPE_OR_MODELSTUDIO_KEY>
+
+  # Optional overrides and AK/SK for template deploy:
+  ebx config set qwen_code_base_url <OPENAI_COMPATIBLE_BASE_URL>
+  ebx config set qwen_code_model qwen3-coder-plus
+  ebx config set access_key_id <ALICLOUD_ACCESS_KEY_ID>
+  ebx config set access_key_secret <ALICLOUD_ACCESS_KEY_SECRET>
+
+Environment variables (E2B_API_KEY, EBX_QWEN_CODE_API_KEY,
+ALICLOUD_ACCESS_KEY_ID, ALICLOUD_ACCESS_KEY_SECRET) override stored values.
+[exit_code:0]

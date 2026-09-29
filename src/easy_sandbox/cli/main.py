@@ -52,6 +52,45 @@ class LazyGroup(click.Group):
         mod = importlib.import_module(mod_path)
         return getattr(mod, attr_name)  # type: ignore[no-any-return]
 
+    def resolve_command(
+        self, ctx: click.Context, args: list[str]
+    ) -> tuple[str, click.Command, list[str]]:
+        """Enrich the unknown-top-level-command error with a targeted hint.
+
+        * A high-confidence spelling candidate (difflib, cutoff 0.6) gets
+          only a "Did you mean" correction suggestion.
+        * With no plausible candidate, the user is pointed to template
+          ``custom_commands`` (declared in template.yaml and invoked via
+          ``ebx run COMMAND``).
+
+        Contract preserved: Click ``UsageError`` semantics — exit code 2,
+        message on stderr. Only the root group is affected.
+        """
+        try:
+            cmd_name, cmd, cmd_args = super().resolve_command(ctx, args)
+        except click.UsageError:
+            # Only the root group gets the hint; nested groups keep the
+            # stock Click message.
+            if ctx.parent is not None or not args:
+                raise
+            import difflib
+
+            cmd_name = args[0]
+            candidates = difflib.get_close_matches(
+                cmd_name, self.list_commands(ctx), n=3, cutoff=0.6
+            )
+            if candidates:
+                hint = "Did you mean " + ", ".join(f"'{c}'" for c in candidates) + "?"
+            else:
+                hint = (
+                    "No similar ebx command found. If this is a custom command, "
+                    "declare it in the template's template.yaml (custom_commands) "
+                    "and run it with 'ebx run COMMAND'."
+                )
+            raise click.UsageError(f"No such command '{cmd_name}'. {hint}", ctx) from None
+        assert cmd is not None and cmd_name is not None
+        return cmd_name, cmd, cmd_args
+
 
 # ---------------------------------------------------------------------------
 # Error handling
@@ -301,6 +340,14 @@ def _handle_remote_exception(
 @click.group(
     cls=LazyGroup,
     invoke_without_command=True,
+    # Single source of truth for the ``-h`` alias: Click inherits
+    # ``help_option_names`` from the parent Context down the whole command
+    # tree (lazy groups, nested sub-groups and leaf commands), so setting it
+    # once here makes ``-h`` work everywhere without per-command wiring.
+    # Commands that define a ``-h`` parameter of their own are protected by
+    # Click's built-in conflict guard (the alias is dropped for that command,
+    # ``--help`` keeps working) — user parameters are never shadowed.
+    context_settings={"help_option_names": ["-h", "--help"]},
     lazy_subcommands={
         "create": "easy_sandbox.cli.commands.sandbox:create",
         "list": "easy_sandbox.cli.commands.sandbox:list_cmd",
@@ -313,7 +360,10 @@ def _handle_remote_exception(
         "mcp": "easy_sandbox.cli.commands.mcp:mcp",
         "template": "easy_sandbox.cli.commands.template:template",
         "install": "easy_sandbox.cli.commands.template:install_shortcut",
-        "init": "easy_sandbox.cli.commands.template:init_shortcut",
+        # Top-level scaffold shortcut (task 211): the exact same click.Command
+        # object as ``ebx template init`` — the option surface and scaffolding
+        # logic are shared, nothing is duplicated.
+        "init": "easy_sandbox.cli.commands.template:init",
         "upload": "easy_sandbox.cli.commands.sandbox:upload",
         "download": "easy_sandbox.cli.commands.sandbox:download",
         "run": "easy_sandbox.cli.commands.sandbox:run_cmd",
@@ -331,8 +381,13 @@ def _handle_remote_exception(
     help="Set log level explicitly",
 )
 @click.option("--ci", is_flag=True, help="CI/CD mode (quiet + no-color + json)")
-@click.option("--timeout", "-t", type=int, default=300, help="Default timeout in seconds")
-@click.option("--region", "-r", default=None, help="Region (default: cn-hangzhou)")
+@click.option(
+    "--timeout",
+    "-t",
+    type=int,
+    default=300,
+    help="Default sandbox lifetime in seconds (positive integer; default: 300)",
+)
 @click.option("--profile", "-p", default=None, help="[Reserved] Configuration profile")
 @click.version_option(package_name="easy-sandbox")
 @click.pass_context
@@ -345,12 +400,29 @@ def cli(
     log_level: str | None,
     ci: bool,
     timeout: int,
-    region: str | None,
     profile: str | None,
 ) -> None:
     """ebx — Easy Sandbox CLI
 
     Create, manage, and interact with cloud sandboxes.
+
+    \b
+    Setup, create, or scaffold:
+      ebx config init               Guided credentials setup (run first)
+      ebx create [DESCRIPTION]      Create a cloud sandbox (AI or --template)
+      ebx template init [DIR]       Scaffold a local template project
+
+    \b
+    Examples:
+      ebx create --template base
+      ebx list --status running
+      ebx template search python
+
+    \b
+    Related commands:
+      ebx config --help    Configure credentials and endpoints
+      ebx sandbox --help   Manage sandbox lifecycle and resources
+      ebx template --help  Discover, build, and deploy templates
     """
     # Lazy import to keep --help fast
     from easy_sandbox.cli.output import OutputManager, is_ci_env
@@ -377,7 +449,6 @@ def cli(
     ctx.obj["verbose"] = output.verbose
     ctx.obj["no_color"] = output.no_color
     ctx.obj["timeout"] = timeout
-    ctx.obj["region"] = region
     ctx.obj["profile"] = profile
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())

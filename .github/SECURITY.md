@@ -9,11 +9,19 @@
 
 ## Reporting a Vulnerability
 
-**Please do NOT report security vulnerabilities through public GitHub issues.**
+Easy Sandbox is an open-source project. **Please do NOT report security
+vulnerabilities through public GitHub issues.**
 
-Instead, please report them responsibly via email:
+Instead, report them privately by email:
 
-📧 **security@easy-sandbox.com**
+📧 **liuyu@xmail.tech**
+
+Alternatively, report privately through GitHub Security Advisories:
+
+🔒 https://github.com/Easy-Sandbox/easy-sandbox/security/advisories/new
+
+This applies to all security issues in the Easy Sandbox Python package, the
+`ebx` CLI, and the project's code.
 
 ### What to Include
 
@@ -35,7 +43,7 @@ When reporting a vulnerability, please include:
 
 ### Process
 
-1. You report the vulnerability via the email above
+1. You report the vulnerability via one of the private channels above (email or GitHub Security Advisories)
 2. We acknowledge receipt and begin investigation
 3. We work with you to understand and validate the issue
 4. We develop and test a fix
@@ -51,6 +59,7 @@ When reporting a vulnerability, please include:
 
 ## Scope
 
-This security policy applies to the `easy-sandbox` Python package and CLI tool. For issues related to the underlying Alibaba Cloud FC service, please contact [Alibaba Cloud Security](https://security.alibaba.com/).
+This security policy covers the Easy Sandbox project code: the `easy-sandbox`
+Python package and the `ebx` CLI.
 
 Thank you for helping keep Easy Sandbox and its users safe! 🔒

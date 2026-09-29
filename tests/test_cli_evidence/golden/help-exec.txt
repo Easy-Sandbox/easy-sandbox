@@ -1,10 +1,24 @@
 Usage: cli exec [OPTIONS] SANDBOX_ID COMMAND
 
-  Execute a command in a sandbox.
+  Execute one command in a sandbox and return its exit code.
+
+  Quote commands containing spaces or shell operators. Use --cwd to select the
+  remote working directory and --timeout for long-running commands.
+
+  Examples:
+    ebx exec abc123 "python --version"
+    ebx exec abc123 "pytest -q" --cwd /app --timeout 300
+    ebx --json exec abc123 "echo ready"
+
+  Related commands:
+    ebx connect SANDBOX_ID  Open the command REPL
+    ebx sandbox shell-stream SANDBOX_ID -c CMD
+    ebx run SANDBOX_ID NAME  Run a registered custom command
 
 Options:
-  -t, --timeout INTEGER  Timeout in seconds
+  -t, --timeout INTEGER  Command timeout in seconds (positive integer; default:
+                         60)
   --cwd TEXT             Working directory (empty = container default)
   -v, --verbose          Verbose output (DEBUG level)
-  --help                 Show this message and exit.
+  -h, --help             Show this message and exit.
 [exit_code:0]

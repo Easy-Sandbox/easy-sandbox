@@ -4,6 +4,21 @@ Usage: cli [OPTIONS] [COMMAND] [ARGS]...
 
   Create, manage, and interact with cloud sandboxes.
 
+  Setup, create, or scaffold:
+    ebx config init               Guided credentials setup (run first)
+    ebx create [DESCRIPTION]      Create a cloud sandbox (AI or --template)
+    ebx template init [DIR]       Scaffold a local template project
+
+  Examples:
+    ebx create --template base
+    ebx list --status running
+    ebx template search python
+
+  Related commands:
+    ebx config --help    Configure credentials and endpoints
+    ebx sandbox --help   Manage sandbox lifecycle and resources
+    ebx template --help  Discover, build, and deploy templates
+
 Options:
   -j, --json                      Output as JSON
   -q, --quiet                     Minimal output
@@ -12,27 +27,27 @@ Options:
   --log-level [debug|info|warning|error]
                                   Set log level explicitly
   --ci                            CI/CD mode (quiet + no-color + json)
-  -t, --timeout INTEGER           Default timeout in seconds
-  -r, --region TEXT               Region (default: cn-hangzhou)
+  -t, --timeout INTEGER           Default sandbox lifetime in seconds (positive
+                                  integer; default: 300)
   -p, --profile TEXT              [Reserved] Configuration profile
   --version                       Show the version and exit.
-  --help                          Show this message and exit.
+  -h, --help                      Show this message and exit.
 
 Commands:
-  config    Configuration management.
-  connect   Connect to a sandbox interactively (like SSH).
+  config    Manage persistent credentials and CLI defaults.
+  connect   Open an interactive command REPL for a sandbox.
   create    Create a new sandbox.
-  deploy    Deploy a project to a sandbox.
+  deploy    Deploy a local project to a sandbox.
   download  Download a file from the sandbox to local.
-  exec      Execute a command in a sandbox.
-  info      Get sandbox information.
-  init      Scaffold a new template (shortcut for 'ebx template init').
-  install   Install a template (shortcut for 'ebx template install').
-  kill      Kill (destroy) a sandbox or all sandboxes.
-  list      List sandboxes.
-  mcp       MCP Server management — IDE integration.
+  exec      Execute one command in a sandbox and return its exit code.
+  info      Show status, template, region, timeout, and URL for a sandbox.
+  init      Scaffold a new sandbox template project.
+  install   Install a template from TEMPLATE_REF (shortcut for 'ebx...
+  kill      Permanently destroy one sandbox or all running sandboxes.
+  list      List sandboxes, optionally filtered by lifecycle status.
+  mcp       Configure and run Easy Sandbox as an MCP server.
   run       Run a named custom command or registered command.
-  sandbox   Manage sandboxes.
-  template  Template management.
+  sandbox   Manage sandbox lifecycle, files, processes, and system details.
+  template  Discover, scaffold, build, and manage sandbox templates.
   upload    Upload a local file or directory to the sandbox.
 [exit_code:0]

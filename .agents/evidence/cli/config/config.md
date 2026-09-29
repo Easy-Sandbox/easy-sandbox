@@ -26,12 +26,18 @@ sk-***456
 Exit code: 0
 ```
 
+### config get api_key（进程环境变量, masked）
+
+```
+$ ebx config get api_key
+sk-***456
+Exit code: 0
+```
+
 ### config get unknown_key（错误）
 
 ```
 $ ebx config get unknown_key
-Unknown config key: 'unknown_key'
-  Suggestion: Available keys: api_key, api_url, domain, http2, http_timeout, llm_api_key, llm_base_url, llm_model, max_retries, region
 Exit code: 2
 ```
 
@@ -39,7 +45,23 @@ Exit code: 2
 
 ```
 Unknown config key: 'unknown_key'
-  Suggestion: Available keys: api_key, api_url, domain, http2, http_timeout, llm_api_key, llm_base_url, llm_model, max_retries, region
+  Suggestion: Available keys: access_key_id, access_key_secret, api_key, api_url, domain, github_token, http2, http_timeout, llm_api_key, llm_base_url, llm_model, max_retries, qwen_code_api_key, qwen_code_base_url, qwen_code_model, region
+```
+
+### config get qwen_code_model（业务默认）
+
+```
+$ ebx config get qwen_code_model
+qwen3-coder-plus
+Exit code: 0
+```
+
+### config get llm_model（not set）
+
+```
+$ ebx config get llm_model
+(not set)
+Exit code: 0
 ```
 
 ### config set region
@@ -58,20 +80,50 @@ Set llm_api_key = sk-***678
 Exit code: 0
 ```
 
+### config set region ""（清除, 回落默认）
+
+```
+$ ebx config set region ""
+Cleared region (falls back to default: cn-hangzhou).
+Exit code: 0
+```
+
+### config set api_key ""（清除凭证）
+
+```
+$ ebx config set api_key ""
+Cleared api_key (now not set).
+Exit code: 0
+```
+
+### config set region ""（env 仍生效, 值不显示）
+
+```
+$ ebx config set region ""
+Cleared region (falls back to default: cn-hangzhou); environment variable SANDBOX_REGION still overrides it at runtime (value not shown).
+Exit code: 0
+```
+
 ### config list
 
 ```
 $ ebx config list
-api_key       (not set)
-api_url       https://api.cn-hangzhou.e2b.fc.aliyuncs.com (default)
-domain        cn-hangzhou.e2b.fc.aliyuncs.com (default)
-http2         True (default)
-http_timeout  30.0 (default)
-llm_api_key    (default)
-llm_base_url   (default)
-llm_model      (default)
-max_retries   3 (default)
-region        cn-hangzhou (default)
+api_key             (not set)
+access_key_id       (not set)
+access_key_secret   (not set)
+qwen_code_api_key   (not set)
+github_token        (not set)
+api_url             https://api.cn-hangzhou.e2b.fc.aliyuncs.com (default)
+domain              cn-hangzhou.e2b.fc.aliyuncs.com (default)
+http2               True (default)
+http_timeout        30.0 (default)
+llm_api_key         (not set)
+llm_base_url        (not set)
+llm_model           (not set)
+max_retries         3 (default)
+qwen_code_base_url  https://dashscope.aliyuncs.com/compatible-mode/v1 (default)
+qwen_code_model     qwen3-coder-plus (default)
+region              cn-hangzhou (default)
 Exit code: 0
 ```
 
@@ -81,6 +133,10 @@ Exit code: 0
 $ ebx --json config list
 {
   "api_key": null,
+  "access_key_id": null,
+  "access_key_secret": null,
+  "qwen_code_api_key": null,
+  "github_token": null,
   "api_url": "https://api.cn-hangzhou.e2b.fc.aliyuncs.com",
   "domain": "cn-hangzhou.e2b.fc.aliyuncs.com",
   "http2": true,
@@ -89,15 +145,76 @@ $ ebx --json config list
   "llm_base_url": null,
   "llm_model": null,
   "max_retries": 3,
+  "qwen_code_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "qwen_code_model": "qwen3-coder-plus",
   "region": "cn-hangzhou"
 }
 Exit code: 0
 ```
 
-### config reset --yes
+### config init（非 TTY：打印非交互命令）
 
 ```
-$ ebx config reset --yes
-Configuration reset to defaults (including api_key).
+$ ebx config init
+Non-interactive setup. Run these commands to configure ebx:
+
+  ebx config set api_key <E2B_API_KEY>
+  ebx config set region cn-hangzhou
+  ebx config set qwen_code_api_key <DASHSCOPE_OR_MODELSTUDIO_KEY>
+
+  # Optional overrides and AK/SK for template deploy:
+  ebx config set qwen_code_base_url <OPENAI_COMPATIBLE_BASE_URL>
+  ebx config set qwen_code_model qwen3-coder-plus
+  ebx config set access_key_id <ALICLOUD_ACCESS_KEY_ID>
+  ebx config set access_key_secret <ALICLOUD_ACCESS_KEY_SECRET>
+
+Environment variables (E2B_API_KEY, EBX_QWEN_CODE_API_KEY,
+ALICLOUD_ACCESS_KEY_ID, ALICLOUD_ACCESS_KEY_SECRET) override stored values.
 Exit code: 0
+```
+
+### config set github_token（masked）
+
+```
+$ ebx config set github_token ghp_evidence1234567890
+Set github_token = ghp***890
+Exit code: 0
+```
+
+### config get github_token（未设置）
+
+```
+$ ebx config get github_token
+(not set)
+Exit code: 0
+```
+
+### config get github_token（已设置, masked）
+
+```
+$ ebx config get github_token
+ghp***890
+Exit code: 0
+```
+
+### config set github_token ""（清除）
+
+```
+$ ebx config set github_token ""
+Cleared github_token (now not set).
+Exit code: 0
+```
+
+### config set github_token（非 TTY：缺 VALUE）
+
+```
+$ ebx config set github_token
+Exit code: 2
+```
+
+**stderr:**
+
+```
+Missing VALUE for 'github_token' and stdin is not an interactive terminal.
+  Suggestion: Pass the value explicitly: 'ebx config set github_token <VALUE>'. In CI, inject the GITHUB_TOKEN environment variable as a secret instead of storing it locally.
 ```

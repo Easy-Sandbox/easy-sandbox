@@ -9,6 +9,12 @@ Reuses the 7 P0 tools defined in :mod:`easy_sandbox.agent.tools` via
 :class:`~easy_sandbox.agent.mcp.SandboxMCPServer` and
 :class:`~easy_sandbox.agent.mcp.SandboxManager`.
 
+Protocol version: this transport supports ``2025-06-18`` only. Each session's
+:class:`~easy_sandbox.agent.mcp.SandboxMCPServer` is created with that
+supported-version set, so ``initialize`` negotiates ``2025-06-18`` — consistent
+with the version reported by ``GET /health``. The STDIO transport keeps its own
+``2024-11-05`` default.
+
 Authentication:
 - Client → MCP: ``Authorization: Bearer <token>`` (validated here)
 - MCP → Sandbox: ``E2B_API_KEY`` environment variable (forwarded by SandboxManager)
@@ -44,10 +50,10 @@ logger = get_logger("agent.mcp_http")
 _STARLETTE_IMPORT_ERROR: str | None = None
 
 try:
-    from starlette.applications import Starlette  # noqa: TC002
+    from starlette.applications import Starlette
     from starlette.requests import Request  # noqa: TC002
-    from starlette.responses import JSONResponse, Response  # noqa: TC002
-    from starlette.routing import Route  # noqa: TC002
+    from starlette.responses import JSONResponse, Response
+    from starlette.routing import Route
 except ImportError as _exc:  # pragma: no cover
     _STARLETTE_IMPORT_ERROR = (
         "Starlette is required for MCP HTTP transport but is not installed. "
@@ -59,6 +65,8 @@ except ImportError as _exc:  # pragma: no cover
 # MCP protocol constants (Streamable HTTP — 2025-06-18)
 # ---------------------------------------------------------------------------
 
+# The only protocol version this transport supports. Passed to each session's
+# SandboxMCPServer so initialize negotiates consistently with GET /health.
 MCP_PROTOCOL_VERSION = "2025-06-18"
 CONTENT_TYPE_JSON = "application/json"
 
@@ -158,6 +166,10 @@ class SessionStore:
             api_url=self._api_url,
             domain=self._domain,
             template=self._template,
+            # Streamable HTTP transport supports only 2025-06-18 — the same
+            # version GET /health reports. Keeps initialize negotiation
+            # consistent with the transport declaration.
+            supported_protocol_versions=(MCP_PROTOCOL_VERSION,),
         )
         self._sessions[session_id] = _SessionEntry(
             server=server,

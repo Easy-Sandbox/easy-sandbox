@@ -1,7 +1,5 @@
 # 使用模板
 
-> **项目更名说明**：本项目已从 Serverless Sandbox 更名为 **Easy Sandbox**。PyPI 包名: `easy-sandbox`（`pip install easy-sandbox`），CLI 命令: `ebx`，Python 导入: `easy_sandbox`。
-
 模板是预配置的沙箱环境定义，包含基础镜像、预装软件、能力声明和自定义命令。
 
 ---
@@ -42,9 +40,15 @@ ebx template install owner/repo//path/to/template
 # 使用别名
 ebx template install owner/repo --alias my-python
 
-# 私有仓库
+# 私有仓库 / 更高限流：一次性保存 token（星号脱敏输入）
+ebx config set github_token
+ebx template install owner/private-repo
+
+# 单次命令的临时覆盖（可能泄漏到 shell history 或进程列表）
 ebx template install owner/private-repo --token ghp_xxx
 ```
+
+GitHub 匿名下载限流为 60 次/小时，保存 token 后提升至 5000 次/小时。推荐使用 `ebx config set github_token` 而非 `--token`——后者是单次临时覆盖，可能泄漏到 shell history 或进程列表。优先级：`--token` > `GITHUB_TOKEN` 环境变量 > 持久化的 `github_token`。未配置 token 且触发匿名限流时，交互式终端会提供引导式一次性配置（无需 `--token`）。
 
 ### 从本地目录安装
 
@@ -98,7 +102,7 @@ sandbox = await Sandbox.create(
 )
 ```
 
-SDK 会将 `description` 记录为 hint 日志条目。通过 LLM 推断模板发生在 **CLI / Agent 层**，并非 `Sandbox.create()` 自身。只有当 `template` 保持默认值 `"base"` 且提供了 `description` 时才会触发推断。
+SDK 会将 `description` 记录为 hint 日志条目，模板选择不发生在 `Sandbox.create()` 内部。CLI 的 `ebx create "<描述>"`（未显式传 `--template` 时）走 AI 路径：调用 Qwen Code 生成 Dockerfile + template.yaml，构建部署后用生成的模板创建沙箱。
 
 ---
 

@@ -217,7 +217,7 @@ The tarball (fetched by ref) from a template repository must contain a template 
 my-template/
 ├── template.yaml     # Template specification config (required, see Chapter 4)
 ├── Dockerfile            # Image definition (optional, base can be specified in template.yaml)
-├── SKILL.md              # Agent usage instructions (optional)
+├── AGENTS.md             # Instructions for external agent tools (optional; consumed by the agent tool itself, not an Easy Sandbox capability)
 ├── scripts/
 │   ├── setup.sh          # Initialization script (optional)
 │   └── healthcheck.sh    # Health check (optional)
@@ -238,15 +238,23 @@ ebx create alicloud/sandbox-templates/browser-automation  # Official Tier 2
 ebx create browser-automation      # Auto-resolves to official template
 ```
 
-### 2.6 GitHub Token Configuration (Private Repositories)
+### 2.6 GitHub Token Configuration (Private Repositories & Rate Limits)
+
+Anonymous GitHub requests are limited to **60 requests/hour**; an authenticated token raises that to **5000 requests/hour**. Store the token once instead of passing it on every command — the explicit `--token` flag only exists as a temporary override and may leak into shell history and process listings.
 
 ```bash
-# Configure GitHub Token for accessing private template repositories
-ebx config set github_token ghp_xxxxxxxxxxxx
+# Recommended: interactive, masked (asterisk) input, stored in ~/.ebx/.env (chmod 600)
+ebx config set github_token            # VALUE may be omitted in a terminal
+ebx config set github_token ghp_xxxxxxxxxxxx   # ...or pass it explicitly
+ebx config set github_token ""         # remove the stored token
 
-# Or via environment variable
-export SANDBOX_GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+# Process environment variable (CI: inject it as a secret)
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
 ```
+
+Resolution order: `--token` > process `GITHUB_TOKEN` > stored `github_token` > no token. The token is never printed, logged, or echoed; `ebx config get github_token` / `ebx config list` show it masked (`ghp***xxx`).
+
+When `ebx template search` / `ebx template install` hit the anonymous limit (E5000), the CLI prints the officially documented fine-grained PAT prefill URL — public repositories need no extra permissions and a 90-day expiry is recommended — and, in an interactive terminal only, offers to store the token with masked input and **retries the failed operation exactly once**. Declining, cancelling, or a retry that fails again surfaces the original error. Non-interactive / CI sessions are pointed at secret injection (`GITHUB_TOKEN`) or an interactive `ebx config set github_token`; the CLI never runs `gh auth token`, never opens a browser, and never records the token anywhere.
 
 ### 2.7 Local Cache Management
 
@@ -390,7 +398,7 @@ workdir: /app
 Push the template to GitHub for others to reference via `owner/repo[//subdir][@ref]` format (no Release required):
 
 ```bash
-# 1. Initialize template project (generates template.yaml, Dockerfile, SKILL.md scaffolding)
+# 1. Initialize the template project (generates template.yaml, Dockerfile scaffolding)
 ebx template init my-template
 
 # 2. Local development and testing
@@ -511,11 +519,6 @@ custom_commands:
         required: false                  # Whether required (default false)
         description: "Listening port"
 
-# === Skills Binding ===
-skills:
-  bundled: ["jupyter", "pandas-stack"] # Built-in bound Skills
-  recommended: ["matplotlib-extra"]    # Recommended optional Skills
-
 # === Agent Prompts ===
 agent:
   description: "Suitable for data analysis, CSV processing, statistical computation, and chart generation"
@@ -581,8 +584,6 @@ healthcheck:
 | | `<name>.env` | | Additional environment variables (default empty) |
 | | `<name>.timeout` | | Timeout in seconds (default 60) |
 | | `<name>.args` | | Parameter list, each item `{name, default, required, description}` |
-| **skills** | `bundled` | | Built-in bound Skills list, auto-loaded with the template |
-| | `recommended` | | Recommended optional Skills list |
 | **agent** | `description` | | Scenario description for AI Agents |
 | | `triggers` | | Trigger keyword list for natural language template matching |
 | | `instructions` | | Agent usage guide describing how to work in this sandbox |
@@ -598,10 +599,9 @@ healthcheck:
 1. **`base` dual mode**: `image` directly specifies a Docker image, `from` inherits another template (supports GitHub owner/repo references), forming a template inheritance chain
 2. **`agent` field is key to AI-Friendliness**: Lets AI Agents understand template applicability through `triggers` and `description`, and obtain usage guides through `instructions`
 3. **`resources` default value semantics**: Templates declare recommended defaults; users can override them via SDK parameters or CLI options when creating sandboxes
-4. **`skills.bundled` + `skills.recommended`**: Links templates with the Skills system — `bundled` auto-loads with the template, `recommended` serves as suggestions only
-5. **`readiness_probe`**: Supports both `tcp` (port probing) and `exec` (command execution) readiness detection methods, ensuring the sandbox is truly available before returning
-6. **`capabilities` capability model**: Command capabilities are declared by templates, no longer assuming all sandboxes have shell/upload/download. The standard capability vocabulary is `shell` / `files` / `code` / `terminal` / `ports` (extensible). The system default baseline is a single constant `DEFAULT_CAPABILITIES = {shell, files, code}`; templates can explicitly declare subsets or add `terminal`/`ports`, omitting `capabilities` inherits the default baseline. **Only the `code` capability is enforced at runtime (fail-closed)**: `CodeContextModule` methods raise `CapabilityNotSupportedError` (E3004) when `code` is missing from the effective set. Other modules (`commands`, `files`, `network`) forward requests without a runtime gate — capabilities serve as a discovery and documentation mechanism for those modules. See ADR `2026-09-03-capability-model.md`
-7. **`custom_commands`**: Templates can declare named commands; user arguments are escaped via `shlex.quote()` before filling `{placeholders}` to prevent injection; dispatched via CLI `ebx run` and SDK `sandbox.custom("name", **kwargs)`. See ADR `2026-09-03-custom-commands-schema.md`
+4. **`readiness_probe`**: Supports both `tcp` (port probing) and `exec` (command execution) readiness detection methods, ensuring the sandbox is truly available before returning
+5. **`capabilities` capability model**: Command capabilities are declared by templates, no longer assuming all sandboxes have shell/upload/download. The standard capability vocabulary is `shell` / `files` / `code` / `terminal` / `ports` (extensible). The system default baseline is a single constant `DEFAULT_CAPABILITIES = {shell, files, code}`; templates can explicitly declare subsets or add `terminal`/`ports`, omitting `capabilities` inherits the default baseline. **Only the `code` capability is enforced at runtime (fail-closed)**: `CodeContextModule` methods raise `CapabilityNotSupportedError` (E3004) when `code` is missing from the effective set. Other modules (`commands`, `files`, `network`) forward requests without a runtime gate — capabilities serve as a discovery and documentation mechanism for those modules. See ADR `2026-09-03-capability-model.md`
+6. **`custom_commands`**: Templates can declare named commands; user arguments are escaped via `shlex.quote()` before filling `{placeholders}` to prevent injection; dispatched via CLI `ebx run` and SDK `sandbox.custom("name", **kwargs)`. See ADR `2026-09-03-custom-commands-schema.md`
 
 ### Example: Extension Based on a GitHub Template
 
@@ -635,10 +635,6 @@ resources:
   cpu: 4
   memory: 8192
   gpu: A10
-
-skills:
-  bundled: ["pytorch", "transformers"]
-  recommended: ["huggingface-hub"]
 
 agent:
   description: "Suitable for PyTorch model training, Transformers fine-tuning, ML experiments"
@@ -750,7 +746,8 @@ ebx template cache clean                     # Clean all caches
 ebx template cache clean hello/world         # Clean specific template cache
 
 # ── Configuration ──────────────────────────────
-ebx config set github_token ghp_xxxxxxxxxxxx # Configure GitHub Token (private repositories)
+ebx config set github_token            # GitHub token: masked input, stored in ~/.ebx/.env (private repos + rate limits)
+ebx config set github_token ""         # Remove the stored token
 ```
 
 ### Template Security

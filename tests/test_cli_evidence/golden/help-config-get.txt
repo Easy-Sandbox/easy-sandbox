@@ -1,7 +1,44 @@
 Usage: cli config get [OPTIONS] KEY
 
-  Get a configuration value.
+  Get a configuration value by KEY.
+
+  Prints the effective value: the process environment wins, then the value
+  stored by ``ebx config set``, then the built-in default. Keys without any of
+  these print ``(not set)``. Sensitive keys are masked.
+
+  Available keys:
+    api_key            E2B API Key (stored in ~/.ebx/.env, shown masked)
+    access_key_id      Alibaba Cloud AccessKey ID for AK/SK auth
+                       (template deploy, ACR push; stored in ~/.ebx/.env)
+    access_key_secret  Alibaba Cloud AccessKey Secret for AK/SK auth
+                       (template deploy, ACR push; stored in ~/.ebx/.env,
+                       shown masked)
+    api_url            Platform API URL
+    domain             Envd data-plane domain
+    region             Default region (e.g. cn-hangzhou)
+    http_timeout       HTTP request timeout in seconds
+    http2              Enable HTTP/2 (true/false)
+    max_retries        Maximum retry attempts
+    llm_api_key        LLM API Key for NL inference (shown masked)
+    llm_model          LLM model name (e.g. qwen-plus)
+    llm_base_url       LLM API base URL (OpenAI-compatible)
+    qwen_code_api_key  Qwen Code API key for AI template generation
+                       (stored in ~/.ebx/.env, shown masked)
+    qwen_code_base_url Qwen Code OpenAI-compatible base URL
+    qwen_code_model    Qwen Code model name (e.g. qwen3-coder-plus)
+    github_token       GitHub token for template downloads (stored in
+                       ~/.ebx/.env, shown masked)
+
+  Examples:
+    ebx config get api_key
+    ebx config get region
+    ebx config list          # show all values at once
+
+  Related commands:
+    ebx config list          Show every effective value and its source
+    ebx config set KEY VALUE
+    ebx config set KEY ""    Clear one stored value
 
 Options:
-  --help  Show this message and exit.
+  -h, --help  Show this message and exit.
 [exit_code:0]

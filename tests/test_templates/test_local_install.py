@@ -44,8 +44,8 @@ if TYPE_CHECKING:
 # Fake GitHub coordinates (never contacted — see the tripwire below)
 # ---------------------------------------------------------------------------
 
-GITHUB_OWNER = "anycodes"
-GITHUB_REPO = "awesome-easy-sandbox-templates"
+GITHUB_OWNER = "Easy-Sandbox"
+GITHUB_REPO = "awesome-templates"
 GITHUB_TAG = "v1.0.0"
 GITHUB_REF = f"{GITHUB_OWNER}/{GITHUB_REPO}"
 GITHUB_URL = "https://github.com"
@@ -205,7 +205,7 @@ class TestLocalInstall:
         # The cached template.yaml should be loadable and match the original
         cached_tmpl = load_template_from_yaml(cached / "template.yaml")
         assert cached_tmpl.name == expected.name
-        assert cached_tmpl.base == expected.base
+        assert cached_tmpl.description == expected.description
 
     def test_local_install_relative_path_autodetected(
         self, runner: CliRunner, template_dir: Path, tmp_path: Path
@@ -367,18 +367,17 @@ def _under_cwd(path: Path) -> bool:
 
 
 def build_repo_tarball(templates_dir: Path) -> bytes:
-    """Build an in-memory GitHub-style tarball (.tar.gz) of the whole catalog.
+    """Build an in-memory GitHub-style tarball (.tar.gz) of the fixtures.
 
     Layout mirrors what ``codeload.github.com`` returns for a ref::
 
-        anycodes-awesome-easy-sandbox-templates-9f8e7d6/
+        Easy-Sandbox-awesome-templates-9f8e7d6/
         ├── README.md
-        ├── browser-automation/{template.yaml,Dockerfile,README.md}
-        └── ...
+        └── python-hello/{template.yaml,Dockerfile,commands.py,README.md}
 
     This is the "fixture pointing at a local copy" that replaces the download.
     Local dev artifacts (``__pycache__`` / ``*.pyc`` / dotfiles) are excluded,
-    matching what GitHub archives actually contain (``.gitignore`` d files).
+    matching what GitHub archives actually contain (``.gitignore``-d files).
     """
 
     def _add(tf: tarfile.TarFile, arcname: str, data: bytes) -> None:
@@ -664,17 +663,10 @@ class TestMockedGithubInstallFailures:
         assert result.exit_code != 0
 
 
-# Platform-reserved names: directory name differs from template.yaml ``name``.
-_PLATFORM_NAME_OVERRIDES: dict[str, str] = {
-    "codex": "openai-codex",
-    "openclaw": "openclaw-agent",
-}
-
-
 class TestTarballFixture:
-    """The offline GitHub fixture must faithfully represent the catalog."""
+    """The offline GitHub fixture must faithfully represent the fixture folder."""
 
-    def test_tarball_contains_every_template(self) -> None:
+    def test_tarball_contains_every_fixture_template(self) -> None:
         tarball = build_repo_tarball(TEMPLATES_DIR)
         with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as tf:
             names = tf.getnames()
@@ -698,5 +690,4 @@ class TestTarballFixture:
             extracted = root / folder.name / "template.yaml"
             assert extracted.is_file()
             tmpl = load_template_from_yaml(extracted)
-            expected_name = _PLATFORM_NAME_OVERRIDES.get(folder.name, folder.name)
-            assert tmpl.name == expected_name
+            assert tmpl.name == folder.name

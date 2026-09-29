@@ -2,12 +2,48 @@ Usage: cli create [OPTIONS] [DESCRIPTION]
 
   Create a new sandbox.
 
-  Optionally provide a natural-language DESCRIPTION to auto-select template.
+  Exactly one route is taken, and it must be explicit:
+
+    ebx create --template base  →  launch the 'base' template
+    ebx create --template NAME  →  launch NAME directly (no AI)
+    ebx create "DESCRIPTION"    →  Qwen Code generates a template, builds
+                                  and deploys it, then launches a sandbox;
+                                  the agent researches public facts first
+                                  and asks only for details it cannot infer
+
+  DESCRIPTION and --template are mutually exclusive: passing both is rejected
+  instead of silently ignoring one of them.
+
+  Examples:
+    ebx create --template base              # explicit 'base' template
+    ebx create --template python-hello      # named template (no AI)
+    ebx create -e API_KEY=xxx -e DEBUG=1    # inject env vars
+    ebx create --upload ./app --timeout 600 # upload dir, 10-min lifetime
+    ebx create "a python data science env"  # AI-generate, build, deploy, create
+    ebx create -y "a node.js api server"    # non-interactive AI generation
+
+  Notes:
+    AI generation needs the Qwen Code CLI and a DashScope/ModelStudio key
+    ('ebx config init'). The agent researches publicly verifiable facts
+    itself (tool stack, official install method, common dependencies) and
+    only asks for private preferences or business decisions it cannot
+    infer — one question at a time in interactive sessions. Non-interactive
+    shells must pass --yes to generate without asking.
+
+  Related commands:
+    ebx list                 List existing sandboxes
+    ebx info SANDBOX_ID      Inspect a created sandbox
+    ebx template init DIR    Scaffold a new template project (local)
+    ebx template search KEY  Find reusable templates
+    ebx config init          Configure platform and Qwen Code credentials
 
 Options:
-  -T, --template TEXT      Sandbox template
+  -T, --template TEXT      Template ID or alias to launch (e.g. 'base', 'python-
+                           hello'). Defaults to 'base' when omitted. Cannot be
+                           combined with DESCRIPTION.
   -u, --upload PATH        Local file or directory to upload after creation
-  -t, --timeout INTEGER    Timeout in seconds
+  -t, --timeout INTEGER    Sandbox lifetime in seconds (positive integer;
+                           default: global --timeout)
   --request-timeout FLOAT  HTTP request timeout in seconds for the create call
                            (floor: 120s for cold starts, or your configured
                            http_timeout if larger). Increase for very slow
@@ -16,6 +52,12 @@ Options:
                            KEY=VALUE (repeatable)
   -m, --metadata TEXT      Metadata key-value pair, format KEY=VALUE
                            (repeatable)
+  -y, --yes                Skip interactive prompts (Qwen Code install,
+                           credentials, description clarification, build/deploy
+                           confirmation). Required for AI generation in non-
+                           interactive shells.
+  --acr-namespace TEXT     ACR namespace for building the AI-generated template
+                           (env: ACR_NAMESPACE, or set in .env file)
   -v, --verbose            Verbose output (DEBUG level)
-  --help                   Show this message and exit.
+  -h, --help               Show this message and exit.
 [exit_code:0]

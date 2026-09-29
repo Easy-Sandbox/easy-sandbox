@@ -6,6 +6,6 @@
 
 ```
 $ ebx download sbx-ev-001 /app/result.csv PLACEHOLDER
-Downloaded /app/result.csv -> /var/folders/cb/925wcj8128gf6p6bn1hp1cgc0000gn/T/tmppe319_i5/result.csv
+Downloaded /app/result.csv -> /var/folders/cb/925wcj8128gf6p6bn1hp1cgc0000gn/T/tmpo_evns9y/result.csv
 Exit code: 0
 ```

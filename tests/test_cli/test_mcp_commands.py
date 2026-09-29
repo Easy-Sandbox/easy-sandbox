@@ -7,6 +7,7 @@ import os
 from unittest.mock import patch
 
 import pytest
+import yaml
 from click.testing import CliRunner
 
 from easy_sandbox.cli.main import cli
@@ -236,9 +237,17 @@ class TestMcpDeploy:
     def test_deploy_output_dir(self, runner, tmp_path):
         """deploy --output-dir writes artifact to local directory."""
         out = tmp_path / "artifact"
-        with patch(
-            "easy_sandbox.cli.commands.mcp._read_api_key",
-            return_value="test-api-key",
+        with (
+            patch(
+                "easy_sandbox.cli.commands.mcp._read_api_key",
+                return_value="test-api-key",
+            ),
+            patch(
+                # region now falls back to the shared resolution chain
+                # (config/env/default); pin it for determinism.
+                "easy_sandbox.cli.commands.mcp.resolve_region",
+                return_value="cn-hangzhou",
+            ),
         ):
             result = runner.invoke(
                 cli,
@@ -249,9 +258,7 @@ class TestMcpDeploy:
         assert (out / "app.py").is_file()
         assert (out / "config.yaml").is_file()
         # Verify config.yaml content
-        import json as _json
-
-        cfg = _json.loads((out / "config.yaml").read_text())
+        cfg = yaml.safe_load((out / "config.yaml").read_text())
         assert cfg["function_name"] == "easy-sandbox-mcp"
         assert cfg["region"] == "cn-hangzhou"
         assert cfg["memory"] == 512
@@ -285,9 +292,7 @@ class TestMcpDeploy:
                 ],
             )
         assert result.exit_code == 0, result.output
-        import json as _json
-
-        cfg = _json.loads((out / "config.yaml").read_text())
+        cfg = yaml.safe_load((out / "config.yaml").read_text())
         assert cfg["function_name"] == "my-mcp-fn"
         assert cfg["region"] == "cn-shanghai"
         assert cfg["memory"] == 1024
@@ -315,9 +320,7 @@ class TestMcpDeploy:
                 ],
             )
         assert result.exit_code == 0, result.output
-        import json as _json
-
-        cfg = _json.loads((out / "config.yaml").read_text())
+        cfg = yaml.safe_load((out / "config.yaml").read_text())
         assert cfg["environment_variables"]["EBX_MCP_AUTH_TOKEN"] == "my-fixed-token-value"
         assert "my-fixed-token-value" not in result.output
         assert "Bearer <BEARER_TOKEN>" in result.output
@@ -345,7 +348,7 @@ class TestMcpDeploy:
 
         assert result.exit_code == 0, result.output
         assert "token is empty" in result.output
-        cfg = json.loads((out / "config.yaml").read_text())
+        cfg = yaml.safe_load((out / "config.yaml").read_text())
         assert cfg["environment_variables"]["EBX_MCP_AUTH_TOKEN"] == ""
 
     def test_deploy_empty_auth_token_env_warns_and_fails_closed(self, runner, tmp_path):
@@ -365,7 +368,7 @@ class TestMcpDeploy:
 
         assert result.exit_code == 0, result.output
         assert "token is empty" in result.output
-        cfg = json.loads((out / "config.yaml").read_text())
+        cfg = yaml.safe_load((out / "config.yaml").read_text())
         assert cfg["environment_variables"]["EBX_MCP_AUTH_TOKEN"] == ""
 
     def test_deploy_generate_token(self, runner, tmp_path):
@@ -386,9 +389,7 @@ class TestMcpDeploy:
                 ],
             )
         assert result.exit_code == 0, result.output
-        import json as _json
-
-        cfg = _json.loads((out / "config.yaml").read_text())
+        cfg = yaml.safe_load((out / "config.yaml").read_text())
         token = cfg["environment_variables"].get("EBX_MCP_AUTH_TOKEN", "")
         assert len(token) > 16  # urlsafe_b64 tokens are long
 
@@ -434,7 +435,7 @@ class TestMcpDeploy:
 
         assert result.exit_code == 0, result.output
         read_api_key.assert_not_called()
-        cfg = json.loads((out / "config.yaml").read_text())
+        cfg = yaml.safe_load((out / "config.yaml").read_text())
         assert cfg["environment_variables"]["E2B_API_KEY"] == "cli-api-key"
 
     def test_deploy_session_affinity_flag(self, runner, tmp_path):
@@ -455,9 +456,7 @@ class TestMcpDeploy:
                 ],
             )
         assert result.exit_code == 0, result.output
-        import json as _json
-
-        cfg = _json.loads((out / "config.yaml").read_text())
+        cfg = yaml.safe_load((out / "config.yaml").read_text())
         assert cfg["http_trigger"]["enable_session_affinity"] is True
 
     def test_deploy_no_session_affinity_flag(self, runner, tmp_path):
@@ -479,7 +478,7 @@ class TestMcpDeploy:
             )
 
         assert result.exit_code == 0, result.output
-        cfg = json.loads((out / "config.yaml").read_text())
+        cfg = yaml.safe_load((out / "config.yaml").read_text())
         assert cfg["http_trigger"]["enable_session_affinity"] is False
 
     def test_deploy_custom_domain(self, runner, tmp_path):
@@ -501,9 +500,7 @@ class TestMcpDeploy:
                 ],
             )
         assert result.exit_code == 0, result.output
-        import json as _json
-
-        cfg = _json.loads((out / "config.yaml").read_text())
+        cfg = yaml.safe_load((out / "config.yaml").read_text())
         assert cfg["custom_domain"] == "mcp.example.com"
 
     def test_deploy_without_output_dir(self, runner):

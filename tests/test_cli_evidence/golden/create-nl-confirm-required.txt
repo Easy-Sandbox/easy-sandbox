@@ -1,0 +1,9 @@
+[exit_code:1]
+[stderr]
+... Assessing description
+... Generating template
+
+✓ AI generated template: ebx-nl-python-ev001
+    Dockerfile:    /home/user/.ebx/generated/ebx-nl-python-ev001/Dockerfile
+    template.yaml: /home/user/.ebx/generated/ebx-nl-python-ev001/template.yaml
+Confirmation required to build and deploy the AI-generated template. Use --yes/-y to skip in non-interactive mode.

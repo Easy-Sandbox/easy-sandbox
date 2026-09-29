@@ -13,7 +13,7 @@ import json
 import os
 import shutil
 import socket
-import subprocess  # noqa: S404
+import subprocess
 import threading
 import time
 from http.server import ThreadingHTTPServer
@@ -108,7 +108,7 @@ def git_repo(tmp_path: Any) -> Any:
         "GIT_COMMITTER_NAME": "Test",
         "GIT_COMMITTER_EMAIL": "t@t",
     }
-    subprocess.run(  # noqa: S603, S607
+    subprocess.run(
         ["git", "init"],
         cwd=str(repo),
         capture_output=True,
@@ -117,14 +117,14 @@ def git_repo(tmp_path: Any) -> Any:
     )
     # Create an initial file and commit
     (repo / "hello.txt").write_text("hello\n")
-    subprocess.run(  # noqa: S603, S607
+    subprocess.run(
         ["git", "add", "."],
         cwd=str(repo),
         capture_output=True,
         check=True,
         env=env,
     )
-    subprocess.run(  # noqa: S603, S607
+    subprocess.run(
         ["git", "commit", "-m", "init"],
         cwd=str(repo),
         capture_output=True,
@@ -335,7 +335,7 @@ class TestGitDiff:
         # Modify and stage a file
         with open(os.path.join(git_repo, "hello.txt"), "w") as f:
             f.write("staged change\n")
-        subprocess.run(  # noqa: S603, S607
+        subprocess.run(
             ["git", "-C", git_repo, "add", "hello.txt"],
             capture_output=True,
             check=True,
@@ -366,7 +366,7 @@ class TestGitDiff:
             f.write("change a\n")
         with open(os.path.join(git_repo, "other.txt"), "w") as f:
             f.write("change b\n")
-        subprocess.run(  # noqa: S603, S607
+        subprocess.run(
             ["git", "-C", git_repo, "add", "other.txt"],
             capture_output=True,
             check=True,

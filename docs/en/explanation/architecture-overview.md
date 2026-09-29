@@ -1,7 +1,5 @@
 # Architecture Overview
 
-> **Renaming Notice**: This project has been renamed from Serverless Sandbox to **Easy Sandbox**. PyPI package: `easy-sandbox` (`pip install easy-sandbox`), CLI command: `ebx`, Python import: `easy_sandbox`.
-
 This document provides a brief overview of the Easy Sandbox architecture to help you understand the relationships between the SDK, CLI, and Server.
 
 ---
@@ -44,7 +42,7 @@ graph TB
 
 - **ebx command**: Click-based CLI tool
 - **LazyGroup**: Lazy-loaded subcommands for faster `--help` response
-- **Command groups**: auth, config, session, secret, template, mcp, deploy, skill, sandbox
+- **Command groups**: config, template, mcp, sandbox (plus top-level shortcuts: create, list, info, kill, exec, connect, upload, download, run, install, init, deploy)
 
 ### Server Layer (Inside Sandbox)
 

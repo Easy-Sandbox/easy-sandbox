@@ -1,10 +1,25 @@
 Usage: cli list [OPTIONS]
 
-  List sandboxes.
+  List sandboxes, optionally filtered by lifecycle status.
+
+  Examples:
+    ebx list
+    ebx list --status running
+    ebx list --status error --limit 50
+    ebx list --region cn-shanghai
+
+  Related commands:
+    ebx info SANDBOX_ID  Show one sandbox in detail
+    ebx create           Create a new sandbox
+    ebx kill SANDBOX_ID  Destroy a sandbox
 
 Options:
   -s, --status [running|stopped|creating|paused|error]
                                   Filter by status
-  -l, --limit INTEGER             Max results
-  --help                          Show this message and exit.
+  -l, --limit INTEGER             Maximum results (positive integer; default:
+                                  20)
+  -r, --region TEXT               Region override for this command (default:
+                                  'ebx config set region' value, else cn-
+                                  hangzhou)
+  -h, --help                      Show this message and exit.
 [exit_code:0]

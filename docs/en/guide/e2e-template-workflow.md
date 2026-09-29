@@ -41,7 +41,7 @@ ACR_NAMESPACE=your-acr-namespace
 
 ## Alternative Starting Point: Install a Template from a Registry
 
-If you'd rather not author a template from scratch, use `ebx install` (alias of `ebx template install`) to fetch a ready-made template from a GitHub repo (e.g. the examples in [awesome-templates](https://github.com/Easy-Sandbox/awesome-templates)).
+If you'd rather not author a template from scratch, use `ebx install` (alias of `ebx template install`) to fetch a ready-made template from a GitHub repo. The source of truth for official & community templates is [awesome-templates](https://github.com/Easy-Sandbox/awesome-templates) — discover templates with `ebx template search <query>` against the remote index, then install by name with `ebx template install <name>` (full `owner/repo[//subdir][@ref]` references also work).
 
 > **`install` now runs the full pipeline by default.** `ebx install <ref> --acr-namespace <ns>` **downloads → builds the image → pushes to ACR → deploys** the template via the official CreateTemplate API in a single command. To only fetch the sources into the local cache (`~/.ebx/templates/`) without building or deploying, add `--download-only`, then run `ebx template build` / `ebx template deploy` later.
 
@@ -68,7 +68,7 @@ owner/repo//subdir@v1.0   # Subdirectory + specific tag/branch/commit sha
 ./my-template             # Local directory
 ```
 
-Subdirectories are separated by a double slash `//`, and the version reference is an `@` suffix (tag, branch, or commit sha — fetched via the GitHub tarball API, no Release required). Private repositories need `--token <github-token>`.
+Subdirectories are separated by a double slash `//`, and the version reference is an `@` suffix (tag, branch, or commit sha — fetched via the GitHub tarball API, no Release required). Private repositories and higher rate limits: prefer `ebx config set github_token` (masked input, stored once in `~/.ebx/.env`) over the one-off `--token <github-token>` override, which may leak into shell history or the process list.
 
 ### Download only: inspect the sources first
 
@@ -197,7 +197,7 @@ ebx install Easy-Sandbox/awesome-templates//python-hello --acr-namespace my-ns
 
 ### Scaffold a new template (recommended)
 
-The fastest way to start is the built-in scaffold. `ebx init` (alias of `ebx template init`) generates a ready-to-edit template directory, so you no longer have to hand-write `template.yaml` / `Dockerfile` / `commands.py` from memory.
+The fastest way to start is the built-in scaffold. `ebx template init` generates a ready-to-edit template directory, so you no longer have to hand-write `template.yaml` / `Dockerfile` / `commands.py` from memory.
 
 When the `DIRECTORY` argument is omitted, the scaffold creates a new subdirectory `./<name>` in the current working directory. The `<name>` is resolved by priority: `--name` > scaffold case name (the `-t` value) > template name from `--from`.
 
@@ -226,21 +226,7 @@ Next steps:
   ebx install ./my-template --acr-namespace <ns>
 ```
 
-The top-level `ebx init` shortcut accepts the same options and has the same DIRECTORY auto-creation behaviour:
-
-```text
-Usage: ebx init [OPTIONS] [DIRECTORY]
-
-  Scaffold a new template (shortcut for 'ebx template init').
-
-Options:
-  -t, --template TEXT  Built-in scaffold case (python, node, minimal)
-  --from TEXT          Fetch template source from a registry ref
-  --name TEXT          Template name
-  --list               List available scaffold cases
-  --force              Overwrite existing files
-  --help               Show this message and exit.
-```
+> Scaffolding and credentials setup are separate commands: `ebx template init` (this section) writes local files only, while `ebx config init` stores credentials and `ebx create` launches a cloud sandbox. `ebx init` is a top-level shortcut delegating to the exact same command as `ebx template init`.
 
 ### Understand the generated files
 
@@ -342,7 +328,7 @@ custom_commands:
         description: "Test path"
 ```
 
-For more advanced templates (with a `commands.py` server-side command registration), see the [node-web example](../../../examples/templates/node-web/).
+For more advanced templates (with a `commands.py` server-side command registration), see the [node-web example](https://github.com/Easy-Sandbox/awesome-templates/tree/main/node-web) in the template source-of-truth repository.
 
 ---
 
@@ -461,7 +447,7 @@ CLI flags > declarations in `template.yaml` > hardcoded defaults. See the [CLI R
 
 ### CLI workflow (real run transcript)
 
-> **About the output below**: all of it was captured from **real `ebx` commands executed on 2026-09-28 in the cn-hangzhou region** — nothing is fabricated. To keep the key results focused, the capability-fallback WARNING each command prints on stderr (expected when `base` has no locally cached `template.yaml`) and the duplicate timestamped log lines are omitted. The sandbox ID `sbx-93276a52-1559-466a-8de9-19d5af644283` was really generated by this run and has the format `sbx-<UUID>`; replace `<SANDBOX_ID>` in the commands below with your own ID.
+> **About the output below**: all of it was captured from **real `ebx` commands executed on 2026-09-28 in the cn-hangzhou region** — nothing is fabricated. To keep the key results focused, the capability-fallback warning that each command prints **once** on stderr (expected when `base` has no locally cached `template.yaml`) is omitted. Since task 167 that warning is a single `WARNING:` line on the diagnostic channel — results stay on stdout and never mix with it — so the formerly duplicated timestamped log line is gone. The sandbox ID `sbx-93276a52-1559-466a-8de9-19d5af644283` was really generated by this run and has the format `sbx-<UUID>`; replace `<SANDBOX_ID>` in the commands below with your own ID.
 
 **① Create a sandbox**
 
@@ -765,4 +751,4 @@ For more, see [Troubleshooting](troubleshooting.md) and the [Error Codes Referen
 - [Authentication](authentication.md) — API Key / AK-SK dual authentication modes
 - [Environment Variables](environment-variables.md) — Sandbox env var injection and scoping
 - [SDK Usage Guide](sdk-usage.md) — Complete Python SDK usage
-- [Example Templates](../../../examples/templates/) — Ready-to-use template examples
+- [awesome-templates source of truth](https://github.com/Easy-Sandbox/awesome-templates) — the single source of truth for official & community template content, the index, and publishing (`ebx template search` / `ebx template install`)

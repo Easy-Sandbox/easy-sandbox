@@ -1,11 +1,22 @@
 Usage: cli template delete [OPTIONS] TEMPLATE_ID
 
-  Delete a custom template from the platform.
+  Delete a custom template from the remote platform.
 
-  Removes the template identified by TEMPLATE_ID from the remote platform.  This
-  does NOT affect the local cache (~/.ebx/templates/).
+  This irreversible operation does not remove the local template cache.
+  Confirmation is required unless --yes is supplied.
+
+  Examples:
+    ebx template delete tmpl-abc123
+    ebx template delete tmpl-abc123 --yes --region cn-shanghai
+
+  Related commands:
+    ebx template info TEMPLATE_ID  Verify the target before deletion
+    ebx template list              Confirm the template was removed
+    ebx template install REF       Reinstall a template
 
 Options:
-  -y, --yes  Skip confirmation prompt
-  --help     Show this message and exit.
+  -y, --yes          Skip confirmation prompt
+  -r, --region TEXT  Region override for this command (default: 'ebx config set
+                     region' value, else cn-hangzhou)
+  -h, --help         Show this message and exit.
 [exit_code:0]

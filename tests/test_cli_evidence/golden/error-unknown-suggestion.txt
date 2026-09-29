@@ -1,0 +1,6 @@
+[exit_code:2]
+[stderr]
+Usage: cli [OPTIONS] [COMMAND] [ARGS]...
+Try 'cli --help' for help.
+
+Error: No such command 'crate'. Did you mean 'create'?

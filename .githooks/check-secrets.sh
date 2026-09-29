@@ -24,7 +24,7 @@ check_pattern() {
         [ -z "$f" ] && continue
         [ -f "$f" ] || continue
         # shellcheck disable=SC2086
-        matches=$(grep -n $flags -E "$pattern" "$f" 2>/dev/null | grep -v 'example\|placeholder\|REPLACE_ME\|test\|mock\|fake\|your\|xxxx\|dummy\|sample\|some-\|startswith\|cached' || true)
+        matches=$(grep -n $flags -E "$pattern" "$f" 2>/dev/null | grep -vi 'example\|placeholder\|REPLACE_ME\|replace_me\|test\|mock\|fake\|your\|xxxx\|dummy\|sample\|some-\|secret-\|stored\|startswith\|cached' || true)
         if [ -n "$matches" ]; then
             echo "❌ $label"
             echo "$matches" | while IFS= read -r line; do

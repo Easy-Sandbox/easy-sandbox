@@ -36,7 +36,14 @@ def process_list(ctx: click.Context, sandbox_id: str) -> None:
     """List running processes in a sandbox.
 
     Examples:\n
-        ebx sandbox process list abc123
+        ebx sandbox process list abc123\n
+        ebx --json sandbox process list abc123
+
+    \b
+    Related commands:
+      ebx sandbox process info SANDBOX_ID PID
+      ebx sandbox process start SANDBOX_ID --command CMD
+      ebx sandbox system metrics SANDBOX_ID
     """
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -67,7 +74,14 @@ def process_list(ctx: click.Context, sandbox_id: str) -> None:
 @click.command("start")
 @click.argument("sandbox_id")
 @click.option("--command", "-c", "cmd", required=True, help="Command to execute")
-@click.option("--timeout", "-t", "cmd_timeout", type=int, default=300, help="Timeout in seconds")
+@click.option(
+    "--timeout",
+    "-t",
+    "cmd_timeout",
+    type=int,
+    default=300,
+    help="Command timeout in seconds (positive integer; default: 300)",
+)
 @click.option("--cwd", default="", help="Working directory")
 @click.pass_context
 @handle_errors
@@ -85,6 +99,12 @@ def process_start(
     Examples:\n
         ebx sandbox process start abc123 --command "python app.py"\n
         ebx sandbox process start abc123 -c "node server.js" --cwd /app
+
+    \b
+    Related commands:
+      ebx sandbox process list SANDBOX_ID
+      ebx sandbox shell-stream SANDBOX_ID --command CMD
+      ebx exec SANDBOX_ID CMD
     """
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -131,7 +151,14 @@ def process_info(ctx: click.Context, sandbox_id: str, pid: int) -> None:
     Uses ps to query process information from the sandbox.
 
     Examples:\n
-        ebx sandbox process info abc123 1234
+        ebx sandbox process info abc123 1234\n
+        ebx --json sandbox process info abc123 1234
+
+    \b
+    Related commands:
+      ebx sandbox process list SANDBOX_ID
+      ebx sandbox process signal SANDBOX_ID PID
+      ebx sandbox system metrics SANDBOX_ID
     """
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -180,7 +207,7 @@ def process_info(ctx: click.Context, sandbox_id: str, pid: int) -> None:
     "sig",
     type=int,
     default=15,
-    help="Signal number (default: 15/SIGTERM)",
+    help="POSIX signal number: 2=SIGINT, 9=SIGKILL, 15=SIGTERM (default: 15)",
 )
 @click.pass_context
 @handle_errors
@@ -197,6 +224,12 @@ def process_signal(
     Examples:\n
         ebx sandbox process signal abc123 1234\n
         ebx sandbox process signal abc123 1234 --signal 9
+
+    \b
+    Related commands:
+      ebx sandbox process info SANDBOX_ID PID
+      ebx sandbox process list SANDBOX_ID
+      ebx sandbox process start SANDBOX_ID --command CMD
     """
     from easy_sandbox.utils.async_bridge import run_sync
 
@@ -215,7 +248,20 @@ def process_signal(
 @click.group()
 @click.pass_context
 def process(ctx: click.Context) -> None:
-    """Process management in a sandbox (list, start, info, signal)."""
+    """Inspect, run, and signal processes inside a sandbox.
+
+    \b
+    Examples:
+      ebx sandbox process list abc123
+      ebx sandbox process start abc123 --command "python app.py"
+      ebx sandbox process info abc123 1234
+
+    \b
+    Related commands:
+      ebx exec SANDBOX_ID CMD
+      ebx sandbox shell-stream SANDBOX_ID --command CMD
+      ebx sandbox system metrics SANDBOX_ID
+    """
     ctx.ensure_object(dict)
 
 

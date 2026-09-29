@@ -62,7 +62,7 @@ class SandboxRequestHandler(BaseHTTPRequestHandler):
     """
 
     # Silence per-request log lines in production; tests can override.
-    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+    def log_message(self, format: str, *args: Any) -> None:
         """Suppress default stderr logging."""
 
     # ------------------------------------------------------------------ #
@@ -197,7 +197,7 @@ class SandboxRequestHandler(BaseHTTPRequestHandler):
 
         try:
             response = route.handler(request)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logging.getLogger(__name__).exception(
                 "Unhandled exception in handler %s: %s",
                 route.name,
@@ -214,7 +214,7 @@ class SandboxRequestHandler(BaseHTTPRequestHandler):
         """Invoke a streaming (SSE) handler and flush its events."""
         try:
             result = route.handler(request)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logging.getLogger(__name__).exception(
                 "Unhandled exception in streaming handler %s: %s",
                 route.name,
@@ -243,15 +243,15 @@ class SandboxRequestHandler(BaseHTTPRequestHandler):
     # Method entry points
     # ------------------------------------------------------------------ #
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         """Handle GET requests."""
         self._dispatch("GET")
 
-    def do_POST(self) -> None:  # noqa: N802
+    def do_POST(self) -> None:
         """Handle POST requests."""
         self._dispatch("POST")
 
-    def do_DELETE(self) -> None:  # noqa: N802
+    def do_DELETE(self) -> None:
         """Handle DELETE requests."""
         self._dispatch("DELETE")
 
@@ -274,7 +274,7 @@ class SandboxServer:
 
     def __init__(
         self,
-        host: str = "0.0.0.0",  # noqa: S104
+        host: str = "0.0.0.0",
         registry: CommandRegistry | None = None,
         route_table: RouteTable | None = None,
         pty_port: int | None = None,
@@ -359,7 +359,7 @@ class SandboxServer:
 
 def start(
     port: int = 9000,
-    host: str = "0.0.0.0",  # noqa: S104
+    host: str = "0.0.0.0",
     registry: CommandRegistry | None = None,
 ) -> None:
     """Convenience function — create a :class:`SandboxServer` and serve.

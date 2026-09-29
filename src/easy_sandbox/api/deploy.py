@@ -219,7 +219,7 @@ class DeployModule:
         instruction: str,
         *,
         max_wall_time: str = "10m",
-        max_tool_calls: int = 100,
+        max_session_turns: int = 100,
         on_progress: Callable[[str], None] | None = None,
     ) -> DeployResult:
         """Deploy a local project using the qwen-code agent.
@@ -228,7 +228,9 @@ class DeployModule:
             project_path: Local path to the project directory.
             instruction: Natural-language description / instruction.
             max_wall_time: Maximum wall-clock time (e.g. ``'10m'``, ``'600s'``).
-            max_tool_calls: Maximum number of tool calls for qwen-code.
+            max_session_turns: Maximum number of qwen-code session turns
+                (user/model/tool turns). Exceeding it makes qwen-code exit
+                with code 53, reported as ``turn_limit_exceeded``.
             on_progress: Optional callback invoked with progress messages.
 
         Returns:
@@ -250,7 +252,7 @@ class DeployModule:
         prompt = _build_prompt(instruction)
         cmd = self._build_qwen_command(
             prompt=prompt,
-            max_tool_calls=max_tool_calls,
+            max_session_turns=max_session_turns,
         )
 
         logger.info("Running qwen-code: %s", cmd)
@@ -311,11 +313,22 @@ class DeployModule:
     def _build_qwen_command(
         *,
         prompt: str,
-        max_tool_calls: int = 100,
+        max_session_turns: int = 100,
     ) -> str:
-        """Build the ``qwen`` CLI command string."""
+        """Build the ``qwen`` CLI command string.
+
+        The prompt travels as a positional argument (verified against
+        qwen-code 0.15.11 and 0.23.0: the legacy ``-p`` flag is deprecated
+        upstream and must not be used).  The turn budget travels as the
+        official ``--max-session-turns`` flag (an integer capping
+        user/model/tool turns in the run); qwen-code exits with code 53
+        when it is exceeded.
+        """
         safe_prompt = shlex.quote(prompt)
-        return f"qwen -p {safe_prompt} --yolo --output-format json --max-turns {max_tool_calls}"
+        return (
+            f"qwen {safe_prompt} --yolo --output-format json "
+            f"--max-session-turns {max_session_turns}"
+        )
 
     @staticmethod
     def _parse_result(

@@ -78,14 +78,20 @@ def format_result(stdout: str, stderr: str, exit_code: int) -> str:
 _RUN_SYNC = "easy_sandbox.utils.async_bridge.run_sync"
 _SANDBOX_CONNECT = "easy_sandbox.api.sandbox.Sandbox.connect"
 _SANDBOX_CREATE = "easy_sandbox.api.sandbox.Sandbox.create"
-_SANDBOX_CONNECT = "easy_sandbox.api.sandbox.Sandbox.connect"
-_SANDBOX_CREATE = "easy_sandbox.api.sandbox.Sandbox.create"
 _CFG_CMD = "easy_sandbox.cli.commands.config_cmd"
 _MCP_CMD = "easy_sandbox.cli.commands.mcp"
 _LOAD_CFG = "easy_sandbox.transport.config.load_config"
 _CREATE_AUTH = "easy_sandbox.transport.auth.create_auth_provider"
 _HTTP_CLIENT = "easy_sandbox.transport.http.HttpClient"
 _SANDBOX_PROTO = "easy_sandbox.protocol.sandbox.SandboxProtocol"
+_QWEN_FIND_BIN = "easy_sandbox.agent.qwen_code.find_qwen_code_binary"
+_QWEN_RESOLVE_CREDS = "easy_sandbox.agent.qwen_code.resolve_qwen_code_credentials"
+_CODEGEN_PREPARE = "easy_sandbox.agent.codegen.prepare_workdir"
+_CODEGEN_GEN = "easy_sandbox.agent.codegen.generate_template_files"
+_CLARIFY_RESEARCH = "easy_sandbox.agent.clarify.run_research"
+_CLARIFY_EVAL = "easy_sandbox.agent.clarify.evaluate"
+_TMPL_DO_DEPLOY = "easy_sandbox.cli.commands.template.do_deploy"
+_TMPL_NS = "easy_sandbox.cli.commands.template.resolve_acr_namespace"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -130,8 +136,32 @@ def _make_sb(
 # Generic mock factories  (each returns a *callable* → ContextManager)
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _cfg(toml: str = "", env: str = ""):
-    """Config command mock — patches _CONFIG_FILE / _EBX_DIR / _ENV_FILE."""
+# Process-environment variables that could leak into config reads; every
+# _cfg() context clears them all, then optionally re-populates via extra_env.
+_CFG_ENV_VARS = (
+    "E2B_API_KEY",
+    "E2B_API_URL",
+    "E2B_DOMAIN",
+    "SANDBOX_API_KEY",
+    "SANDBOX_API_BASE_URL",
+    "SANDBOX_REGION",
+    "SANDBOX_HTTP_TIMEOUT",
+    "ALICLOUD_ACCESS_KEY_ID",
+    "ALICLOUD_ACCESS_KEY_SECRET",
+    "AccessKey",
+    "AccessSecret",
+    "GITHUB_TOKEN",
+    "EBX_QWEN_CODE_API_KEY",
+    "EBX_LLM_API_KEY",
+)
+
+
+def _cfg(toml: str = "", env: str = "", extra_env: dict[str, str] | None = None):
+    """Config command mock — patches _CONFIG_FILE / _EBX_DIR / _ENV_FILE.
+
+    *env* is the content of the ~/.ebx/.env file; *extra_env* injects process
+    environment variables (the full _CFG_ENV_VARS list is cleared first).
+    """
 
     @contextmanager
     def _ctx() -> Iterator[dict[str, Any]]:
@@ -143,8 +173,10 @@ def _cfg(toml: str = "", env: str = ""):
             if env:
                 ef.write_text(env)
             # Temporarily remove env-vars that could leak into config reads
-            saved = {k: os.environ.pop(k) for k in ("E2B_API_KEY", "SANDBOX_API_KEY") if k in os.environ}
+            saved = {k: os.environ.pop(k) for k in _CFG_ENV_VARS if k in os.environ}
+            injected = extra_env or {}
             try:
+                os.environ.update(injected)
                 with (
                     patch(f"{_CFG_CMD}._CONFIG_FILE", cf),
                     patch(f"{_CFG_CMD}._EBX_DIR", tmp),
@@ -152,6 +184,8 @@ def _cfg(toml: str = "", env: str = ""):
                 ):
                     yield {}
             finally:
+                for key in injected:
+                    os.environ.pop(key, None)
                 os.environ.update(saved)
 
     return _ctx
@@ -231,9 +265,15 @@ def _rs_err(exc: BaseException):
 def _mcp_install_cursor():
     @contextmanager
     def _ctx() -> Iterator[dict[str, Any]]:
-        with tempfile.TemporaryDirectory() as td:
-            with patch(f"{_MCP_CMD}._get_cursor_config_path", return_value=Path(td) / "mcp.json"):
-                yield {}
+        # ``mcp install`` resolves the path via the module-level
+        # ``_IDE_CONFIG_MAP`` (captured at import time), so patching the
+        # function alone is ineffective. Patch ``Path.home`` instead — this
+        # also isolates ``_read_api_key``'s ~/.ebx/.env lookup.
+        with (
+            tempfile.TemporaryDirectory() as td,
+            patch("pathlib.Path.home", return_value=Path(td)),
+        ):
+            yield {}
 
     return _ctx
 
@@ -254,30 +294,82 @@ def _mcp_status():
     return _ctx
 
 
-def _create_nl(tmpl: str, display: str, kw: str, cpu: int = 2, mem: int = 4096):
-    """Mock for NL inference → Sandbox.create."""
+def _create_codegen(
+    description: str = "运行 python",
+    template_name: str = "ebx-nl-python-ev001",
+    assessment: Any = None,
+):
+    """Mock the AI codegen pipeline → deploy → Sandbox.create.
+
+    Patches the Qwen Code adapter (binary + credentials), the two
+    clarification seams (``clarify.run_research`` — the plain research
+    round that settles the public facts on the native session — and
+    ``clarify.evaluate`` — the one structured assessment round the create
+    flow runs before generating), the generation workspace, the codegen
+    orchestrator, the build/deploy pipeline, and ``run_sync`` so the whole
+    ``ebx create "<description>"`` path runs offline.
+
+    *assessment* is the assessment object the mocked round returns; ``None``
+    models a fully complete description (the one-question-per-round loop
+    asks nothing).
+    """
 
     @contextmanager
     def _ctx() -> Iterator[dict[str, Any]]:
-        from easy_sandbox.agent.infer import InferResult
+        from easy_sandbox.agent.clarify import ClarifyAssessment
+        from easy_sandbox.agent.codegen import CodegenResult
+        from easy_sandbox.agent.qwen_code import QwenCodeCredentials
 
-        sb = _make_sb(tmpl=tmpl)
-        calls = [0]
+        sb = _make_sb(tmpl=template_name)
+        # Stable placeholder workspace so evidence output is platform-neutral
+        # (the real path is ~/.ebx/generated/<slug>-<stamp>-<token>).
+        workdir = Path("/home/user/.ebx/generated") / template_name
+        gen = CodegenResult(
+            workdir=workdir,
+            template_name=template_name,
+            dockerfile=workdir / "Dockerfile",
+            template_yaml=workdir / "template.yaml",
+            description=description,
+            raw_output="generated",
+        )
+        creds = QwenCodeCredentials(
+            source="qwen-stored",
+            api_key="sk-ev",
+            base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
+            model="qwen3-coder-plus",
+        )
+        resolved = (
+            assessment
+            if assessment is not None
+            else ClarifyAssessment(completeness=1.0, question=None)
+        )
+        with (
+            patch(_QWEN_FIND_BIN, return_value=Path("/opt/qwen/bin/qwen")),
+            patch(_QWEN_RESOLVE_CREDS, return_value=creds),
+            patch(_CODEGEN_PREPARE, return_value=(workdir, template_name)),
+            patch(_CLARIFY_RESEARCH, return_value=True),
+            patch(_CLARIFY_EVAL, return_value=resolved),
+            patch(_CODEGEN_GEN, return_value=gen),
+            patch(
+                _TMPL_DO_DEPLOY,
+                return_value={"TemplateID": "tmpl-ev-ai-001", "Status": "success"},
+            ),
+            patch(_TMPL_NS, return_value="acr-ev-ns"),
+            patch(f"{_CFG_CMD}.load_config_dict", return_value={}),
+            patch(f"{_CFG_CMD}.read_env_var", return_value=None),
+            patch(_RUN_SYNC, return_value=sb),
+        ):
+            yield {}
 
-        def _se(_c: Any) -> Any:
-            calls[0] += 1
-            if calls[0] == 1:
-                return InferResult(
-                    template=tmpl,
-                    display_name=display,
-                    cpu=cpu,
-                    memory=mem,
-                    confidence=0.88,
-                    reasoning=f"关键词匹配: {kw}",
-                )
-            return sb
+    return _ctx
 
-        with patch(_RUN_SYNC, side_effect=_se):
+
+def _create_codegen_not_installed():
+    """Mock: Qwen Code binary missing → Quick Setup + E2005 (no deploy)."""
+
+    @contextmanager
+    def _ctx() -> Iterator[dict[str, Any]]:
+        with patch(_QWEN_FIND_BIN, return_value=None):
             yield {}
 
     return _ctx
@@ -337,6 +429,43 @@ def _download_file():
             local = str(Path(td) / "result.csv")
             with patch(_SANDBOX_CONNECT, new_callable=AsyncMock, return_value=sb):
                 yield {"command": ["download", "sbx-ev-001", "/app/result.csv", local]}
+
+    return _ctx
+
+
+def _connect_repl():
+    """Mock for ``ebx connect`` — deterministic three-line REPL session.
+
+    Line 1 (``ls /app``) succeeds and registers ``ls`` as a session-verified
+    executable; line 2 (``sl``) hits the structured envd "not found" error so
+    the golden file shows the single friendly notice plus the spelling hint;
+    line 3 exits.  ``builtins.input`` is patched so no stdin is needed.
+    """
+
+    @contextmanager
+    def _ctx() -> Iterator[dict[str, Any]]:
+        from easy_sandbox.models.errors import EnvdRpcError
+        from easy_sandbox.models.process import ProcessResult
+
+        sb = _make_sb()
+        ls_result = ProcessResult(stdout="app.py\n", stderr="", exit_code=0, execution_time=0.1)
+        missing = EnvdRpcError(
+            "envd rejected process.Process/Start with HTTP 500",
+            status_code=500,
+            rpc_path="/process.Process/Start",
+            envd_error={
+                "error": {
+                    "code": 500,
+                    "message": 'exec: "sl": executable file not found in $PATH',
+                }
+            },
+        )
+        sb.commands.run = AsyncMock(side_effect=[ls_result, missing])
+        with (
+            patch(_SANDBOX_CONNECT, new_callable=AsyncMock, return_value=sb),
+            patch("builtins.input", side_effect=["ls /app", "sl", "exit"]),
+        ):
+            yield {}
 
     return _ctx
 
@@ -517,12 +646,91 @@ def _tmpl_install_builtin():
     return _ctx
 
 
+# ─── GitHub rate-limit mocks (task 206) ───────────────────────────────────
+# The anonymous rate limit is injected at the httpx boundary so the real
+# production branches run: the template-index 403 branch and the tarball
+# 403 branch both translate into the unified GitHubRateLimitError guidance.
+
+
+def _rate_limited_response(url: str, *, status: int = 403) -> Any:
+    """Build a real ``httpx.Response`` shaped like GitHub's anonymous rate limit."""
+    import httpx
+
+    request = httpx.Request("GET", url)
+    return httpx.Response(
+        status,
+        request=request,
+        headers={"X-RateLimit-Remaining": "0"},
+        text='{"message": "API rate limit exceeded for anonymous requests."}',
+    )
+
+
+def _mock_httpx_client(response: Any) -> MagicMock:
+    """A stand-in ``httpx.AsyncClient`` whose GET returns *response*."""
+    client = MagicMock()
+    client.get = AsyncMock(return_value=response)
+    client.__aenter__ = AsyncMock(return_value=client)
+    client.__aexit__ = AsyncMock(return_value=False)
+    return client
+
+
+@contextmanager
+def _without_env(*names: str) -> Iterator[None]:
+    """Temporarily remove *names* from the process environment."""
+    saved = {k: os.environ.pop(k) for k in names if k in os.environ}
+    try:
+        yield
+    finally:
+        os.environ.update(saved)
+
+
+def _tmpl_search_rate_limited():
+    """`template search` hitting the real index client's 403 rate-limit branch."""
+
+    @contextmanager
+    def _ctx() -> Iterator[dict[str, Any]]:
+        from easy_sandbox.utils.template_index import DEFAULT_INDEX_URL
+
+        client = _mock_httpx_client(_rate_limited_response(DEFAULT_INDEX_URL))
+        config = _cfg()()  # isolate ~/.ebx storage + credential env vars
+        with (
+            tempfile.TemporaryDirectory() as td,
+            config,
+            patch("easy_sandbox.utils.template_index.httpx.AsyncClient", return_value=client),
+            patch("easy_sandbox.utils.template_index.INDEX_CACHE_DIR", Path(td)),
+            _without_env("EBX_TEMPLATE_INDEX_URL"),
+        ):
+            yield {}
+
+    return _ctx
+
+
+def _tmpl_install_rate_limited():
+    """`template install owner/repo//subdir@ref` hitting the real tarball 403."""
+
+    @contextmanager
+    def _ctx() -> Iterator[dict[str, Any]]:
+        url = "https://api.github.com/repos/Easy-Sandbox/awesome-templates/tarball/v1.0"
+        client = _mock_httpx_client(_rate_limited_response(url))
+        config = _cfg()()  # isolate ~/.ebx storage + credential env vars
+        with (
+            tempfile.TemporaryDirectory() as td,
+            config,
+            patch("easy_sandbox.utils.registry.httpx.AsyncClient", return_value=client),
+            patch("easy_sandbox.utils.registry.TEMPLATE_CACHE_DIR", Path(td)),
+        ):
+            yield {}
+
+    return _ctx
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Registry builder
 # ═══════════════════════════════════════════════════════════════════════════
 
 
 def _build_registry() -> list[EvidenceCase]:
+    from easy_sandbox.agent.clarify import ClarifyAssessment
     from easy_sandbox.models.errors import (
         AuthenticationError,
         CommandTimeoutError,
@@ -535,7 +743,7 @@ def _build_registry() -> list[EvidenceCase]:
     E = EvidenceCase
     cases: list[EvidenceCase] = []
 
-    # ── Help (27) ──────────────────────────────────────────────────────
+    # ── Help (28) ──────────────────────────────────────────────────────
     _help = [
         ([], "ebx"),
         (["create"], "create"),
@@ -552,11 +760,12 @@ def _build_registry() -> list[EvidenceCase]:
         (["config", "get"], "config-get"),
         (["config", "set"], "config-set"),
         (["config", "list"], "config-list"),
-        (["config", "reset"], "config-reset"),
+        (["config", "init"], "config-init"),
         (["template"], "template"),
         (["template", "list"], "template-list"),
         (["template", "info"], "template-info"),
         (["template", "build"], "template-build"),
+        (["template", "init"], "template-init"),
         (["template", "delete"], "template-delete"),
         (["template", "install"], "template-install"),
         (["mcp"], "mcp"),
@@ -571,7 +780,7 @@ def _build_registry() -> list[EvidenceCase]:
     # ── Version (1) ────────────────────────────────────────────────────
     cases.append(E(["--version"], "--version", "A", None, "version"))
 
-    # ── Config (9) ─────────────────────────────────────────────────────
+    # ── Config (20) ────────────────────────────────────────────────────
     cases.extend(
         [
             E(["config", "get", "region"], "config get region（默认值）", "A", _cfg(), "config-get-region"),
@@ -583,7 +792,28 @@ def _build_registry() -> list[EvidenceCase]:
                 _cfg(env="E2B_API_KEY=sk-test-abcdef123456\n"),
                 "config-get-apikey-set",
             ),
+            E(
+                ["config", "get", "api_key"],
+                "config get api_key（进程环境变量, masked）",
+                "A",
+                _cfg(extra_env={"E2B_API_KEY": "sk-env-abcdef123456"}),
+                "config-get-apikey-env",
+            ),
             E(["config", "get", "unknown_key"], "config get unknown_key（错误）", "A", _cfg(), "config-get-unknown"),
+            E(
+                ["config", "get", "qwen_code_model"],
+                "config get qwen_code_model（业务默认）",
+                "A",
+                _cfg(),
+                "config-get-qwen-model",
+            ),
+            E(
+                ["config", "get", "llm_model"],
+                "config get llm_model（not set）",
+                "A",
+                _cfg(),
+                "config-get-llm-model-unset",
+            ),
             E(["config", "set", "region", "cn-shanghai"], "config set region", "A", _cfg(), "config-set-region"),
             E(
                 ["config", "set", "llm_api_key", "sk-mykey12345678"],
@@ -592,14 +822,73 @@ def _build_registry() -> list[EvidenceCase]:
                 _cfg(),
                 "config-set-llm-apikey",
             ),
+            E(
+                ["config", "set", "region", ""],
+                'config set region ""（清除, 回落默认）',
+                "A",
+                _cfg(toml='[transport]\nregion = "cn-shanghai"\n'),
+                "config-set-empty-default",
+            ),
+            E(
+                ["config", "set", "api_key", ""],
+                'config set api_key ""（清除凭证）',
+                "A",
+                _cfg(env="E2B_API_KEY=sk-test-abcdef123456\n"),
+                "config-set-empty-credential",
+            ),
+            E(
+                ["config", "set", "region", ""],
+                'config set region ""（env 仍生效, 值不显示）',
+                "A",
+                _cfg(
+                    toml='[transport]\nregion = "cn-shanghai"\n',
+                    extra_env={"SANDBOX_REGION": "cn-zhangjiakou"},
+                ),
+                "config-set-empty-env",
+            ),
             E(["config", "list"], "config list", "A", _cfg(), "config-list"),
             E(["--json", "config", "list"], "config list --json", "A", _cfg(), "config-list-json"),
             E(
-                ["config", "reset", "--yes"],
-                "config reset --yes",
+                ["config", "init"],
+                "config init（非 TTY：打印非交互命令）",
                 "A",
-                _cfg(toml='[transport]\nregion = "cn-shanghai"\n'),
-                "config-reset",
+                _cfg(),
+                "config-init",
+            ),
+            E(
+                ["config", "set", "github_token", "ghp_evidence1234567890"],
+                "config set github_token（masked）",
+                "A",
+                _cfg(),
+                "config-set-github-token",
+            ),
+            E(
+                ["config", "get", "github_token"],
+                "config get github_token（未设置）",
+                "A",
+                _cfg(),
+                "config-get-github-token-unset",
+            ),
+            E(
+                ["config", "get", "github_token"],
+                "config get github_token（已设置, masked）",
+                "A",
+                _cfg(env="GITHUB_TOKEN=ghp_evidence1234567890\n"),
+                "config-get-github-token-set",
+            ),
+            E(
+                ["config", "set", "github_token", ""],
+                'config set github_token ""（清除）',
+                "A",
+                _cfg(env="GITHUB_TOKEN=ghp_evidence1234567890\n"),
+                "config-set-github-token-clear",
+            ),
+            E(
+                ["config", "set", "github_token"],
+                "config set github_token（非 TTY：缺 VALUE）",
+                "A",
+                _cfg(),
+                "config-set-github-token-missing-value",
             ),
         ]
     )
@@ -619,7 +908,27 @@ def _build_registry() -> list[EvidenceCase]:
         ]
     )
 
-    # ── Create (7) ─────────────────────────────────────────────────────
+    # ── Create (11) ─────────────────────────────────────────────────────
+    # A description covering all six clarification facets (runtime,
+    # dependencies, entry command, ports, resources, data) — used by the
+    # cases that must reach a gate *after* the clarification step.
+    complete_zh = (
+        "用 Python 3.12，预装 pandas 和 jupyter，入口命令 jupyter notebook，"
+        "端口 8888，2 核 4GB 内存，上传 data.csv 数据"
+    )
+    # Mocked assessment for the "too vague" case: below the 80% gate, with a
+    # single question and a ready-to-use example — what a real Qwen Code
+    # structured round returns for "运行 python".
+    incomplete_assessment = ClarifyAssessment(
+        completeness=0.3,
+        question="需要暴露哪个端口？",
+        missing=("dependencies", "entry command", "ports", "resources", "data"),
+        example=(
+            "Python 3.12 runtime with pandas and jupyter installed, entry command "
+            "'jupyter notebook --ip 0.0.0.0', port 8888, 2 CPU 4 GB memory, upload "
+            "a data.csv dataset"
+        ),
+    )
     cases.extend(
         [
             E(
@@ -637,18 +946,41 @@ def _build_registry() -> list[EvidenceCase]:
                 "create-template-base-json",
             ),
             E(
-                ["create", "运行 python"],
-                'create NL "运行 python"',
+                ["create", "-y", "运行 python"],
+                'create NL "运行 python"（AI 生成模板）',
                 "B",
-                _create_nl("code-interpreter", "Code Interpreter", "python, 运行"),
+                _create_codegen("运行 python", "ebx-nl-python-ev001"),
                 "create-nl-python",
             ),
             E(
-                ["create", "启动 Node.js 服务"],
-                'create NL "启动 Node.js 服务"',
+                ["create", "-y", "启动 Node.js 服务"],
+                'create NL "启动 Node.js 服务"（AI 生成模板）',
                 "B",
-                _create_nl("node-web", "Node.js Web", "node.js, web", cpu=1, mem=2048),
+                _create_codegen("启动 Node.js 服务", "ebx-nl-nodejs-ev001"),
                 "create-nl-nodejs",
+            ),
+            E(
+                ["create", complete_zh],
+                "create NL 非交互描述完整（需确认）",
+                "A",
+                _create_codegen(complete_zh, "ebx-nl-python-ev001"),
+                "create-nl-confirm-required",
+            ),
+            E(
+                ["create", "运行 python"],
+                "create NL 非交互描述不完整（E2008 + 缺失项 + 示例）",
+                "A",
+                _create_codegen(
+                    "运行 python", "ebx-nl-python-ev001", incomplete_assessment
+                ),
+                "create-nl-clarify-required",
+            ),
+            E(
+                ["create", "运行 python"],
+                "create NL 未安装 Qwen Code（Quick Setup）",
+                "A",
+                _create_codegen_not_installed(),
+                "create-nl-not-installed",
             ),
             E(
                 ["create", "-e", "FOO=bar", "--template", "base"],
@@ -670,6 +1002,13 @@ def _build_registry() -> list[EvidenceCase]:
                 "A",
                 None,
                 "create-env-invalid",
+            ),
+            E(
+                ["create", "运行 python", "--template", "base"],
+                "create 同时提供描述与 --template（拒绝）",
+                "A",
+                None,
+                "create-nl-conflict",
             ),
         ]
     )
@@ -727,6 +1066,19 @@ def _build_registry() -> list[EvidenceCase]:
                 "B",
                 _exec(stdout="file1\nfile2\n"),
                 "exec-timeout-cwd",
+            ),
+        ]
+    )
+
+    # ── Connect (1) ────────────────────────────────────────────────────
+    cases.extend(
+        [
+            E(
+                ["connect", "sbx-ev-001"],
+                "connect 交互会话（命令不存在 → 单次友好提示 + 拼写建议）",
+                "B",
+                _connect_repl(),
+                "connect-repl",
             ),
         ]
     )
@@ -834,9 +1186,57 @@ def _build_registry() -> list[EvidenceCase]:
         ]
     )
 
-    # ── Error cases (4) ────────────────────────────────────────────────
+    # ── GitHub rate-limit guidance (2) ─────────────────────────────────
     cases.extend(
         [
+            E(
+                ["template", "search", "qwen"],
+                "template search（匿名限流：统一引导）",
+                "A",
+                _tmpl_search_rate_limited(),
+                "template-search-rate-limit",
+            ),
+            E(
+                ["template", "install", "Easy-Sandbox/awesome-templates//codex-agent-api@v1.0"],
+                "template install owner/repo//subdir@ref（匿名限流）",
+                "B",
+                _tmpl_install_rate_limited(),
+                "template-install-rate-limit",
+            ),
+        ]
+    )
+
+    # ── Error cases (5) ────────────────────────────────────────────────
+    cases.extend(
+        [
+            E(
+                ["create"],
+                "create 无参数（显式用法错误，不再默认 base）",
+                "A",
+                None,
+                "error-create-noargs",
+            ),
+            E(
+                ["crate"],
+                "未知顶层命令（拼写建议）",
+                "A",
+                None,
+                "error-unknown-suggestion",
+            ),
+            E(
+                ["frobnicate"],
+                "未知顶层命令（custom_commands / ebx run 引导）",
+                "A",
+                None,
+                "error-unknown-custom-hint",
+            ),
+            E(
+                ["init", "--help"],
+                "顶层 init（ebx template init 快捷别名）",
+                "A",
+                None,
+                "help-init-alias",
+            ),
             E(
                 ["create", "--template", "base"],
                 "AuthenticationError",

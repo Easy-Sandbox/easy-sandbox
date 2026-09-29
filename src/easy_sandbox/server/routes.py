@@ -15,7 +15,7 @@ from __future__ import annotations
 import base64
 import os
 import shlex
-import subprocess  # noqa: S404
+import subprocess
 from typing import Any
 
 from easy_sandbox.utils.coerce import coerce_kwargs as _coerce_kwargs
@@ -188,7 +188,7 @@ def handle_run_command(
     # 3. Execute the command function directly.
     try:
         result = cmd.fn(**coerced)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return 500, {"error": str(exc), "type": type(exc).__name__}
 
     return 200, {"result": result}
@@ -216,7 +216,7 @@ def handle_upload(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
 
     try:
         data = base64.b64decode(content_b64, validate=True)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return 400, {"error": f"Invalid base64: {exc}", "type": "ValueError"}
 
     # Enforce upload size limit (consistent with routes_files.py).
@@ -237,7 +237,7 @@ def handle_upload(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         os.makedirs(os.path.dirname(safe_path) or ".", exist_ok=True)
         with open(safe_path, "wb") as f:
             f.write(data)
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return 500, {"error": str(exc), "type": type(exc).__name__}
 
     return 200, {"path": safe_path, "bytes": len(data)}
@@ -282,7 +282,7 @@ def handle_download(path: str) -> tuple[int, dict[str, Any]]:
     try:
         with open(safe_path, "rb") as f:
             data = f.read()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return 500, {"error": str(exc), "type": type(exc).__name__}
 
     return 200, {
@@ -306,7 +306,7 @@ def handle_shell(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         return 400, {"error": "Missing or invalid 'command'", "type": "ValueError"}
 
     try:
-        proc = subprocess.run(  # noqa: S603
+        proc = subprocess.run(
             shlex.split(command),
             shell=False,
             capture_output=True,
@@ -318,7 +318,7 @@ def handle_shell(body: dict[str, Any]) -> tuple[int, dict[str, Any]]:
             "error": "Command timed out after 300s",
             "type": "TimeoutError",
         }
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return 500, {"error": str(exc), "type": type(exc).__name__}
 
     return 200, {

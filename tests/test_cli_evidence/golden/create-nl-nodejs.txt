@@ -1,11 +1,13 @@
-✓ Inference result:
-    Template: node-web
-    CPU: 1 cores  |  Memory: 2048 MB
-    Confidence: 0.88
-... Creating...
 ID        sbx-XXXXX
 Status    running
-Template  node-web
+Template  ebx-nl-nodejs-ev001
 URL       https://sbx-XXXXX.cn-hangzhou.e2b.fc.aliyuncs.com
 Sandbox sbx-XXXXX created successfully.
 [exit_code:0]
+[stderr]
+... Generating template
+
+✓ AI generated template: ebx-nl-nodejs-ev001
+    Dockerfile:    /home/user/.ebx/generated/ebx-nl-nodejs-ev001/Dockerfile
+    template.yaml: /home/user/.ebx/generated/ebx-nl-nodejs-ev001/template.yaml
+... Creating...

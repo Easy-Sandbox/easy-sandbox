@@ -6,6 +6,6 @@
 
 ```
 $ ebx --version
-cli, version 0.1.0-dev
+cli, version 0.1.0
 Exit code: 0
 ```

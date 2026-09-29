@@ -207,7 +207,7 @@ class CommandRegistry:
                 # recognised instead of being treated as plain strings.
                 try:
                     resolved_hints = typing.get_type_hints(fn)
-                except Exception:  # noqa: BLE001
+                except Exception:
                     resolved_hints = {}
                 inferred_args: list[CommandArg] = []
                 for param_name, param in sig.parameters.items():

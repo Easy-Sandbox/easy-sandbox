@@ -17,7 +17,7 @@ import json
 import os
 import queue
 import shlex
-import subprocess  # noqa: S404
+import subprocess
 import threading
 import time
 from typing import Any
@@ -83,16 +83,16 @@ def _handle_shell_stream(request: ServerRequest) -> SSEResponse | ServerResponse
     except ValueError as exc:
         return ServerResponse.error(400, f"Invalid command: {exc}", "ValueError")
 
-    def event_gen() -> Any:  # noqa: ANN401
+    def event_gen() -> Any:
         try:
-            proc = subprocess.Popen(  # noqa: S603
+            proc = subprocess.Popen(
                 args,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
                 cwd=cwd,
                 shell=False,
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             yield f"event: error\ndata: {json.dumps({'error': str(exc)})}\n\n"
             return
 
@@ -107,7 +107,7 @@ def _handle_shell_stream(request: ServerRequest) -> SSEResponse | ServerResponse
                 for raw_line in stream:
                     line = raw_line.decode("utf-8", errors="replace").rstrip("\n")
                     q.put((event_name, line))
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             finally:
                 q.put((event_name, None))  # sentinel
@@ -178,14 +178,14 @@ def _handle_process_start(request: ServerRequest) -> ServerResponse:
         return ServerResponse.error(400, f"Invalid command: {exc}", "ValueError")
 
     try:
-        proc = subprocess.Popen(  # noqa: S603
+        proc = subprocess.Popen(
             args,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             cwd=cwd,
             shell=False,
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ServerResponse.error(500, str(exc), type(exc).__name__)
 
     info = _ProcessInfo(
@@ -289,7 +289,7 @@ def _handle_process_signal(request: ServerRequest) -> ServerResponse:
         return ServerResponse.error(404, f"Process {pid} not found (os)", "NotFoundError")
     except PermissionError as exc:
         return ServerResponse.error(403, str(exc), "PermissionError")
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return ServerResponse.error(500, str(exc), type(exc).__name__)
 
     return ServerResponse.ok({"pid": pid, "signal": sig})

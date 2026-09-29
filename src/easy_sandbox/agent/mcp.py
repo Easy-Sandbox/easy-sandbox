@@ -7,7 +7,11 @@
 实现：自包含的最小 JSON-RPC 2.0 over STDIO 处理器，
 无需外部 ``mcp`` SDK 依赖。当 ``mcp`` 包可用时可平滑迁移。
 
-MCP 协议版本: 2024-11-05
+MCP 协议版本协商：本模块默认支持 STDIO 传输版本 ``2024-11-05``；
+Streamable HTTP 传输（:mod:`easy_sandbox.agent.mcp_http`）通过
+``supported_protocol_versions`` 构造参数声明 ``2025-06-18``。
+``initialize`` 回显受支持的请求版本；请求缺失或不支持时，
+回退到传输的首选（第一个）支持版本。
 """
 
 from __future__ import annotations
@@ -15,7 +19,10 @@ from __future__ import annotations
 import asyncio
 import json
 import sys
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 from easy_sandbox.agent.tools import (
     TOOL_SCHEMA_MAP,
@@ -26,7 +33,9 @@ from easy_sandbox.utils.logging import get_logger
 
 logger = get_logger("agent.mcp")
 
-# MCP protocol version
+# MCP protocol version supported by the STDIO transport — the default for
+# SandboxMCPServer. Other transports (e.g. Streamable HTTP in mcp_http.py)
+# declare their own version via the ``supported_protocol_versions`` argument.
 MCP_PROTOCOL_VERSION = "2024-11-05"
 
 SERVER_NAME = "easy-sandbox"
@@ -190,6 +199,10 @@ class SandboxMCPServer:
 
     支持 MCP 协议的 initialize / tools/list / tools/call 方法。
     当 ``mcp`` SDK 可用时可平滑替换传输层。
+
+    协议版本按 transport 协商：默认支持 STDIO 的 ``2024-11-05``；
+    其他 transport 通过 ``supported_protocol_versions`` 声明自己的版本集，
+    首个条目为缺失/不支持请求时的回退版本。
     """
 
     def __init__(
@@ -198,6 +211,7 @@ class SandboxMCPServer:
         api_url: str | None = None,
         domain: str | None = None,
         template: str = "base",
+        supported_protocol_versions: Sequence[str] | None = None,
     ) -> None:
         self._manager = SandboxManager(
             api_key=api_key,
@@ -206,6 +220,13 @@ class SandboxMCPServer:
             template=template,
         )
         self._initialized = False
+        if supported_protocol_versions is None:
+            versions: tuple[str, ...] = (MCP_PROTOCOL_VERSION,)
+        else:
+            versions = tuple(supported_protocol_versions)
+        if not versions:
+            raise ValueError("supported_protocol_versions must contain at least one version")
+        self._supported_protocol_versions = versions
 
     @property
     def manager(self) -> SandboxManager:
@@ -220,10 +241,29 @@ class SandboxMCPServer:
     # ---- MCP method handlers ----
 
     async def _handle_initialize(self, params: dict[str, Any]) -> dict[str, Any]:
-        """Handle MCP initialize request."""
+        """Handle MCP initialize request with per-transport version negotiation.
+
+        Echoes the client-requested ``protocolVersion`` when this transport
+        supports it. Otherwise — the request is missing ``protocolVersion``
+        or asks for an unsupported version — respond with the preferred
+        (first) supported version, per the MCP version negotiation rule that
+        the server replies with another protocol version it supports (the
+        client may then disconnect if it cannot accept it).
+        """
         self._initialized = True
+        requested = params.get("protocolVersion")
+        if isinstance(requested, str) and requested in self._supported_protocol_versions:
+            negotiated = requested
+        else:
+            negotiated = self._supported_protocol_versions[0]
+            logger.debug(
+                "MCP initialize: requested protocolVersion %r is missing or unsupported; "
+                "negotiating to preferred version %s",
+                requested,
+                negotiated,
+            )
         return {
-            "protocolVersion": MCP_PROTOCOL_VERSION,
+            "protocolVersion": negotiated,
             "capabilities": {
                 "tools": {"listChanged": False},
             },

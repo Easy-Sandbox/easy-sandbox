@@ -1,3 +1,6 @@
+# FIXTURE — offline test sample only, do NOT publish from this repository.
+# The single source of truth for this template (content, index, release) is:
+#   https://github.com/Easy-Sandbox/awesome-templates/tree/main/python-hello
 name: python-hello
 version: "1.0.0"
 description: "A minimal Python hello world template for testing"
@@ -6,12 +9,6 @@ tags:
   - python
   - hello-world
   - example
-
-base: ubuntu:22.04
-
-system_packages:
-  - python3
-  - python3-pip
 
 capabilities:
   - shell

@@ -1,0 +1,12 @@
+[exit_code:1]
+[stderr]
+Warning: Qwen Code CLI was not found on PATH or in ~/.ebx/bin.
+
+Quick Setup - AI template generation (Qwen Code):
+  1. Install the Qwen Code CLI (official standalone build):
+       curl -fsSL https://qwen-code-assets.oss-cn-hangzhou.aliyuncs.com/installation/install-qwen-standalone.sh | bash
+     or re-run 'ebx create "<description>"' and accept the install prompt
+     or bypass AI generation with:  ebx create --template base
+  2. Docs: https://github.com/QwenLM/qwen-code
+[E2005] Qwen Code CLI is required for AI template generation but is not installed.
+  Suggestion: Install it with the official command from Quick Setup above, then retry — or use 'ebx create --template <name>' to skip AI generation.

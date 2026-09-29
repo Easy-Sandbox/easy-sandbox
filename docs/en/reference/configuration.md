@@ -1,7 +1,5 @@
 # Configuration Reference
 
-> **Renaming Notice**: This project has been renamed from Serverless Sandbox to **Easy Sandbox**. PyPI package: `easy-sandbox` (`pip install easy-sandbox`), CLI command: `ebx`, Python import: `easy_sandbox`.
-
 This document lists all Easy Sandbox configuration options, environment variables, default values, and priority rules.
 
 ---
@@ -37,6 +35,7 @@ Within the same priority level, E2B-prefixed variables take priority over SANDBO
 | `SANDBOX_HTTP_TIMEOUT` | `http_timeout` | Sandbox | HTTP timeout in seconds |
 | `ALICLOUD_ACCESS_KEY_ID` | `access_key_id` | AK/SK | Alibaba Cloud AK |
 | `ALICLOUD_ACCESS_KEY_SECRET` | `access_key_secret` | AK/SK | Alibaba Cloud SK |
+| `GITHUB_TOKEN` | `github_token` | GitHub | GitHub token for template downloads (store with `ebx config set github_token`; CI: inject as a secret) |
 
 When both `E2B_API_KEY` and `SANDBOX_API_KEY` are present, `E2B_API_KEY` takes priority.
 
@@ -124,9 +123,16 @@ ebx config set api_key your-new-key
 ebx config set region cn-beijing
 ebx config set http_timeout 60
 
-# Reset all configuration
-ebx config reset --yes
+# GitHub token for template downloads (VALUE omitted → masked asterisk prompt)
+ebx config set github_token
+ebx config set github_token ghp_xxxxxxxxxxxx
+
+# Clear a single stored value (returns to default / not set)
+ebx config set region ""
+ebx config set github_token ""
 ```
+
+The `region` key set here is the **persistent default** for regional commands. A single invocation can override it with the command-level `--region`/`-r` option (accepted by `ebx list`, `ebx kill --all`, the template control-plane commands, and `ebx mcp deploy`). Resolution priority: command `--region` > `ebx config set region` / `SANDBOX_REGION` env > `cn-hangzhou`.
 
 ### Keys Configurable via ebx config
 
@@ -138,9 +144,29 @@ ebx config reset --yes
 | `http_timeout` | HTTP timeout in seconds |
 | `max_retries` | Maximum retry count |
 | `domain` | Data plane domain |
-| `llm_api_key` | LLM API Key (for deploy) |
+| `llm_api_key` | LLM API Key (for deploy; also a compatible fallback for Qwen Code credentials) |
 | `llm_model` | LLM model name (for deploy) |
 | `llm_base_url` | LLM API Base URL (for deploy) |
+| `qwen_code_api_key` | Qwen Code API Key (for AI template generation, stored in `~/.ebx/.env`) |
+| `qwen_code_base_url` | Qwen Code OpenAI-compatible Base URL (default: DashScope compatible-mode) |
+| `qwen_code_model` | Qwen Code model name (default: `qwen3-coder-plus`) |
+| `access_key_id` | Alibaba Cloud AccessKey ID (🧪 experimental AK/SK auth) |
+| `access_key_secret` | Alibaba Cloud AccessKey Secret (🧪 experimental AK/SK auth) |
+| `github_token` | GitHub token for template downloads (`ebx template install` / `ebx template search`; mapped to `GITHUB_TOKEN`, stored in `~/.ebx/.env`, shown masked) |
+
+### Guided Configuration (ebx config init)
+
+```bash
+ebx config init
+```
+
+The interactive wizard prompts for: platform API Key (hidden input, stored as `E2B_API_KEY`), default region, and Qwen Code API Key (hidden input, stored as `EBX_QWEN_CODE_API_KEY`). Non-TTY environments or `--yes` never block; the equivalent `ebx config set` commands are printed instead.
+
+### AK/SK Authentication Configuration (Experimental)
+
+When `access_key_id` and `access_key_secret` are set via `ebx config set`, they are stored in `~/.ebx/.env` (mapped to environment variables `ALICLOUD_ACCESS_KEY_ID` and `ALICLOUD_ACCESS_KEY_SECRET` respectively). Used for AK/SK → API Key token exchange authentication.
+
+> **Note**: This feature is experimental. The token exchange endpoint is pending FC platform confirmation. See [Authentication](../guide/authentication.md#aksk-alibaba-cloud-extended-authentication-) for details.
 
 ---
 
@@ -175,7 +201,7 @@ E2B_API_KEY=your-api-key
 SANDBOX_REGION=cn-beijing
 ```
 
-The `ebx config set api_key <KEY>` command saves the API Key to `~/.ebx/.env` (file permissions 600).
+The `ebx config set api_key <KEY>` command saves the API Key to `~/.ebx/.env` (file permissions 600). Credential keys such as `github_token` (mapped to `GITHUB_TOKEN`) are stored the same way.
 
 ---
 
@@ -184,7 +210,7 @@ The `ebx config set api_key <KEY>` command saves the API Key to `~/.ebx/.env` (f
 | File | Path | Description |
 |------|------|-------------|
 | config.toml | `~/.ebx/config.toml` | SDK extended configuration |
-| .env | `~/.ebx/.env` | Authentication credentials (written by auth login) |
+| .env | `~/.ebx/.env` | Authentication credentials (written by auth login / `ebx config set`) |
 | .env (local) | `./.env` | Project-level environment variables |
 | Session storage | `~/.ebx/sessions/*.json` | Local session data |
 | Template cache | `~/.ebx/templates/` | Installed templates |

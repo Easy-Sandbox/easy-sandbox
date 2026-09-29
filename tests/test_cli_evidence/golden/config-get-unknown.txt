@@ -1,6 +1,4 @@
-Unknown config key: 'unknown_key'
-  Suggestion: Available keys: api_key, api_url, domain, http2, http_timeout, llm_api_key, llm_base_url, llm_model, max_retries, region
 [exit_code:2]
 [stderr]
 Unknown config key: 'unknown_key'
-  Suggestion: Available keys: api_key, api_url, domain, http2, http_timeout, llm_api_key, llm_base_url, llm_model, max_retries, region
+  Suggestion: Available keys: access_key_id, access_key_secret, api_key, api_url, domain, github_token, http2, http_timeout, llm_api_key, llm_base_url, llm_model, max_retries, qwen_code_api_key, qwen_code_base_url, qwen_code_model, region

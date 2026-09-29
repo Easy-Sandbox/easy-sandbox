@@ -1,9 +1,11 @@
-"""Offline validation of the ``examples/templates/`` catalog.
+"""Offline validation of the ``examples/templates/`` fixtures.
 
-The catalog is deliberately minimal — one ``README.md`` index plus one folder
-per template — so the guarantees have to come from tests instead of manifests.
-Every test here is **parametrized over all template folders** and runs fully
-offline: no network, no docker daemon, no platform API.
+``examples/templates/`` no longer holds a publishable template collection.
+The single source of truth for official & community templates — content,
+the machine-readable index, releases and CI — is the dedicated repository
+``Easy-Sandbox/awesome-templates``.  This repository keeps only a minimal
+**fixture** (``python-hello``) so that the install / server pipelines stay
+testable fully offline.
 
 Covered contracts
 -----------------
@@ -15,10 +17,9 @@ Covered contracts
     valid and their ``{placeholder}`` tokens are all backed by an ``args``
     declaration.
 (c) ``Dockerfile`` and ``README.md`` exist next to the YAML.
-(d) ``agent.infer.TEMPLATE_CATALOG`` and the on-disk folders agree: no orphan
-    folder, no missing folder.
-(e) The ``README.md`` index table (the single source of truth for humans)
-    matches the YAML files field by field.
+(d) The directory is *explicitly marked as a fixture* (README + YAML banner)
+    and contains only the expected fixture folders — it must never
+    silently grow back into a duplicate template collection.
 """
 
 from __future__ import annotations
@@ -39,26 +40,15 @@ from easy_sandbox.models.template import (
 )
 from easy_sandbox.utils.registry import load_template_from_yaml
 
-from .conftest import REQUIRED_TEMPLATE_FILES, REQUIRED_YAML_KEYS
+from .conftest import (
+    EXPECTED_FIXTURE_TEMPLATES,
+    REQUIRED_TEMPLATE_FILES,
+    REQUIRED_YAML_KEYS,
+    SOURCE_OF_TRUTH_URL,
+)
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-# ---------------------------------------------------------------------------
-# Catalog ↔ TEMPLATE_CATALOG reconciliation allow-lists
-# ---------------------------------------------------------------------------
-
-#: ``TEMPLATE_CATALOG`` entries that are served by the platform's built-in /
-#: online image catalog and therefore intentionally have **no** folder here.
-PLATFORM_ONLY_TEMPLATES = frozenset(
-    {
-        "base",
-    }
-)
-
-#: Folders that exist purely as examples / test fixtures and are deliberately
-#: **not** part of the natural-language inference catalog.
-EXAMPLE_ONLY_TEMPLATES = frozenset({"python-hello"})
 
 _SEMVER_RE = re.compile(r"^\d+\.\d+\.\d+$")
 _PLACEHOLDER_RE = re.compile(r"\{(\w+)\}")
@@ -116,22 +106,13 @@ class TestRequiredFiles:
 # ---------------------------------------------------------------------------
 
 
-# Platform-reserved names: these directory names are taken by the FC platform,
-# so the template.yaml ``name`` field must use an alternative.
-_PLATFORM_NAME_OVERRIDES: dict[str, str] = {
-    "codex": "openai-codex",
-    "openclaw": "openclaw-agent",
-}
-
-
 class TestTemplateYaml:
     """``template.yaml`` parses and satisfies the model contract."""
 
     def test_parses_with_real_loader(self, template_dir: Path) -> None:
         tmpl = _load(template_dir)
         assert isinstance(tmpl, SandboxTemplate)
-        expected_name = _PLATFORM_NAME_OVERRIDES.get(template_dir.name, template_dir.name)
-        assert tmpl.name == expected_name
+        assert tmpl.name == template_dir.name
 
     def test_required_keys_declared_explicitly(self, template_dir: Path) -> None:
         raw = _raw(template_dir)
@@ -139,11 +120,6 @@ class TestTemplateYaml:
         assert not missing, (
             f"{template_dir.name}: template.yaml is missing required key(s): {missing}"
         )
-
-    def test_name_matches_directory(self, template_dir: Path) -> None:
-        """Folder name == ``name`` (or known platform override) == default install alias."""
-        expected_name = _PLATFORM_NAME_OVERRIDES.get(template_dir.name, template_dir.name)
-        assert _load(template_dir).name == expected_name
 
     def test_name_is_kebab_case(self, template_dir: Path) -> None:
         assert re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", template_dir.name), (
@@ -161,11 +137,6 @@ class TestTemplateYaml:
             f"{template_dir.name}: description must not be blank"
         )
 
-    def test_base_non_empty(self, template_dir: Path) -> None:
-        assert _load(template_dir).base.strip(), (
-            f"{template_dir.name}: base image must not be blank"
-        )
-
     def test_tags_non_empty_and_lowercase(self, template_dir: Path) -> None:
         tags = _load(template_dir).tags
         assert tags, f"{template_dir.name}: declare at least one tag"
@@ -181,9 +152,8 @@ class TestTemplateYaml:
         if tmpl.memory_mb is not None:
             assert tmpl.memory_mb > 0
 
-    def test_dockerfile_base_matches_yaml(self, template_dir: Path) -> None:
-        """The hand-written Dockerfile must agree with the YAML ``base``."""
-        base = _load(template_dir).base
+    def test_dockerfile_has_from_line(self, template_dir: Path) -> None:
+        """The hand-written Dockerfile must have a valid FROM line."""
         dockerfile = (template_dir / "Dockerfile").read_text(encoding="utf-8")
         from_lines = [
             line.strip()
@@ -191,10 +161,6 @@ class TestTemplateYaml:
             if line.strip().upper().startswith("FROM ")
         ]
         assert from_lines, f"{template_dir.name}: Dockerfile has no FROM line"
-        assert from_lines[0] == f"FROM {base}", (
-            f"{template_dir.name}: Dockerfile starts with {from_lines[0]!r} but "
-            f"template.yaml declares base={base!r}"
-        )
 
 
 class TestCapabilities:
@@ -211,7 +177,7 @@ class TestCapabilities:
         )
 
     def test_capabilities_declared_explicitly(self, template_dir: Path) -> None:
-        """Published templates must spell their capability set out."""
+        """Fixture templates must spell their capability set out."""
         raw = _raw(template_dir)
         assert "capabilities" in raw, (
             f"{template_dir.name}: declare 'capabilities' explicitly instead of "
@@ -334,269 +300,79 @@ class TestCustomCommands:
 
 
 # ---------------------------------------------------------------------------
-# (d) TEMPLATE_CATALOG reconciliation
+# (d) Fixture boundary: marked, minimal, never a duplicate collection
 # ---------------------------------------------------------------------------
 
 
-class TestCatalogCrossReference:
-    """``agent.infer.TEMPLATE_CATALOG`` ↔ on-disk folders stay in sync."""
+class TestFixtureBoundary:
+    """The directory is a *fixture* — marked as such and kept minimal.
 
-    def test_every_catalog_entry_is_resolvable(self, template_dirs: list[Path]) -> None:
-        """No catalog entry points at a folder that does not exist (无缺失)."""
-        local = {d.name for d in template_dirs}
-        missing = sorted(
-            p.name
-            for p in TEMPLATE_CATALOG
-            if p.name not in local and p.name not in PLATFORM_ONLY_TEMPLATES
-        )
-        assert not missing, (
-            f"TEMPLATE_CATALOG references template(s) with no folder under "
-            f"examples/templates/: {missing}. Either add the folder or list the "
-            f"name in PLATFORM_ONLY_TEMPLATES."
-        )
+    These tests are the guardrail for the single-source-of-truth split: if a
+    full template collection ever grows back here (or the fixture notice is
+    dropped), the suite fails instead of silently re-diverging from the
+    catalog repository.
+    """
 
-    def test_no_orphan_folders(self, template_dirs: list[Path]) -> None:
-        """No folder is invisible to the inference catalog (无孤儿)."""
-        catalog = {p.name for p in TEMPLATE_CATALOG}
-        orphans = sorted(
-            d.name
-            for d in template_dirs
-            if d.name not in catalog and d.name not in EXAMPLE_ONLY_TEMPLATES
-        )
-        assert not orphans, (
-            f"template folder(s) not referenced by TEMPLATE_CATALOG: {orphans}. "
-            f"Add a TemplateProfile in src/easy_sandbox/agent/infer.py or "
-            f"list the name in EXAMPLE_ONLY_TEMPLATES."
+    def test_only_expected_fixture_templates_exist(self, template_dirs: list[Path]) -> None:
+        names = sorted(d.name for d in template_dirs)
+        assert names == sorted(EXPECTED_FIXTURE_TEMPLATES), (
+            f"examples/templates/ must only contain the offline fixtures "
+            f"{sorted(EXPECTED_FIXTURE_TEMPLATES)}, found {names}. Publishable "
+            f"templates belong to {SOURCE_OF_TRUTH_URL} instead."
         )
 
-    def test_platform_only_names_have_no_folder(self, template_dirs: list[Path]) -> None:
-        """Built-in/platform names must not be shadowed by a local folder."""
-        local = {d.name for d in template_dirs}
-        shadowed = sorted(local & PLATFORM_ONLY_TEMPLATES)
-        assert not shadowed, (
-            f"folder(s) {shadowed} shadow platform-provided templates; remove "
-            f"them from PLATFORM_ONLY_TEMPLATES or rename the folder"
+    def test_index_readme_declares_fixture_status(self, catalog_readme: Path) -> None:
+        readme = catalog_readme.read_text(encoding="utf-8").lower()
+        assert "fixture" in readme, (
+            "examples/templates/README.md must state that this directory holds "
+            "offline fixtures only"
+        )
+        assert "publishing source" in readme, (
+            "examples/templates/README.md must state that this directory is NOT "
+            "the publishing source"
         )
 
-    def test_example_only_names_are_real_folders(self, template_dirs: list[Path]) -> None:
-        local = {d.name for d in template_dirs}
-        stale = sorted(EXAMPLE_ONLY_TEMPLATES - local)
-        assert not stale, f"EXAMPLE_ONLY_TEMPLATES lists {stale} but no such folder exists"
+    def test_index_readme_links_the_source_of_truth(self, catalog_readme: Path) -> None:
+        readme = catalog_readme.read_text(encoding="utf-8")
+        assert SOURCE_OF_TRUTH_URL in readme, (
+            f"examples/templates/README.md must point at the single source of truth "
+            f"({SOURCE_OF_TRUTH_URL})"
+        )
 
-    def test_mapped_catalog_entries_have_required_files(self, template_dirs: list[Path]) -> None:
-        """For every catalog entry that maps to a folder, the folder is complete."""
-        local = {d.name: d for d in template_dirs}
-        for profile in TEMPLATE_CATALOG:
-            folder = local.get(profile.name)
-            if folder is None:
-                continue
-            for filename in REQUIRED_TEMPLATE_FILES:
-                assert (folder / filename).is_file(), (
-                    f"TEMPLATE_CATALOG entry {profile.name!r} maps to {folder} "
-                    f"which is missing {filename!r}"
-                )
+    def test_index_readme_documents_remote_install_flow(self, catalog_readme: Path) -> None:
+        readme = catalog_readme.read_text(encoding="utf-8")
+        assert "ebx template search" in readme
+        assert "ebx template install" in readme
+        assert "EBX_TEMPLATE_INDEX_URL" in readme, (
+            "README must document the index override for private mirrors"
+        )
 
-    def test_mapped_resources_match_yaml(self, template_dirs: list[Path]) -> None:
-        """Catalog CPU/memory/ports defaults must equal the YAML ``resources``."""
-        local = {d.name: d for d in template_dirs}
-        for profile in TEMPLATE_CATALOG:
-            folder = local.get(profile.name)
-            if folder is None:
-                continue
-            tmpl = _load(folder)
-            if tmpl.cpu_count is not None:
-                assert tmpl.cpu_count == profile.cpu, (
-                    f"{profile.name}: YAML cpu={tmpl.cpu_count} but "
-                    f"TEMPLATE_CATALOG cpu={profile.cpu}"
-                )
-            if tmpl.memory_mb is not None:
-                assert tmpl.memory_mb == profile.memory, (
-                    f"{profile.name}: YAML memory={tmpl.memory_mb} but "
-                    f"TEMPLATE_CATALOG memory={profile.memory}"
-                )
-            assert list(tmpl.ports) == list(profile.ports), (
-                f"{profile.name}: YAML ports={tmpl.ports} but "
-                f"TEMPLATE_CATALOG ports={profile.ports}"
+    def test_fixture_yaml_carries_a_fixture_banner(self, template_dirs: list[Path]) -> None:
+        for folder in template_dirs:
+            text = (folder / "template.yaml").read_text(encoding="utf-8")
+            assert "FIXTURE" in text, (
+                f"{folder.name}/template.yaml must carry an explicit FIXTURE banner "
+                f"so it is never mistaken for a publishable template"
             )
+
+    def test_fixture_readme_carries_a_fixture_notice(self, template_dirs: list[Path]) -> None:
+        for folder in template_dirs:
+            text = (folder / "README.md").read_text(encoding="utf-8")
+            assert "fixture" in text.lower(), (
+                f"{folder.name}/README.md must carry an explicit fixture notice"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Inference catalog sanity (unrelated to the fixture boundary)
+# ---------------------------------------------------------------------------
+
+
+class TestInferenceCatalog:
+    """Sanity checks that do not depend on the on-disk fixtures."""
 
     def test_catalog_entries_are_unique(self) -> None:
         """Duplicate catalog names would make inference ambiguous."""
         names = [p.name for p in TEMPLATE_CATALOG]
         duplicates = sorted({n for n in names if names.count(n) > 1})
         assert not duplicates, f"duplicate TEMPLATE_CATALOG entries: {duplicates}"
-
-
-# ---------------------------------------------------------------------------
-# (e) README index ↔ YAML consistency
-# ---------------------------------------------------------------------------
-
-_INDEX_ROW_RE = re.compile(r"^\|\s*\[`[^`]+`\]\(\./")
-_BACKTICK_RE = re.compile(r"`([^`]+)`")
-_LINK_RE = re.compile(r"\[`([^`]+)`\]\(\./([^)/]+)/?\)")
-_RESOURCES_RE = re.compile(r"(\d+)\s*CPU\s*/\s*(\d+)\s*MB")
-_PORTS_RE = re.compile(r"端口[:：]\s*([0-9]+(?:\s*,\s*[0-9]+)*)")
-_COMMAND_RE = re.compile(r"`([A-Za-z0-9_-]+)\(([^)]*)\)`")
-
-
-def _cells(line: str) -> list[str]:
-    return [c.strip() for c in line.strip().strip("|").split("|")]
-
-
-def _parse_index_table(readme: str) -> dict[str, dict]:
-    """Parse the 模板总览 table into ``{template_name: row_dict}``."""
-    rows: dict[str, dict] = {}
-    for line in readme.splitlines():
-        if not _INDEX_ROW_RE.match(line):
-            continue
-        link = _LINK_RE.search(line)
-        assert link, f"could not parse template link from row: {line!r}"
-        name, href = link.group(1), link.group(2)
-        assert name == href, f"row label {name!r} != link target {href!r}"
-
-        cells = _cells(line)
-        assert len(cells) == 7, (
-            f"index row for {name!r} has {len(cells)} cells, expected 7: {line!r}"
-        )
-        _, description, keywords, base, resources, capabilities, commands = cells
-
-        res = _RESOURCES_RE.search(resources)
-        ports = _PORTS_RE.search(resources)
-        rows[name] = {
-            "description": description,
-            "keywords": _BACKTICK_RE.findall(keywords),
-            "base": _BACKTICK_RE.findall(base),
-            "cpu": int(res.group(1)) if res else None,
-            "memory": int(res.group(2)) if res else None,
-            "ports": ([int(p) for p in re.split(r"\s*,\s*", ports.group(1))] if ports else []),
-            "capabilities": _BACKTICK_RE.findall(capabilities),
-            "commands": _COMMAND_RE.findall(commands),
-        }
-    return rows
-
-
-def _parse_capability_matrix(readme: str) -> dict[str, list[str]]:
-    """Parse the 'capabilities 分布' table into ``{template_name: capabilities}``."""
-    matrix: dict[str, list[str]] = {}
-    for line in readme.splitlines():
-        if not line.strip().startswith("|"):
-            continue
-        cells = _cells(line)
-        if len(cells) != 2:
-            continue
-        caps = _BACKTICK_RE.findall(cells[0])
-        if not caps or not set(caps) <= STANDARD_CAPABILITIES:
-            continue
-        for name in _BACKTICK_RE.findall(cells[1]):
-            matrix[name] = caps
-    return matrix
-
-
-class TestCatalogReadme:
-    """The README is the *only* index — it must not drift from the YAML files."""
-
-    def test_readme_exists(self, catalog_readme: Path) -> None:
-        assert catalog_readme.is_file(), f"missing catalog index at {catalog_readme}"
-
-    def test_index_table_covers_every_template(
-        self, catalog_readme: Path, template_dirs: list[Path]
-    ) -> None:
-        rows = _parse_index_table(catalog_readme.read_text(encoding="utf-8"))
-        expected = {d.name for d in template_dirs}
-        assert set(rows) == expected, (
-            f"index table mismatch — missing rows: {sorted(expected - set(rows))}, "
-            f"phantom rows: {sorted(set(rows) - expected)}"
-        )
-
-    def test_index_table_matches_yaml(
-        self, catalog_readme: Path, template_dirs: list[Path]
-    ) -> None:
-        readme = catalog_readme.read_text(encoding="utf-8")
-        rows = _parse_index_table(readme)
-        for folder in template_dirs:
-            name = folder.name
-            assert name in rows, f"{name}: not listed in the README index table"
-            row = rows[name]
-            tmpl = _load(folder)
-
-            assert row["description"] == tmpl.description, (
-                f"{name}: README description {row['description']!r} != YAML {tmpl.description!r}"
-            )
-            assert row["keywords"] == list(tmpl.tags), (
-                f"{name}: README keywords {row['keywords']} != YAML tags {tmpl.tags}"
-            )
-            assert row["base"] == [tmpl.base], (
-                f"{name}: README base {row['base']} != YAML base {tmpl.base!r}"
-            )
-            assert row["cpu"] == tmpl.cpu_count, (
-                f"{name}: README cpu {row['cpu']} != YAML resources.cpu {tmpl.cpu_count}"
-            )
-            assert row["memory"] == tmpl.memory_mb, (
-                f"{name}: README memory {row['memory']} != YAML resources.memory {tmpl.memory_mb}"
-            )
-            assert row["ports"] == list(tmpl.ports), (
-                f"{name}: README ports {row['ports']} != YAML ports {tmpl.ports}"
-            )
-
-            expected_caps = (
-                list(tmpl.capabilities)
-                if tmpl.capabilities is not None
-                else sorted(DEFAULT_CAPABILITIES)
-            )
-            assert row["capabilities"] == expected_caps, (
-                f"{name}: README capabilities {row['capabilities']} != YAML {expected_caps}"
-            )
-
-            expected_cmds = [
-                (cmd_name, [a.name + ("*" if a.required else "") for a in cmd.args])
-                for cmd_name, cmd in tmpl.custom_commands.items()
-            ]
-            actual_cmds = [(n, argspec.split()) for n, argspec in row["commands"]]
-            assert actual_cmds == expected_cmds, (
-                f"{name}: README custom commands {actual_cmds} != YAML {expected_cmds}"
-            )
-
-    def test_capability_matrix_matches_yaml(
-        self, catalog_readme: Path, template_dirs: list[Path]
-    ) -> None:
-        readme = catalog_readme.read_text(encoding="utf-8")
-        matrix = _parse_capability_matrix(readme)
-        assert matrix, "could not find the 'capabilities 分布' table in the README"
-        for folder in template_dirs:
-            name = folder.name
-            tmpl = _load(folder)
-            expected = (
-                list(tmpl.capabilities)
-                if tmpl.capabilities is not None
-                else sorted(DEFAULT_CAPABILITIES)
-            )
-            assert name in matrix, f"{name}: missing from the README capability matrix"
-            assert matrix[name] == expected, (
-                f"{name}: README capability matrix {matrix[name]} != YAML {expected}"
-            )
-
-    def test_readme_documents_both_install_flavours(self, catalog_readme: Path) -> None:
-        readme = catalog_readme.read_text(encoding="utf-8")
-        assert "--registry-type local" in readme
-        assert "--registry-type github" in readme
-        assert "--registry-url" in readme
-
-    def test_readme_documents_run_vs_exec(self, catalog_readme: Path) -> None:
-        readme = catalog_readme.read_text(encoding="utf-8")
-        assert "ebx run" in readme
-        assert "ebx exec" in readme
-
-    def test_readme_documents_full_schema(self, catalog_readme: Path) -> None:
-        """Contribution guide must spell out the capability + command schema."""
-        readme = catalog_readme.read_text(encoding="utf-8")
-        for token in STANDARD_CAPABILITIES:
-            assert f"`{token}`" in readme, f"capability {token!r} not documented"
-        for token in (
-            "DEFAULT_CAPABILITIES",
-            "STANDARD_CAPABILITIES",
-            "custom_commands",
-            "cmd",
-            "cwd",
-            "timeout",
-            "required",
-        ):
-            assert token in readme, f"schema keyword {token!r} not documented"

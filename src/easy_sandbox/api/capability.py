@@ -102,7 +102,7 @@ def _find_local_template(template_id: str) -> SandboxTemplate | None:
             import yaml
 
             data = yaml.safe_load(yaml_path.read_text())
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.debug("Skipping unreadable template at %s", yaml_path, exc_info=True)
             continue
         if not isinstance(data, dict):
@@ -113,8 +113,8 @@ def _find_local_template(template_id: str) -> SandboxTemplate | None:
 
         # (b) Matched but malformed → fail-closed, do NOT fall back.
         try:
-            return _parse_template(data)
-        except Exception as exc:  # noqa: BLE001
+            return parse_template_data(data)
+        except Exception as exc:
             logger.warning(
                 "Matched template at %s failed validation; refusing to fall "
                 "back to DEFAULT_CAPABILITIES (fail-closed)",
@@ -128,8 +128,16 @@ def _find_local_template(template_id: str) -> SandboxTemplate | None:
     return None
 
 
-def _parse_template(data: dict[str, Any]) -> SandboxTemplate:
-    """Parse a raw YAML dict into a :class:`SandboxTemplate`."""
+def parse_template_data(data: dict[str, Any]) -> SandboxTemplate:
+    """Parse a raw template dict (as loaded from ``template.yaml``).
+
+    Public so that other layers (e.g. AI code generation) can validate a
+    generated manifest against the same schema and the same
+    ``resources.cpu`` / ``resources.memory`` shorthand handling.
+
+    Raises:
+        pydantic.ValidationError: When the manifest fails schema validation.
+    """
     resources = data.get("resources", {}) or {}
     if "cpu" in resources and "cpu_count" not in data:
         data["cpu_count"] = resources["cpu"]
@@ -172,7 +180,7 @@ async def resolve_capabilities(
                 import yaml
 
                 data = yaml.safe_load(path.read_text())
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.warning(
                     "Failed to read local template YAML at %s, using defaults",
                     local_yaml_path,
@@ -183,8 +191,8 @@ async def resolve_capabilities(
                 # (b) Explicitly provided + parsed as dict but malformed →
                 # fail-closed rather than silently granting defaults.
                 try:
-                    template = _parse_template(data)
-                except Exception as exc:  # noqa: BLE001
+                    template = parse_template_data(data)
+                except Exception as exc:
                     logger.warning(
                         "Local template YAML at %s failed validation; "
                         "refusing to fall back to DEFAULT_CAPABILITIES "

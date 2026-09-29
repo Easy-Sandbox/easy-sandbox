@@ -11,12 +11,20 @@ sent via multiple headers (X-Access-Token, E2b-Sandbox-Id, etc. 已实测验证)
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac as hmac_mod
 import time
+import urllib.parse
+import uuid
+from datetime import datetime, timezone
 from typing import Any, Protocol
+
+import httpx
 
 from easy_sandbox.models.errors import (
     InvalidAPIKeyError,
     InvalidCredentialsError,
+    TokenExchangeError,
     TokenExpiredError,
 )
 from easy_sandbox.utils.logging import get_logger
@@ -125,8 +133,14 @@ class AkSkAuth:
     async def refresh(self) -> None:
         """Force refresh the exchanged token."""
         if self._exchange_func is None:
-            raise NotImplementedError(
-                "AK/SK token exchange not yet implemented. Use API Key authentication instead."
+            raise InvalidCredentialsError(
+                "AK/SK token exchange function not configured. "
+                "Use create_auth_provider() to get a properly initialised AkSkAuth.",
+                suggestion=(
+                    "Call create_auth_provider(access_key_id=..., access_key_secret=...) "
+                    "instead of constructing AkSkAuth directly, or set the exchange "
+                    "function via set_exchange_func()."
+                ),
             )
         self._cached_token = None
         self._token_expires_at = 0.0
@@ -215,19 +229,168 @@ def build_envd_headers(sandbox_id: str, envd_access_token: str) -> dict[str, str
     }
 
 
+# ── Alibaba Cloud API signing helpers ──────────────────────────────────────
+# Minimal subset needed for token exchange.  These mirror the helpers in
+# api/docker_builder.py but are duplicated here to respect the layer
+# constraint (L1 transport must not import L3 api).
+# TODO: Consider extracting into a shared L0 utils module.
+
+
+def _percent_encode(s: str) -> str:
+    """RFC 3986 percent-encoding (Alibaba Cloud signature convention)."""
+    return (
+        urllib.parse.quote(s, safe="").replace("+", "%20").replace("*", "%2A").replace("%7E", "~")
+    )
+
+
+def _sign_rpc(params: dict[str, str], secret: str, method: str = "GET") -> str:
+    """Compute Alibaba Cloud RPC (POP) V1 HMAC-SHA1 signature."""
+    sorted_params = sorted(params.items())
+    canonical = "&".join(f"{_percent_encode(k)}={_percent_encode(v)}" for k, v in sorted_params)
+    sts = f"{method}&{_percent_encode('/')}&{_percent_encode(canonical)}"
+    key = (secret + "&").encode("utf-8")
+    return base64.b64encode(hmac_mod.new(key, sts.encode("utf-8"), hashlib.sha1).digest()).decode(
+        "utf-8"
+    )
+
+
+# ── Token exchange endpoint ────────────────────────────────────────────────
+# TODO(fcsandbox-api): The actual FCSandbox OpenAPI action for exchanging
+# AK/SK to a temporary Platform API key has NOT been confirmed with the
+# FC Agent Sandbox team.  The implementation below uses a *reasonable*
+# pattern modelled after ACR GetAuthorizationToken (see docker_builder.py).
+# Replace ``_TOKEN_EXCHANGE_ACTION`` and the response-parsing logic when
+# the real endpoint is documented.
+#
+# See: AGENTS.md rule #5 — "Never fabricate FC/envd API endpoints."
+_TOKEN_EXCHANGE_ACTION = "CreateApiKey"  # TODO: confirm actual action name
+_TOKEN_EXCHANGE_API_VERSION = "2026-05-09"  # matches alibabacloud-fcsandbox SDK
+
+
+async def _exchange_aksk_for_api_key(
+    access_key_id: str,
+    access_key_secret: str,
+    *,
+    region: str = "cn-hangzhou",
+) -> str:
+    """Exchange Alibaba Cloud AK/SK for a temporary FCSandbox Platform API key.
+
+    Uses Alibaba Cloud RPC (POP) V1 HMAC-SHA1 signing to call the FCSandbox
+    API, similar to how :func:`docker_builder.get_acr_auth_token` exchanges
+    AK/SK for temporary ACR credentials.
+
+    Args:
+        access_key_id: Alibaba Cloud AccessKey ID.
+        access_key_secret: Alibaba Cloud AccessKey Secret.
+        region: Region ID (default ``cn-hangzhou``).
+
+    Returns:
+        Temporary API key string.
+
+    Raises:
+        TokenExchangeError: If the exchange fails.
+    """
+    endpoint = f"https://fcsandbox.{region}.aliyuncs.com"
+    ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    params: dict[str, str] = {
+        "Action": _TOKEN_EXCHANGE_ACTION,
+        "Format": "JSON",
+        "Version": _TOKEN_EXCHANGE_API_VERSION,
+        "AccessKeyId": access_key_id,
+        "SignatureMethod": "HMAC-SHA1",
+        "Timestamp": ts,
+        "SignatureVersion": "1.0",
+        "SignatureNonce": str(uuid.uuid4()),
+    }
+    params["Signature"] = _sign_rpc(params, access_key_secret)
+
+    logger.info(
+        "Exchanging AK/SK for Platform API key (region=%s, action=%s)",
+        region,
+        _TOKEN_EXCHANGE_ACTION,
+    )
+
+    try:
+        async with httpx.AsyncClient(timeout=httpx.Timeout(15.0)) as client:
+            resp = await client.get(endpoint, params=params)
+    except httpx.ConnectError as exc:
+        raise TokenExchangeError(
+            f"Failed to connect to FCSandbox API for token exchange: {exc}",
+            suggestion=(
+                "Check network connectivity to fcsandbox."
+                f"{region}.aliyuncs.com. "
+                "Or use E2B_API_KEY directly."
+            ),
+        ) from exc
+    except httpx.TimeoutException as exc:
+        raise TokenExchangeError(
+            f"Token exchange request timed out: {exc}",
+            suggestion="Check network connectivity or try again later.",
+        ) from exc
+
+    if resp.status_code != 200:
+        body_text = resp.text[:500]
+        logger.warning("Token exchange failed (HTTP %s): %s", resp.status_code, body_text)
+        raise TokenExchangeError(
+            f"Token exchange failed (HTTP {resp.status_code}): {body_text}",
+            suggestion=(
+                "Verify AK/SK credentials have FCSandbox API access. Or use E2B_API_KEY directly."
+            ),
+        )
+
+    try:
+        data = resp.json()
+    except Exception as exc:
+        raise TokenExchangeError(
+            f"Invalid JSON response from token exchange: {resp.text[:200]}",
+        ) from exc
+
+    # TODO(fcsandbox-api): Adjust response field names to match the actual
+    # API response when confirmed.  Common patterns in Alibaba Cloud APIs:
+    #   {"ApiKey": "ek-xxx", "ExpireTime": "...", "RequestId": "..."}
+    #   {"Data": {"ApiKey": "ek-xxx", ...}, "RequestId": "..."}
+    api_key = (
+        data.get("ApiKey")
+        or data.get("apiKey")
+        or (data.get("Data") or {}).get("ApiKey")
+        or (data.get("data") or {}).get("apiKey")
+    )
+
+    if not api_key:
+        raise TokenExchangeError(
+            f"Token exchange response did not contain an API key: {list(data.keys())}",
+            suggestion=(
+                "The FCSandbox token exchange API response format may have changed. "
+                "Use E2B_API_KEY directly as a workaround."
+            ),
+        )
+
+    logger.debug("AK/SK token exchange succeeded (region=%s)", region)
+    return str(api_key)
+
+
 def create_auth_provider(
     api_key: str | None = None,
     access_key_id: str | None = None,
     access_key_secret: str | None = None,
+    *,
+    region: str = "cn-hangzhou",
 ) -> AuthProvider:
     """Create the appropriate auth provider based on available credentials.
 
     Priority: api_key > E2B_API_KEY (fallback) > AK/SK
 
+    When the AK/SK path is selected, a token exchange function is
+    automatically injected into the :class:`AkSkAuth` instance so that
+    credentials are exchanged for a temporary Platform API key on first
+    use (and auto-refreshed before expiry).
+
     Args:
         api_key: Direct API key.
         access_key_id: Alibaba Cloud AccessKey ID.
         access_key_secret: Alibaba Cloud AccessKey Secret.
+        region: Alibaba Cloud region for token exchange (default ``cn-hangzhou``).
 
     Returns:
         An AuthProvider instance.
@@ -248,8 +411,17 @@ def create_auth_provider(
         return ApiKeyAuth(e2b_key)
 
     if access_key_id and access_key_secret:
-        logger.debug("Using AK/SK authentication")
-        return AkSkAuth(access_key_id, access_key_secret)
+        logger.debug("Using AK/SK authentication (with token exchange)")
+        auth = AkSkAuth(access_key_id, access_key_secret)
+
+        # Bind region into the exchange function via closure
+        _region = region
+
+        async def _exchange(ak: str, sk: str) -> str:
+            return await _exchange_aksk_for_api_key(ak, sk, region=_region)
+
+        auth.set_exchange_func(_exchange)
+        return auth
 
     raise InvalidAPIKeyError(
         "No authentication credentials provided",

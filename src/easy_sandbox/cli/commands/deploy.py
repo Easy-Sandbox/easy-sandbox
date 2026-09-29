@@ -61,7 +61,12 @@ def _detect_project(path: Path) -> tuple[str, str]:
     help="NL deploy instruction (alternative to positional arg)",
 )
 @click.option("--max-wall-time", default="10m", help="qwen-code max wall time (e.g. '10m', '600s')")
-@click.option("--max-tool-calls", default=100, type=int, help="qwen-code max tool calls")
+@click.option(
+    "--max-session-turns",
+    default=100,
+    type=int,
+    help="qwen-code session turn limit (positive integer; default: 100)",
+)
 @click.option("--alias", "-a", default=None, help="Template alias (traditional mode)")
 @click.option(
     "--watch",
@@ -81,21 +86,28 @@ def deploy_shortcut(
     instruction: str,
     instruction_opt: str | None,
     max_wall_time: str,
-    max_tool_calls: int,
+    max_session_turns: int,
     alias: str | None,
     watch: bool,
     traditional: bool,
 ) -> None:
-    """Deploy a project to a sandbox.
+    """Deploy a local project to a sandbox.
+
+    AI mode (default) analyzes the project and follows an optional natural-
+    language instruction. Use --traditional for marker-based project detection
+    without the AI agent.
 
     \b
-    NL mode (default):
-      ebx deploy ./my-project "this is a FastAPI project that needs Redis"
-      ebx deploy ./my-project -i "deploy to port 8080"
+    Examples:
+      ebx deploy ./my-project "deploy this FastAPI app on port 8080"
+      ebx deploy ./my-project --max-wall-time 15m --max-session-turns 150
+      ebx deploy ./my-project --traditional --alias my-app
 
     \b
-    Traditional mode:
-      ebx deploy ./my-project --traditional
+    Related commands:
+      ebx create             Create an empty sandbox
+      ebx exec --help        Run a command in a sandbox
+      ebx template deploy    Build and register a reusable template
     """
     fmt = get_formatter(ctx)
     project_path = Path(path).resolve()
@@ -124,7 +136,7 @@ def deploy_shortcut(
         return
 
     # NL deploy mode via qwen-code
-    _run_nl_deploy(ctx, fmt, project_path, effective_instruction, max_wall_time, max_tool_calls)
+    _run_nl_deploy(ctx, fmt, project_path, effective_instruction, max_wall_time, max_session_turns)
 
 
 def _run_nl_deploy(
@@ -133,7 +145,7 @@ def _run_nl_deploy(
     project_path: Path,
     instruction: str,
     max_wall_time: str,
-    max_tool_calls: int,
+    max_session_turns: int,
 ) -> None:
     """Execute NL-driven deployment via qwen-code agent."""
     from easy_sandbox.api.sandbox import Sandbox
@@ -151,7 +163,7 @@ def _run_nl_deploy(
             project_path=str(project_path),
             description=instruction,
             max_wall_time=max_wall_time,
-            max_tool_calls=max_tool_calls,
+            max_session_turns=max_session_turns,
             on_progress=on_progress,
         )
     )
