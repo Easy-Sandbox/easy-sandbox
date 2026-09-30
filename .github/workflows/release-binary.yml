@@ -61,7 +61,7 @@ jobs:
       # binaries are exposed as workflow artifacts for download instead.
       - name: Upload workflow artifacts (manual trigger)
         if: github.event_name == 'workflow_dispatch'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ebx-binary-${{ matrix.target }}
           path: dist/binary/
