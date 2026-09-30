@@ -30,9 +30,10 @@ precompiled standalone binary for Linux, macOS, and Windows:
 
 ```bash
 # Example: install v0.2.0 on macOS (Apple Silicon)
-curl -fsSL -o /usr/local/bin/ebx \
+curl -fsSL -o "$HOME/ebx" \
   "https://github.com/Easy-Sandbox/easy-sandbox/releases/download/v0.2.0/ebx-0.2.0-darwin-arm64"
-chmod +x /usr/local/bin/ebx
+chmod +x "$HOME/ebx"
+sudo mv "$HOME/ebx" /usr/local/bin/ebx
 ```
 
 For other platforms, checksum verification, and a comparison with the pip

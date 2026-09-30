@@ -61,10 +61,11 @@ ARCH=$(uname -m); case "$ARCH" in
   arm64|aarch64) ARCH=arm64 ;;
 esac
 
-# 需要对 /usr/local/bin 的写权限（必要时加 sudo）
-curl -fsSL -o /usr/local/bin/ebx \
+# 先下载到当前用户可写的目录，再安装到 PATH 上。
+curl -fsSL -o "$HOME/ebx" \
   "https://github.com/Easy-Sandbox/easy-sandbox/releases/download/v${VERSION}/ebx-${VERSION}-${OS}-${ARCH}"
-chmod +x /usr/local/bin/ebx
+chmod +x "$HOME/ebx"
+sudo mv "$HOME/ebx" /usr/local/bin/ebx
 ```
 
 Windows（PowerShell）：

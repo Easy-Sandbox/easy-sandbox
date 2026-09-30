@@ -31,14 +31,16 @@ ARCH=$(uname -m); case "$ARCH" in
   arm64|aarch64) ARCH=arm64 ;;
 esac
 
-# Download, make executable, and place it on your PATH
-curl -fsSL -o /usr/local/bin/ebx \
+# Download somewhere the current user can write, then install onto PATH.
+curl -fsSL -o "$HOME/ebx" \
   "https://github.com/Easy-Sandbox/easy-sandbox/releases/download/v${VERSION}/ebx-${VERSION}-${OS}-${ARCH}"
-chmod +x /usr/local/bin/ebx
+chmod +x "$HOME/ebx"
+sudo mv "$HOME/ebx" /usr/local/bin/ebx
 ```
 
-> Requires write permission for `/usr/local/bin` (prefix with `sudo` if
-> needed), or choose any other directory on your `PATH`.
+> Writing straight to `/usr/local/bin` fails without permission (`curl: (56)
+> Failure writing output to destination`). The download goes to `$HOME`
+> first; `sudo mv` is what places it on the default `PATH`.
 
 ### Windows (PowerShell)
 
@@ -108,7 +110,7 @@ ebx --version
 > quarantine attribute before running:
 >
 > ```bash
-> xattr -d com.apple.quarantine /usr/local/bin/ebx
+> sudo xattr -d com.apple.quarantine /usr/local/bin/ebx
 > ```
 >
 > Alternatively, right-click the binary in Finder and choose **Open** once.

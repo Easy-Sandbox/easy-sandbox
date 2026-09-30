@@ -31,14 +31,16 @@ ARCH=$(uname -m); case "$ARCH" in
   arm64|aarch64) ARCH=arm64 ;;
 esac
 
-# 下载、添加可执行权限并放到 PATH 中
-curl -fsSL -o /usr/local/bin/ebx \
+# 先下载到当前用户可写的目录，再安装到 PATH 上。
+curl -fsSL -o "$HOME/ebx" \
   "https://github.com/Easy-Sandbox/easy-sandbox/releases/download/v${VERSION}/ebx-${VERSION}-${OS}-${ARCH}"
-chmod +x /usr/local/bin/ebx
+chmod +x "$HOME/ebx"
+sudo mv "$HOME/ebx" /usr/local/bin/ebx
 ```
 
-> 需要对 `/usr/local/bin` 的写权限（必要时加 `sudo`），也可以选择
-> `PATH` 中的任意其他目录。
+> 直接写入 `/usr/local/bin` 会因没有权限而失败（`curl: (56) Failure writing
+> output to destination`），文件也不会留下来。先下到 `$HOME`，再用
+> `sudo mv` 放到默认 `PATH` 上。
 
 ### Windows（PowerShell）
 
@@ -106,7 +108,7 @@ ebx --version
 > Gatekeeper 拦截。如遇到该情况，先移除隔离属性再运行：
 >
 > ```bash
-> xattr -d com.apple.quarantine /usr/local/bin/ebx
+> sudo xattr -d com.apple.quarantine /usr/local/bin/ebx
 > ```
 >
 > 也可以在 Finder 中右键点击二进制文件，选择**打开**一次即可放行。

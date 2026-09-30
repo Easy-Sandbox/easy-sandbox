@@ -29,9 +29,10 @@ ebx --version
 
 ```bash
 # 示例：在 macOS（Apple Silicon）上安装 v0.2.0
-curl -fsSL -o /usr/local/bin/ebx \
+curl -fsSL -o "$HOME/ebx" \
   "https://github.com/Easy-Sandbox/easy-sandbox/releases/download/v0.2.0/ebx-0.2.0-darwin-arm64"
-chmod +x /usr/local/bin/ebx
+chmod +x "$HOME/ebx"
+sudo mv "$HOME/ebx" /usr/local/bin/ebx
 ```
 
 其他平台的安装命令、校验和验证以及与 pip 安装的对比，请参阅[二进制安装](binary-installation.md)。
