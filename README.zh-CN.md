@@ -51,10 +51,10 @@ pip install -e ".[dev]"
 Linux（x64）与 Windows（x64）—— **无需安装 Python 环境**。二进制文件随每个
 版本发布在 [GitHub Releases](https://github.com/Easy-Sandbox/easy-sandbox/releases)。
 
-macOS / Linux（把 `0.1.0` 换成目标版本，`OS` 与 `ARCH` 自动检测）：
+macOS / Linux（把 `0.2.0` 换成目标版本，`OS` 与 `ARCH` 自动检测）：
 
 ```bash
-VERSION=0.1.0
+VERSION=0.2.0
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')   # darwin 或 linux
 ARCH=$(uname -m); case "$ARCH" in
   x86_64) ARCH=x64 ;;
@@ -70,7 +70,7 @@ chmod +x /usr/local/bin/ebx
 Windows（PowerShell）：
 
 ```powershell
-$VERSION = "0.1.0"
+$VERSION = "0.2.0"
 $asset = "ebx-$VERSION-windows-x64.exe"
 
 # 下载 Release 资产

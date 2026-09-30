@@ -52,11 +52,11 @@ Linux (x64), and Windows (x64) — no Python installation required. Binaries are
 published for every release on
 [GitHub Releases](https://github.com/Easy-Sandbox/easy-sandbox/releases).
 
-macOS / Linux (replace `0.1.0` with the release you want; `OS` and `ARCH` are
+macOS / Linux (replace `0.2.0` with the release you want; `OS` and `ARCH` are
 auto-detected):
 
 ```bash
-VERSION=0.1.0
+VERSION=0.2.0
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')   # darwin or linux
 ARCH=$(uname -m); case "$ARCH" in
   x86_64) ARCH=x64 ;;
@@ -72,7 +72,7 @@ chmod +x /usr/local/bin/ebx
 Windows (PowerShell):
 
 ```powershell
-$VERSION = "0.1.0"
+$VERSION = "0.2.0"
 $asset = "ebx-$VERSION-windows-x64.exe"
 
 # Download the release asset

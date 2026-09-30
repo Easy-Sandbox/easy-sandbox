@@ -28,9 +28,9 @@ ebx --version
 如果不想安装 Python 环境，也可以使用预编译的独立二进制版本（支持 Linux、macOS 和 Windows）：
 
 ```bash
-# 示例：在 macOS（Apple Silicon）上安装 v0.1.0
+# 示例：在 macOS（Apple Silicon）上安装 v0.2.0
 curl -fsSL -o /usr/local/bin/ebx \
-  "https://github.com/Easy-Sandbox/easy-sandbox/releases/download/v0.1.0/ebx-0.1.0-darwin-arm64"
+  "https://github.com/Easy-Sandbox/easy-sandbox/releases/download/v0.2.0/ebx-0.2.0-darwin-arm64"
 chmod +x /usr/local/bin/ebx
 ```
 

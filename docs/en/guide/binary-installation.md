@@ -22,7 +22,7 @@ Binaries are published for every release on
 
 ```bash
 # Set the version you want to install
-VERSION=0.1.0
+VERSION=0.2.0
 
 # Detect the platform
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')   # darwin or linux
@@ -43,7 +43,7 @@ chmod +x /usr/local/bin/ebx
 ### Windows (PowerShell)
 
 ```powershell
-$VERSION = "0.1.0"
+$VERSION = "0.2.0"
 $asset = "ebx-$VERSION-windows-x64.exe"
 
 # Download the release asset
@@ -69,8 +69,8 @@ Move-Item $asset "$installDir\ebx.exe"
 4. Make it executable (macOS/Linux only) and place it on your `PATH`:
 
 ```bash
-chmod +x ./ebx-0.1.0-darwin-arm64
-mkdir -p ~/.local/bin && mv ./ebx-0.1.0-darwin-arm64 ~/.local/bin/ebx
+chmod +x ./ebx-0.2.0-darwin-arm64
+mkdir -p ~/.local/bin && mv ./ebx-0.2.0-darwin-arm64 ~/.local/bin/ebx
 ```
 
 ## Verify the SHA256 Checksum
@@ -80,27 +80,27 @@ downloading, verify the binary's integrity:
 
 ```bash
 # macOS
-shasum -a 256 -c ebx-0.1.0-darwin-arm64.sha256
+shasum -a 256 -c ebx-0.2.0-darwin-arm64.sha256
 
 # Linux
-sha256sum -c ebx-0.1.0-linux-x64.sha256
+sha256sum -c ebx-0.2.0-linux-x64.sha256
 ```
 
 Windows (`certutil`):
 
 ```powershell
 # Compare the printed digest against the content of the .sha256 file
-certutil -hashfile ebx-0.1.0-windows-x64.exe SHA256
+certutil -hashfile ebx-0.2.0-windows-x64.exe SHA256
 
 # Or with PowerShell:
-Get-FileHash ebx-0.1.0-windows-x64.exe -Algorithm SHA256
+Get-FileHash ebx-0.2.0-windows-x64.exe -Algorithm SHA256
 ```
 
 ## Verify the Installation
 
 ```bash
 ebx --version
-# ebx, version 0.1.0
+# ebx, version 0.2.0
 ```
 
 > **macOS Gatekeeper note:** the binaries are not code-signed, so the first

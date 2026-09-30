@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-30
+
 ### Breaking Changes
 
 1. **CLI config uses one name per credential.**

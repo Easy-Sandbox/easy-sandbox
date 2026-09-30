@@ -29,9 +29,9 @@ If you'd rather not set up a Python environment, `ebx` is also available as a
 precompiled standalone binary for Linux, macOS, and Windows:
 
 ```bash
-# Example: install v0.1.0 on macOS (Apple Silicon)
+# Example: install v0.2.0 on macOS (Apple Silicon)
 curl -fsSL -o /usr/local/bin/ebx \
-  "https://github.com/Easy-Sandbox/easy-sandbox/releases/download/v0.1.0/ebx-0.1.0-darwin-arm64"
+  "https://github.com/Easy-Sandbox/easy-sandbox/releases/download/v0.2.0/ebx-0.2.0-darwin-arm64"
 chmod +x /usr/local/bin/ebx
 ```
 

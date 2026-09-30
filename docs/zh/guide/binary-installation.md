@@ -22,7 +22,7 @@ Python 环境。**
 
 ```bash
 # 设置要安装的版本
-VERSION=0.1.0
+VERSION=0.2.0
 
 # 自动检测平台
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')   # darwin 或 linux
@@ -43,7 +43,7 @@ chmod +x /usr/local/bin/ebx
 ### Windows（PowerShell）
 
 ```powershell
-$VERSION = "0.1.0"
+$VERSION = "0.2.0"
 $asset = "ebx-$VERSION-windows-x64.exe"
 
 # 下载 Release 资产
@@ -69,8 +69,8 @@ Move-Item $asset "$installDir\ebx.exe"
 4. 添加可执行权限（仅 macOS/Linux）并放到 `PATH` 中：
 
 ```bash
-chmod +x ./ebx-0.1.0-darwin-arm64
-mkdir -p ~/.local/bin && mv ./ebx-0.1.0-darwin-arm64 ~/.local/bin/ebx
+chmod +x ./ebx-0.2.0-darwin-arm64
+mkdir -p ~/.local/bin && mv ./ebx-0.2.0-darwin-arm64 ~/.local/bin/ebx
 ```
 
 ## 校验 SHA256
@@ -79,27 +79,27 @@ mkdir -p ~/.local/bin && mv ./ebx-0.1.0-darwin-arm64 ~/.local/bin/ebx
 
 ```bash
 # macOS
-shasum -a 256 -c ebx-0.1.0-darwin-arm64.sha256
+shasum -a 256 -c ebx-0.2.0-darwin-arm64.sha256
 
 # Linux
-sha256sum -c ebx-0.1.0-linux-x64.sha256
+sha256sum -c ebx-0.2.0-linux-x64.sha256
 ```
 
 Windows（`certutil`）：
 
 ```powershell
 # 将打印出的摘要与 .sha256 文件中的内容进行比对
-certutil -hashfile ebx-0.1.0-windows-x64.exe SHA256
+certutil -hashfile ebx-0.2.0-windows-x64.exe SHA256
 
 # 或使用 PowerShell：
-Get-FileHash ebx-0.1.0-windows-x64.exe -Algorithm SHA256
+Get-FileHash ebx-0.2.0-windows-x64.exe -Algorithm SHA256
 ```
 
 ## 验证安装
 
 ```bash
 ebx --version
-# ebx, version 0.1.0
+# ebx, version 0.2.0
 ```
 
 > **macOS Gatekeeper 提示：** 二进制文件未做代码签名，首次运行可能被
