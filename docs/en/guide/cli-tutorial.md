@@ -23,7 +23,7 @@ ebx --version
 ### Set API Key via config
 
 ```bash
-ebx config set api_key your-api-key
+ebx config set sandbox_api_key your-api-key
 ```
 
 ### Or via Environment Variable
@@ -44,7 +44,8 @@ export E2B_API_KEY="your-api-key"
 |--------------|---------|
 | Store credentials / endpoints (run first) | `ebx config init` — guided interactive wizard |
 | Create a cloud sandbox (default, existing template, or AI-generated) | `ebx create [DESCRIPTION]` |
-| Scaffold an editable local template project | `ebx template init [DIRECTORY]` — writes files only, no build or deploy |
+| Scaffold an editable local template project | `ebx template init [DIRECTORY]` or `ebx template init "DESCRIPTION"` — writes files only, no build or deploy. A description asks for the project directory first (Enter keeps `./<name>/`) |
+| Turn an existing project into a template | `ebx template init --adopt [DIRECTORY]` — adds the template files in place; no build or deploy |
 
 ### Using the Default Template
 
@@ -57,11 +58,16 @@ ebx create --template base
 ### Natural Language Creation (AI-generated templates)
 
 ```bash
-# First run: guided setup for platform credentials and Qwen Code
+# First run: guided setup for credentials, region, ACR namespace, and the LLM key
 # ebx config init
 
-# Qwen Code generates Dockerfile + template.yaml → build & deploy → create sandbox
+# Qwen Code generates Dockerfile + commands.py (HTTP server) + template.yaml → build & deploy → create sandbox.
+# An interactive terminal first asks whether to switch to template init
+# (local files only). --yes keeps the full pipeline.
 ebx create "a Python data analysis environment"
+
+# Template files only — no build, push, deploy, or sandbox
+ebx template init "a Python data analysis environment"
 ```
 
 Before generating, the agent first researches the publicly verifiable facts itself — whether the tool is Node.js-based, its official install method, common runtimes and dependencies — then assesses the description for completeness (target: 80%). Only user preferences, private constraints, and business decisions it cannot infer become questions, asked **one at a time** and numbered `Question 1`, `Question 2`, … with no total shown; press Enter to cancel:
@@ -154,11 +160,15 @@ ebx upload sbx-xxxx ./script.py /app/script.py
 ebx upload sbx-xxxx ./data/ /app/data/
 ```
 
+On a terminal a directory upload shows `Uploading ... 12s` and the relative paths in grey. The file bytes are not printed.
+
 ### Download
 
 ```bash
 ebx download sbx-xxxx /app/result.csv ./result.csv
 ```
+
+On a terminal the transfer shows `Downloading /app/result.csv... 12s`. The file bytes are not printed.
 
 ---
 
@@ -259,6 +269,21 @@ ebx template init -t python ./my-template
 
 `ebx init` is a top-level shortcut that delegates to the exact same command as `ebx template init` (guided credentials setup remains `ebx config init`).
 
+#### Adapt an existing project
+
+```bash
+# Qwen Code adds Dockerfile, commands.py and template.yaml to ./my-app
+ebx template init --adopt ./my-app --hint "listens on 8080"
+
+# List what would be sent. No model call, no files written
+ebx template init --adopt ./my-app --dry-run
+
+# Then publish (no LLM)
+ebx deploy ./my-app --acr-namespace my-ns
+```
+
+`--adopt` copies the project to a temp directory first. `.env`, keys and secret-looking files stay out of that copy, and only the template files are written back after a preview. A non-interactive shell needs `-y`. Details: [Authoring Templates](authoring-templates.md#adapt-an-existing-project).
+
 #### Interactive case selection
 
 - **TTY**: running `ebx init` / `ebx template init` without `-t` shows an arrow-key (Up/Down) selector over the built-in cases; `Enter` confirms, `Ctrl+C` aborts without writing anything.
@@ -266,12 +291,41 @@ ebx template init -t python ./my-template
 
 #### Advanced usage: top-level shortcuts vs your own commands
 
-- Built-in top-level shortcuts (`create`, `list`, `init`, `install`, `deploy`, `run`, …) are registered by **project maintainers** in the `lazy_subcommands` map of `src/easy_sandbox/cli/main.py`. It is an internal registration point, not a user extension mechanism.
-- To add your own commands, declare `custom_commands` in the template's `template.yaml` or register them on a SandboxServer (`@registry.command`), then invoke them with `ebx run <SANDBOX_ID> <COMMAND_NAME>`.
-- The `config.toml [shortcuts]` section from the early CLI design draft was **never implemented** — do not expect user-declared aliases in `~/.ebx/config.toml` to work.
-- Unknown top-level commands get targeted hints: `ebx crate` → `Did you mean 'create'?`; with no close match the error points to `custom_commands` + `ebx run`.
+- Built-in top-level shortcuts (`create`, `list`, `init`, `install`, `deploy`, `run`, …) are the **system defaults** of the user-configurable `[shortcuts]` section — they are not hard-coded: maintainers seed them in the `lazy_subcommands` map of `src/easy_sandbox/cli/main.py`, and users can freely modify, remove, or extend them via `~/.ebx/config.toml` (see below).
+- CLI aliases (`[shortcuts]`) only **rename a local CLI path** (`ebx <alias> [args…]` → an existing command); they need no sandbox and no template.
+- To add commands that run **inside a sandbox**, declare `custom_commands` in the template's `template.yaml` or register them on a SandboxServer (`@registry.command`), then invoke them with `ebx run <SANDBOX_ID> <COMMAND_NAME>` — that is a different layer from CLI aliases.
+- Unknown top-level commands get targeted hints: `ebx crate` → `Did you mean 'create'?`; with no close match the error shows a shortcut example whose target has no `ebx` prefix (`ebx config set shortcuts.NAME "template init"`) and points to `custom_commands` + `ebx run`.
 
-See the [CLI design doc](../design/cli-design.md) for the full boundary description.
+#### Customizing top-level shortcuts
+
+Every default shortcut is a factory preset you can change. Manage aliases with `ebx config` (or edit the `[shortcuts]` section of `~/.ebx/config.toml` directly):
+
+```bash
+# Add / modify an alias (now `ebx ps abc123` ≡ `ebx sandbox process list abc123`)
+ebx config set shortcuts.ps "sandbox process list"
+
+# The target is the command path only. This is rejected and nothing is saved:
+#   ebx config set shortcuts.init2 "ebx template init"
+# Use the path without the ebx prefix (`ebx init2 --list` ≡ `ebx template init --list`):
+ebx config set shortcuts.init2 "template init"
+
+# Delete an alias (empty value removes it)
+ebx config set shortcuts.ps ""
+
+# View all configured aliases
+ebx config get shortcuts
+
+# Reset shortcuts to the default set / generate a complete editable template
+ebx config init --reset-shortcuts
+```
+
+Notes:
+
+- An alias target must be an existing command path (`"sandbox process list"`, `"template install"`, …). Do not include the `ebx` prefix: `"ebx template init"` exits 2, is not saved, and the error prints `ebx config set shortcuts.<alias> "template init"` to retry. A bad value already in the file is skipped on the next startup (`Invalid shortcut ignored`) and the other aliases keep working. Aliases never chain to other aliases and arguments are passed through unchanged.
+- Reserved command names (`sandbox`, `template`, `config`, `mcp`) cannot be overridden.
+- A corrupted `config.toml` disables all shortcuts for that session with a warning — the built-in command groups (`sandbox` / `config` / `mcp` / `template`) still work, so the CLI keeps working.
+
+See the [CLI design doc](../design/cli-design.md) for the full boundary description and the complete default alias table.
 
 ### One-Click Deploy Custom Templates
 
@@ -280,7 +334,7 @@ ebx template deploy ./my-template \
   --acr-namespace my-ns --acr-repo my-template
 ```
 
-`template deploy` automatically performs: local Docker build → ACR push → CreateTemplate API call. See [Authoring Templates](authoring-templates.md) for details.
+`template deploy` automatically performs: local Docker build → ACR push → CreateTemplate API call. On a terminal each of those steps is a moving `message... 12s` header with the latest four log lines in grey underneath. See [While a command is running](#while-a-command-is-running), and [Authoring Templates](authoring-templates.md) for the template files.
 
 ---
 
@@ -289,7 +343,7 @@ ebx template deploy ./my-template \
 ```bash
 # View configuration
 ebx config list
-ebx config get api_key
+ebx config get sandbox_api_key
 
 # Set configuration
 ebx config set region cn-beijing
@@ -299,7 +353,7 @@ ebx config set http_timeout 60
 ebx config set region ""
 ```
 
-Available configuration keys: `api_key`, `api_url`, `region`, `http_timeout`, `max_retries`, `domain`, `llm_api_key`, `llm_model`, `llm_base_url`, `qwen_code_api_key`, `qwen_code_base_url`, `qwen_code_model`, `github_token`, `access_key_id`, `access_key_secret`.
+Available configuration keys: `sandbox_api_key`, `api_url`, `region`, `http_timeout`, `max_retries`, `domain`, `llm_api_key`, `llm_model`, `llm_base_url`, `github_token`, `access_key_id`, `access_key_secret`, `acr_namespace`. `api_key` is still accepted as an alias of `sandbox_api_key`.
 
 > **Tip:** hit a GitHub anonymous rate limit while using `ebx template search` / `ebx install`? Run `ebx config set github_token` in an interactive terminal (masked input, stored in `~/.ebx/.env`), or inject `GITHUB_TOKEN` as a CI secret. See [Authentication](authentication.md) and the CLI reference for the `--token` precedence notes.
 >
@@ -321,8 +375,10 @@ ebx mcp install --target claude
 # View MCP status
 ebx mcp status
 
-# Start manually (usually invoked automatically by the IDE)
+# Start manually: configuration goes to stderr, then it waits on stdin
 ebx mcp start --template code-interpreter-v1
+# From another terminal: ebx mcp stop
+# Background HTTP: ebx mcp start --http --background
 ```
 
 ### Remote MCP Server Deployment Artifact
@@ -337,9 +393,25 @@ ebx mcp deploy --generate-token --api-key $E2B_API_KEY \
 
 Install `easy-sandbox[mcp]` in the HTTP runtime. Then use the official Alibaba Cloud FC console or SDK to package the artifact and create the function and HTTP trigger. Treat `config.yaml` as a provider-neutral checklist—not an FC API payload—and translate its settings through the official interface. Replace the URL and token placeholders in the printed IDE template with the deployment values.
 
-Clients should call `DELETE /mcp` when a session ends. `GET /mcp` currently returns 501; SSE server notifications are planned for Phase 2. `config.yaml` may contain plaintext credentials, so do not commit the artifact or completed IDE configuration to version control.
+Clients should call `DELETE /mcp` when a session ends. `GET /mcp` returns 405 until SSE server notifications exist. `ebx mcp deploy` refuses to write an artifact without a non-empty Bearer token. `config.yaml` may contain plaintext credentials, so do not commit the artifact or completed IDE configuration to version control.
 
 ---
+
+## While a command is running
+
+A step that can sit for a while draws one block on **stderr**:
+
+```text
+Building Docker image locally: my-template:latest... 12s
+#5 [1/2] FROM ubuntu:22.04
+#5 DONE 0.1s
+```
+
+The header's elapsed time moves about once a second, including while the tool is silent. The grey rows are the last four lines (`EBX_ACTIVITY_LINES`, from 1 to 10). The same block is used for creating a sandbox, upload, download, fetching a template or the template index, registering a template from an image, installing the coding-agent CLI, `ebx kill --all`, and each deploy phase (build, push, wait until READY).
+
+Grey rows are safe text only: relative paths, install milestones (mirror, checksum, extract), docker or poll lines, and `i/N <id>` while killing. File bytes, tool input, ACR tokens, and `--build-arg` values are not shown.
+
+`--json`, `--quiet`, `--ci`, `TERM=dumb`, and a non-TTY print no such header. Deploy still prints one progress line per phase in those modes. `--verbose` prints the full deploy log instead of the block; other commands keep the header on a terminal. Results stay on stdout.
 
 ## Global Options
 

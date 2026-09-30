@@ -1,0 +1,74 @@
+name: Release Binary
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write  # required to upload assets to the GitHub Release
+
+jobs:
+  build-binary:
+    name: Build ebx binary (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # ubuntu-latest  -> linux-x64
+        # macos-latest   -> darwin-arm64 (Apple Silicon)
+        # macos-13       -> darwin-x64   (Intel)
+        # windows-latest -> windows-x64
+        include:
+          - os: ubuntu-latest
+            target: linux-x64
+          - os: macos-latest
+            target: darwin-arm64
+          - os: macos-13
+            target: darwin-x64
+          - os: windows-latest
+            target: windows-x64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install project with binary build toolchain
+        run: pip install -e ".[binary]"
+
+      - name: Build binary
+        run: python scripts/build_binary.py
+
+      - name: Generate SHA256 checksums
+        shell: bash
+        run: |
+          cd dist/binary
+          for f in ebx-*; do
+            case "$f" in *.sha256) continue ;; esac
+            [ -f "$f" ] || continue
+            sha256sum "$f" > "$f.sha256"
+            cat "$f.sha256"
+          done
+
+      # Manual runs (workflow_dispatch) have no release to attach to, so the
+      # binaries are exposed as workflow artifacts for download instead.
+      - name: Upload workflow artifacts (manual trigger)
+        if: github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebx-binary-${{ matrix.target }}
+          path: dist/binary/
+          if-no-files-found: error
+
+      - name: Upload binaries to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/binary/ebx-*

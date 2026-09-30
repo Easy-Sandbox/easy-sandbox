@@ -13,10 +13,15 @@ Contracts asserted here:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import pytest
 from click.testing import CliRunner
 
 from easy_sandbox.cli.main import cli
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 THREE_ROUTES = [
     "ebx create --template base",
@@ -33,6 +38,29 @@ THREE_ROUTES = [
 @pytest.fixture()
 def runner() -> CliRunner:
     return CliRunner()
+
+
+@pytest.fixture(autouse=True)
+def _default_shortcuts_only(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Pin the root CLI to the built-in default shortcuts.
+
+    The merged shortcuts come from ``~/.ebx/config.toml``, which must never
+    leak into these assertions (nor may a fresh-install bootstrap touch the
+    real home directory from a test).  The merge is re-run against the
+    built-in defaults; the previous merge result is restored afterwards so
+    other test files keep seeing the original state.
+    """
+    import easy_sandbox.cli.commands.config_cmd as config_cmd
+    from easy_sandbox.cli.main import _CORE_COMMANDS, _DEFAULT_SHORTCUTS
+
+    original = dict(cli._lazy_subcommands)
+    monkeypatch.setattr(config_cmd, "load_shortcuts", lambda: dict(_DEFAULT_SHORTCUTS))
+    monkeypatch.setattr(config_cmd, "_config_file_exists", lambda: True)
+    monkeypatch.setattr(config_cmd, "_create_default_config", lambda: None)
+    cli._lazy_subcommands = dict(_CORE_COMMANDS)
+    cli._merge_user_shortcuts()
+    yield
+    cli._lazy_subcommands = original
 
 
 class TestCreateRequiresExplicitRoute:

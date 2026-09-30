@@ -8,9 +8,9 @@ Resolution priority (implemented once in :func:`easy_sandbox.transport.config.lo
 via its override mechanism, reused by every command):
 
 1. Command ``--region/-r`` value
-2. ``ebx config set region <value>`` (persisted in ``~/.ebx/config.toml``)
-   or the ``SANDBOX_REGION`` environment variable
-3. Default ``cn-hangzhou``
+2. ``SANDBOX_REGION`` process environment (then the same name in ``./.env``)
+3. ``ebx config set region`` (``~/.ebx/config.toml`` or ``~/.ebx/.env``)
+4. Default ``cn-hangzhou``
 """
 
 from __future__ import annotations
@@ -50,8 +50,8 @@ def region_option(func: Callable[..., Any]) -> Callable[..., Any]:
 def resolve_region(cli_region: str | None) -> str:
     """Return the effective region for a command invocation.
 
-    Priority: command ``--region`` > ``ebx config set region`` /
-    ``SANDBOX_REGION`` env > ``cn-hangzhou``.  Commands that build the full
+    Priority: command ``--region`` > ``SANDBOX_REGION`` >
+    ``ebx config set region`` > ``cn-hangzhou``.  Commands that build the full
     transport config should instead call
     ``load_config(region=cli_region)`` directly — the same priority applies.
     """

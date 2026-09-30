@@ -113,7 +113,7 @@ Conventions:
 | Default index URL | `https://raw.githubusercontent.com/Easy-Sandbox/awesome-templates/main/awesome-templates.yaml` |
 | Env override | `EBX_TEMPLATE_INDEX_URL` (HTTP(S) URL or local file path) |
 | CLI override | `ebx template search/install --index-url <URL-or-path>` |
-| Auth | `--token` > `GITHUB_TOKEN` > stored `github_token` (`ebx config set github_token`; private mirrors, higher rate limits) |
+| Auth | `--token` > `GITHUB_TOKEN` > `./.env` > stored `github_token` (`ebx config set github_token`; private mirrors, higher rate limits) |
 
 Choosing `raw.githubusercontent.com` over `api.github.com` is deliberate: raw
 files are served by a CDN and are **not** subject to the 60 req/hour anonymous

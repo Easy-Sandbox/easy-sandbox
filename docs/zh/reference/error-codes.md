@@ -25,7 +25,7 @@ except SandboxError as e:
 
 ### 排查步骤
 
-1. 运行 `ebx config get api_key` 确认认证状态
+1. 运行 `ebx config get sandbox_api_key` 确认认证状态
 2. 检查环境变量是否正确设置
 3. 确认 API Key 未过期或被吊销
 4. 对于 E1002，检查系统时钟是否准确（`date` 命令）
@@ -42,8 +42,8 @@ except SandboxError as e:
 | E2003 | `RegionUnavailableError` | 区域不可用 | 尝试其他区域或检查服务可用性 | 请求的区域暂时不可用或不存在 |
 | E2004 | `TemplateParseError` | 模板解析失败 | 修复 template.yaml（见校验错误）；能力不会被授予直到模板解析成功 | template.yaml 格式错误或字段无效 |
 | E2005 | `QwenCodeNotInstalledError` | 未安装 Qwen Code | 按 Quick Setup 安装官方 standalone（或 `ebx config init`），或用 `ebx create --template <名称>` 跳过 AI 生成 | `ebx create "描述"` 且 PATH 与 `~/.ebx/bin` 均无 Qwen Code，且用户拒绝安装或非 TTY 未传 `-y` |
-| E2006 | `QwenCodeCredentialError` | Qwen Code 凭证缺失 | `ebx config set qwen_code_api_key <KEY>` 或 `ebx config init`；也可导出 `DASHSCOPE_API_KEY`/`OPENAI_API_KEY` | AI 路径下 `qwen_code_api_key`、`llm_api_key`、环境变量与 `~/.qwen/settings.json` 均无可用凭证 |
-| E2007 | `AICodegenError` | AI 生成失败 | 查看保留的生成目录（`~/.ebx/generated/<名称>`）后重试，或改用 `ebx create --template <名称>` | Qwen Code 生成失败/超时，或产出的 Dockerfile、template.yaml 缺失或未通过校验 |
+| E2006 | `QwenCodeCredentialError` | Qwen Code 凭证缺失 | `ebx config set llm_api_key <KEY>` 或 `ebx config init`；也可导出 `DASHSCOPE_API_KEY`/`OPENAI_API_KEY` | AI 路径下 `llm_api_key`、环境变量与 `~/.qwen/settings.json` 均无可用凭证 |
+| E2007 | `AICodegenError` | AI 生成失败 | 查看保留的生成目录（`~/.ebx/generated/<名称>`，或 `--dir` 指定位置下）后重试，或改用 `ebx create --template <名称>` | Qwen Code 生成失败/超时，或产出的 Dockerfile、template.yaml 缺失或未通过校验 |
 | E2008 | `DescriptionClarificationError` | 描述信息量不足以进行 AI 生成 | 把建议中列出的缺失项（或示例描述）补进 `DESCRIPTION`；或传 `--yes`/`-y` 直接按当前描述生成；或改用 `ebx create --template <名称>` | Agent 自行检索可公开查证的事实后，描述完整度仍低于 80%（缺失的是用户偏好 / 私有约束 / 业务决策）且当前会话无法提问（非 TTY / CI 未传 `-y`），或交互式澄清被取消 / 中断（EOF） |
 
 ### 排查步骤
@@ -129,7 +129,7 @@ except CapabilityNotSupportedError as e:
 | 错误码 | 异常类 | 含义 | 建议 | 触发场景 |
 |--------|--------|------|------|----------|
 | E7000 | `DeployError` | 部署失败（基类） | — | NL 驱动部署相关通用错误 |
-| E7001 | `DeployLLMKeyMissingError` | 未找到 LLM API Key | 设置 `BAILIAN_CODING_PLAN_API_KEY`、`DASHSCOPE_API_KEY` 或 `OPENAI_API_KEY` 环境变量 | 部署时缺少 qwen-code agent 所需的 LLM Key |
+| E7001 | `DeployLLMKeyMissingError` | 未找到 LLM API Key | 设置 `EBX_LLM_API_KEY`（或 `BAILIAN_CODING_PLAN_API_KEY`、`DASHSCOPE_API_KEY`、`OPENAI_API_KEY`），执行 `ebx config set llm_api_key <KEY>`，或传入 `llm_api_key=` | SDK `Sandbox.deploy()` 的沙箱内 qwen-code agent 缺少 LLM Key（`ebx deploy` 不会抛出） |
 | E7002 | `DeployAgentError` | Agent 返回错误 | 检查 `DeployResult` 的 `raw_output` 获取详情 | qwen-code agent 执行出错 |
 | E7003 | `DeployTimeoutError` | 部署超时 | 增加 `max_wall_time` 或简化部署任务 | 部署超过最大时间限制 |
 

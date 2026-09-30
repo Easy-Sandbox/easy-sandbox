@@ -16,7 +16,7 @@ graph LR
 ## 前置条件
 
 - Docker Desktop 已启动（用于本地构建镜像）
-- Python 3.10+
+- Python 3.9+
 - 安装 SDK（**务必带 `[cli]` 扩展**）：
 
 ```bash
@@ -172,9 +172,10 @@ $ ebx install ./my-template -y
 Using local template from ./my-template...
 Cannot build + deploy. Missing prerequisites:
   • Missing ACR namespace. Provide via:
-  1. --acr-namespace flag
-  2. export ACR_NAMESPACE=xxx
-  3. ACR_NAMESPACE=xxx in .env (CWD or ~/.ebx/.env)
+  1. ebx config set acr_namespace <ns>   (or re-run 'ebx config init')
+  2. --acr-namespace flag
+  3. export ACR_NAMESPACE=<ns>
+  4. ACR_NAMESPACE=<ns> in .env (CWD or ~/.ebx/.env)
 
 Run with --download-only to just download the template.
 ```
@@ -227,6 +228,20 @@ Next steps:
 ```
 
 > 脚手架与凭证配置是两条独立命令：`ebx template init`（本节）只写本地文件，`ebx config init` 存储凭证，`ebx create` 启动云端沙箱。顶层 `ebx init` 快捷方式与 `ebx template init` 委托到完全相同的命令。
+
+### 适配已有源码的项目
+
+目录里已经是一个应用（Flask、Express、一段脚本），还没有 `Dockerfile` / `template.yaml` 时，用 `--adopt`。Qwen Code 只看到一份副本；ebx 把 `Dockerfile`、`commands.py`、`template.yaml`，以及在你还没有时生成的 `.dockerignore`，写回同一目录。
+
+```bash
+$ ebx template init --adopt ./my-app --hint "监听 8080"
+# 看过预览之后：
+$ ebx deploy ./my-app --acr-namespace my-ns
+```
+
+`--dry-run` 列出将要发送的全部文件，不调用模型。非交互终端必须带 `-y`。`.env`、密钥、以及内容看起来像密钥的文件不会进入副本，Agent 进程也不会继承云凭证。备份、`--force`、写入前会拒绝哪些结果，见 [编写模板 — 适配已有项目](authoring-templates.md#适配已有项目)。
+
+`ebx template init "描述"` 是另一条 AI 路径：根据一句话**新建**目录。`--adopt` 补的是你已经有的项目。
 
 ### 理解生成的文件
 
@@ -299,7 +314,7 @@ EXPOSE 9000
 CMD ["python3", "commands.py"]
 ```
 
-> **`.whl` 注入机制**：执行 `ebx template deploy` 时，SDK 会自动将当前版本的 wheel 文件注入到 Docker 构建上下文中，确保容器内安装与宿主一致版本的 SDK。上面的 `COPY *.whl` + fallback 模式是推荐写法。
+> **`.whl` 注入机制**：执行 `ebx template deploy` 时，SDK 会自动将当前版本的 wheel 文件注入到 Docker 构建上下文中，确保容器内安装与宿主一致版本的 SDK。源码仓库运行时从工作区构建 wheel；通过 PyPI 安装的 `ebx`（或独立二进制）则从 PyPI 下载同版本的已发布 wheel 并校验 SHA-256。两者都不可行（未发布的版本、或无法访问 PyPI）时不注入任何文件，由镜像内的 `pip install easy-sandbox` 兜底。上面的 `COPY *.whl` + fallback 模式是推荐写法。
 
 ### 自定义命令（可选）
 
@@ -730,6 +745,8 @@ ebx template delete <template-id>
 
 | 症状 | 可能原因 | 解决方案 |
 |------|---------|---------|
+| 没有 Dockerfile | 目录还是应用源码，不是模板 | `ebx template init --adopt .`，然后 `ebx deploy` |
+| Confirmation required before project files are sent | 非交互的 `--adopt` 没有带 `-y` | 加上 `-y`，或用 `--dry-run` 只看文件列表 |
 | Docker build 失败 | Dockerfile 语法错误 / 网络问题 | 加 `-v` 查看详细日志 |
 | ACR login 失败 | AK/SK 过期或权限不足 | 检查 `.env` 中的凭证配置 |
 | 模板卡在 building 状态 | 平台侧镜像优化中 | 等待或 `ebx template info <id> --official-api` 查看状态 |

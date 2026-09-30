@@ -53,13 +53,19 @@ name in 0.15.11 — the agent fetches URLs, optionally via shell helpers).
 
 from __future__ import annotations
 
+import os
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from easy_sandbox.agent.qwen_code import run_qwen_code_headless
-from easy_sandbox.models.errors import AICodegenError
+from easy_sandbox.models.errors import (
+    AICodegenError,
+    QwenCodeNotInstalledError,
+    QwenCodeStartupError,
+    QwenCodeTimeoutError,
+)
 from easy_sandbox.utils.logging import get_logger
 
 if TYPE_CHECKING:
@@ -74,11 +80,17 @@ __all__ = [
     "DEFAULT_CLARIFY_TIMEOUT",
     "DEFAULT_RESEARCH_TIMEOUT",
     "MAX_CLARIFY_ROUNDS",
+    "RESEARCH_REASON_AGENT_UNAVAILABLE",
+    "RESEARCH_REASON_COMMAND_FAILED",
+    "RESEARCH_REASON_TIMEOUT",
+    "RESEARCH_REASON_TURN_LIMIT",
     "RESEARCH_SESSION_TURNS",
     "ClarifyAssessment",
     "ClarifyOutcome",
+    "ResearchOutcome",
     "answer_prompt",
     "assessment_prompt",
+    "default_research_timeout",
     "evaluate",
     "is_delegation_answer",
     "new_session_id",
@@ -98,8 +110,10 @@ MAX_CLARIFY_ROUNDS: int = 5
 #: Turn budget for the research round.  Research performs real tool calls
 #: (``web_fetch`` / shell), so it needs a far larger budget than the pure
 #: reasoning assessment — but still bounded so a misbehaving model cannot
-#: burn the whole timeout.
-RESEARCH_SESSION_TURNS: int = 40
+#: burn the whole timeout.  Kept modest: every ``web_fetch`` also costs an
+#: extra model call to summarise the page (20-60s each, measured), so a
+#: huge turn budget only lets a slow research round run into the timeout.
+RESEARCH_SESSION_TURNS: int = 20
 
 #: Turn budget for one assessment round.  An assessment is pure reasoning
 #: (the structured-output session runs no further research), so a small
@@ -114,6 +128,39 @@ DEFAULT_RESEARCH_TIMEOUT: float = 240.0
 #: Wall-clock budget for one assessment round (seconds).  Much smaller
 #: than code generation: nothing is built, nothing is written.
 DEFAULT_CLARIFY_TIMEOUT: float = 180.0
+
+#: Stable research-failure reason codes carried by :class:`ResearchOutcome`.
+#: They are the only failure information surfaced to callers; raw stderr
+#: and unclassified exception text never leave the debug log.
+RESEARCH_REASON_TIMEOUT: str = "timeout"
+"""The research round exceeded :data:`DEFAULT_RESEARCH_TIMEOUT`."""
+
+RESEARCH_REASON_AGENT_UNAVAILABLE: str = "agent-unavailable"
+"""The agent executable is missing, or the process could not be started."""
+
+RESEARCH_REASON_COMMAND_FAILED: str = "command-failed"
+"""The agent ran but reported an error (non-zero exit / ``is_error``)."""
+
+RESEARCH_REASON_TURN_LIMIT: str = "turn-limit"
+"""The agent used up :data:`RESEARCH_SESSION_TURNS` (qwen-code exit code 53)."""
+
+#: qwen-code exit code for an exceeded ``--max-session-turns`` budget.
+_QWEN_EXIT_TURN_LIMIT = 53
+
+
+def default_research_timeout() -> float:
+    """Research wall-clock budget: :data:`DEFAULT_RESEARCH_TIMEOUT` unless
+    ``EBX_QWEN_RESEARCH_TIMEOUT`` (positive seconds) overrides it."""
+    raw = os.environ.get("EBX_QWEN_RESEARCH_TIMEOUT")
+    if raw:
+        try:
+            value = float(raw)
+        except ValueError:
+            return DEFAULT_RESEARCH_TIMEOUT
+        if value > 0:
+            return value
+    return DEFAULT_RESEARCH_TIMEOUT
+
 
 #: Answer fragments that mean the user delegated the decision back to the
 #: agent (“你自己决定” / “采用默认” / "you decide" / "use the default").
@@ -243,7 +290,7 @@ CLARIFY_SCHEMA: dict[str, Any] = {
 
 _RESEARCH_PROMPT_TEMPLATE = """\
 你是 Easy Sandbox 的模板需求分析器。用户会用一句自然语言描述想创建的沙箱，
-随后将据此生成 Dockerfile 和 template.yaml。
+随后将据此生成 Dockerfile、commands.py（easy_sandbox.server HTTP 服务）和 template.yaml。
 
 用户描述：
 {description}
@@ -253,6 +300,10 @@ _RESEARCH_PROMPT_TEMPLATE = """\
 - 描述中提到的工具/框架属于什么技术栈（例如是否 Node.js / Python 工具）
 - 官方推荐的安装方式与常用版本
 - 常见运行时与依赖
+
+效率要求：总共最多 3 次网络检索（web_fetch 较慢，每次都会额外消耗一次模型
+调用）；能用 shell 一条命令确认的（如 `npm view <包名> version`、
+`pip index versions <包名>`）优先用 shell；拿到足够结论就立即停止检索。
 
 这些是公共事实，后续一律不得向用户提问；检索不到时直接采用安全合理的默认值，
 并在总结中逐条明确记录这些假设。
@@ -271,7 +322,10 @@ _ASSESSMENT_PROMPT_TEMPLATE = """\
 用户描述：
 {description}
 
-请评估生成一个可运行模板（Dockerfile + template.yaml）所需信息的完整度。
+请评估生成一个可运行模板（Dockerfile + commands.py + template.yaml）所需信息的完整度。
+说明：每个模板都会在 9000 端口运行 easy_sandbox.server 提供的 HTTP 服务（通用的
+健康检查、命令、文件、shell 接口都是现成的），这部分是固定做法，不得向用户提问；
+只有需求里的业务接口、入口命令或端口无法自行推断时，才可作为缺失项。
 评估维度：runtime（运行时/基础镜像）、dependencies（预装依赖）、
 entry command（入口命令）、ports（端口）、resources（CPU/内存）、data（数据）。
 
@@ -355,6 +409,34 @@ class ClarifyOutcome:
 
     skipped: bool = False
     """``True`` when ``--yes`` skipped clarification entirely."""
+
+
+@dataclass(frozen=True)
+class ResearchOutcome:
+    """Sanitised result of the phase-R research round.
+
+    ``ok`` is the single gate: the create flow degrades on a falsy
+    outcome (``bool(outcome) is outcome.ok``) and never blocks.
+    ``reason`` is a stable failure code — one of the
+    :data:`RESEARCH_REASON_TIMEOUT` / :data:`RESEARCH_REASON_AGENT_UNAVAILABLE`
+    / :data:`RESEARCH_REASON_COMMAND_FAILED` constants — and ``detail``
+    is an optional, already-sanitised one-line context.  Raw agent
+    stderr and unclassified exception text never leave the debug log,
+    so callers can safely render both fields.
+    """
+
+    ok: bool
+    """``True`` when the research round completed successfully."""
+
+    reason: str = ""
+    """Stable failure reason code (empty on success); see ``RESEARCH_REASON_*``."""
+
+    detail: str = ""
+    """Optional sanitised context for *reason* (e.g. ``"exit code 1"``)."""
+
+    def __bool__(self) -> bool:
+        """Truthiness mirrors :attr:`ok`, so legacy ``bool`` callers keep working."""
+        return self.ok
 
 
 def new_session_id() -> str:
@@ -450,18 +532,35 @@ def run_research(
     env: Mapping[str, str] | None,
     cwd: Path | str,
     session_id: str,
-    timeout: float = DEFAULT_RESEARCH_TIMEOUT,
-) -> bool:
+    timeout: float | None = None,
+    on_activity: Callable[[str], None] | None = None,
+) -> ResearchOutcome:
     """Run the phase-R research round through Qwen Code.
 
     A plain headless run (no ``--json-schema``) on the native session
     *session_id* so the agent can use its own tools to settle public
-    facts.  Never raises: a timeout, a crash, or an error result returns
-    ``False`` and the caller continues straight to the structured
-    assessment (the session — if it was created at all — simply carries
-    whatever partial context exists, and the assessment prompt's
-    safe-default rule covers the rest).
+    facts.  Never raises and never blocks: every failure mode is mapped
+    to a stable :class:`ResearchOutcome` reason —
+
+    * :data:`RESEARCH_REASON_TIMEOUT` — the run exceeded *timeout*
+      (default :func:`default_research_timeout`; the whole agent process
+      tree is terminated, so nothing keeps running in the background);
+    * :data:`RESEARCH_REASON_TURN_LIMIT` — the agent exhausted its turn
+      budget (exit code 53);
+    * :data:`RESEARCH_REASON_AGENT_UNAVAILABLE` — the executable is
+      missing or the process could not be started;
+    * :data:`RESEARCH_REASON_COMMAND_FAILED` — the agent ran but
+      reported an error (non-zero exit / ``is_error``).
+
+    The caller continues straight to the structured assessment on a
+    falsy outcome (the session — if it was created at all — simply
+    carries whatever partial context exists, and the assessment prompt's
+    safe-default rule covers the rest).  Raw stderr is only ever written
+    to the debug log; ``detail`` stays sanitised.
     """
+    if timeout is None:
+        timeout = default_research_timeout()
+    extra: dict[str, Any] = {} if on_activity is None else {"on_activity": on_activity}
     try:
         result = run_qwen_code_headless(
             prompt,
@@ -471,18 +570,40 @@ def run_research(
             timeout=timeout,
             max_session_turns=RESEARCH_SESSION_TURNS,
             session_id=session_id,
+            **extra,
         )
-    except AICodegenError as exc:
+    except QwenCodeTimeoutError as exc:
+        # Subclass of ``AICodegenError`` — must be classified first.
+        logger.debug("Clarification research timed out: %s", exc)
+        return ResearchOutcome(
+            ok=False,
+            reason=RESEARCH_REASON_TIMEOUT,
+            detail=f"no result within {timeout:.0f}s",
+        )
+    except (QwenCodeNotInstalledError, QwenCodeStartupError) as exc:
         logger.debug("Clarification research unavailable: %s", exc)
-        return False
+        return ResearchOutcome(ok=False, reason=RESEARCH_REASON_AGENT_UNAVAILABLE)
+    except AICodegenError as exc:
+        logger.debug("Clarification research failed: %s", exc)
+        return ResearchOutcome(ok=False, reason=RESEARCH_REASON_COMMAND_FAILED)
     if result.is_error:
         logger.debug(
             "Clarification research failed: exit_code=%s stderr=%s",
             result.exit_code,
             (result.raw_stderr or "").strip()[:200],
         )
-        return False
-    return True
+        if result.exit_code == _QWEN_EXIT_TURN_LIMIT:
+            return ResearchOutcome(
+                ok=False,
+                reason=RESEARCH_REASON_TURN_LIMIT,
+                detail=f"exceeded {RESEARCH_SESSION_TURNS} turns",
+            )
+        return ResearchOutcome(
+            ok=False,
+            reason=RESEARCH_REASON_COMMAND_FAILED,
+            detail=f"exit code {result.exit_code}",
+        )
+    return ResearchOutcome(ok=True)
 
 
 def evaluate(
@@ -494,6 +615,7 @@ def evaluate(
     session_id: str | None = None,
     resume: str | None = None,
     timeout: float = DEFAULT_CLARIFY_TIMEOUT,
+    on_activity: Callable[[str], None] | None = None,
 ) -> ClarifyAssessment | None:
     """Run one structured assessment round through Qwen Code.
 
@@ -506,6 +628,7 @@ def evaluate(
     payload that fails to parse returns ``None`` so the create command can
     degrade to direct generation instead of blocking the user.
     """
+    extra: dict[str, Any] = {} if on_activity is None else {"on_activity": on_activity}
     try:
         result = run_qwen_code_headless(
             prompt,
@@ -517,6 +640,7 @@ def evaluate(
             session_id=session_id,
             resume=resume,
             json_schema=CLARIFY_SCHEMA,
+            **extra,
         )
     except AICodegenError as exc:
         logger.debug("Clarification assessment unavailable: %s", exc)

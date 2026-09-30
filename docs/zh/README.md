@@ -29,8 +29,8 @@ Easy Sandbox 是基于阿里云函数计算的云端沙箱 SDK，提供 E2B 兼�
 | [SDK 使用](guide/sdk-usage.md) | Python SDK 完整用法 |
 | [CLI 教程](guide/cli-tutorial.md) | 命令行快速上手 |
 | [模板使用](guide/using-templates.md) | 官方与社区模板使用 |
-| [模板编写](guide/authoring-templates.md) | 自定义模板开发指南 |
-| [部署与构建](guide/deploy-and-build.md) | `ebx deploy` 项目部署 |
+| [模板编写](guide/authoring-templates.md) | 自定义模板；已有项目用 `ebx template init --adopt` |
+| [部署与构建](guide/deploy-and-build.md) | 模板生命周期（`template init` / `--adopt` → `deploy` → `create`） |
 | [声明式用法](guide/declarative-usage.md) | `@sandbox` 装饰器 |
 | [MCP 集成](guide/mcp-integration.md) | Cursor / Claude Desktop 集成 |
 | [会话持久化](guide/session-persistence.md) | 本地 / OSS 会话存储 |
@@ -79,7 +79,7 @@ Easy Sandbox 是基于阿里云函数计算的云端沙箱 SDK，提供 E2B 兼�
 ### 按功能
 
 - **自然语言创建沙箱**：[SDK API](design/sdk-api-design.md#核心设计理念自然语言优先) | [CLI](design/cli-design.md#3-自然语言创建) | [InferAgent](design/built-in-agents.md#2-配置推断-agentinferagent)
-- **项目直接部署**：[CLI 部署命令](design/cli-design.md#sbox-deploy)（`ebx deploy` 已实现，支持 NL 模式与传统模式）
+- **项目直接部署**：[CLI 部署命令](design/cli-design.md#sbox-deploy)（`ebx deploy` 为固定的 build+push+创建模板流水线；模板由 `ebx template init` 编写，可用脚手架、一句描述或 `--adopt`）
 - **MCP 集成（Cursor/Claude）**：[MCP Server](design/mcp-server.md#5-安装方式)
 
 ### 其他资源

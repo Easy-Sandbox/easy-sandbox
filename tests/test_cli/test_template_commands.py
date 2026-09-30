@@ -1209,6 +1209,20 @@ class TestResolveAcrNamespace:
             _resolve_acr_namespace(None)
 
 
+class TestNaturalLanguageInitDetection:
+    """A sentence is a description; a path token stays a directory."""
+
+    def test_sentence_and_cjk_are_descriptions(self) -> None:
+        from easy_sandbox.cli.commands.template import _is_nl_description
+
+        assert _is_nl_description("a python data science env")
+        assert _is_nl_description("一个数据分析环境")
+        assert not _is_nl_description("my-app")
+        assert not _is_nl_description("./my app")
+        assert not _is_nl_description(".")
+        assert not _is_nl_description("../templates/app")
+
+
 class TestTemplateInitCommand:
     """Tests for 'ebx template init' scaffold."""
 
@@ -1754,7 +1768,7 @@ class TestInitFromDefaultDirectory:
     def test_init_from_no_yaml_uses_ref_basename(
         self, runner: CliRunner, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """--from with no template.yaml: uses ref basename as dir name."""
+        """--from on a local dir with no template.yaml points at --adopt."""
         source = tmp_path / "src"
         source.mkdir()
         (source / "Dockerfile").write_text("FROM ubuntu:22.04\n")
@@ -1786,10 +1800,9 @@ class TestInitFromDefaultDirectory:
                 ["template", "init", "--from", str(source)],
             )
 
-        assert result.exit_code == 0, result.output
-        subdir = tmp_path / "my-ref-repo"
-        assert subdir.is_dir()
-        assert (subdir / "Dockerfile").exists()
+        assert result.exit_code != 0
+        assert "--adopt" in result.output
+        assert not (tmp_path / "my-ref-repo").exists()
 
 
 class TestBuildYamlGeneration:

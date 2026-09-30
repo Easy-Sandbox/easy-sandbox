@@ -83,6 +83,8 @@ Exit code: 1
 **stderr:**
 
 ```
+Natural-language create generates a template, then builds and pushes the image, deploys it, and creates a sandbox. Template only: ebx template init "用 Python 3.12，预装 pandas 和 jupyter，入口命令 jupyter notebook，端口 8888，2 核 4GB 内存，上传 data.csv 数据"
+... Researching public facts
 ... Assessing description
 ... Generating template
 
@@ -102,6 +104,8 @@ Exit code: 1
 **stderr:**
 
 ```
+Natural-language create generates a template, then builds and pushes the image, deploys it, and creates a sandbox. Template only: ebx template init "运行 python"
+... Researching public facts
 ... Assessing description
 [E2008] The description is about 30% complete (minimum 80%) and this session cannot ask clarifying questions.
   Suggestion: Missing details: dependencies, entry command, ports, resources, data. Example description: "Python 3.12 runtime with pandas and jupyter installed, entry command 'jupyter notebook --ip 0.0.0.0', port 8888, 2 CPU 4 GB memory, upload a data.csv dataset". Add them to DESCRIPTION, pass --yes/-y to generate from the current description anyway, or use 'ebx create --template <name>'.
@@ -117,6 +121,7 @@ Exit code: 1
 **stderr:**
 
 ```
+Natural-language create generates a template, then builds and pushes the image, deploys it, and creates a sandbox. Template only: ebx template init "运行 python"
 Warning: Qwen Code CLI was not found on PATH or in ~/.ebx/bin.
 
 Quick Setup - AI template generation (Qwen Code):

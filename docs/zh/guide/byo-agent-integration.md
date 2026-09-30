@@ -231,7 +231,7 @@ sb = await Sandbox.create(
 补充规则：
 
 - **绝不提交真实密钥**到模板、`template.yaml`、`custom_commands.env`、Dockerfile 的 `ENV` 或上传的文件。模板的 `env` 块只列**变量名**，默认值为空或非密钥值。
-- **绝不打印密钥。** 掩码显示（`ebx config get api_key`）与掩码日志适用于 Easy Sandbox 自身的凭证；对 Agent 的变量请使用同样的纪律。
+- **绝不打印密钥。** 掩码显示（`ebx config get sandbox_api_key`）与掩码日志适用于 Easy Sandbox 自身的凭证；对 Agent 的变量请使用同样的纪律。
 - **一沙箱一凭证。** 沙箱是一次性的；不要跨租户复用长期密钥，任何出现在输出或对话记录中的密钥都必须轮换。
 - **先读环境变量指南**了解 envd 的直接执行语义（[环境变量](environment-variables.md)）——排查「变量明明注入了却读不到」之前，先记住：envd 中要用 shell 特性（`$VAR`、管道、重定向）必须套 `sh -c '...'`。
 - `custom_commands.<name>.env` 块用于**非密钥默认值**（例如 `CODEX_MODEL`）；绝不可承载上表中的真实值。

@@ -7,13 +7,15 @@ Usage: cli mcp [OPTIONS] COMMAND [ARGS]...
 
   Examples:
     ebx mcp install --target cursor
-    ebx mcp start --template base
+    ebx mcp start
+    ebx mcp start --http --background
+    ebx mcp stop
     ebx mcp deploy --generate-token --output-dir ./mcp-artifact
 
   Related commands:
-    ebx config set api_key VALUE  Configure sandbox authentication
+    ebx config set sandbox_api_key VALUE  Configure sandbox authentication
     ebx mcp status                Inspect local MCP configuration
-    ebx mcp deploy                Generate an FC deployment artifact
+    ebx mcp stop                  Stop the local MCP server
 
 Options:
   -h, --help  Show this message and exit.
@@ -21,6 +23,7 @@ Options:
 Commands:
   deploy   Generate an Alibaba Cloud FC deployment artifact.
   install  Install MCP Server configuration to a target IDE.
-  start    Start MCP Server in STDIO mode.
+  start    Start the MCP server and print its configuration to stderr.
   status   Show MCP tools, authentication state, and IDE installation status.
+  stop     Stop the local MCP server started by 'ebx mcp start'.
 [exit_code:0]

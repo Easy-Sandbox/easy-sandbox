@@ -27,6 +27,7 @@ import contextlib
 import hashlib
 import hmac as hmac_mod
 import os
+import re
 import shutil
 import subprocess
 import urllib.parse
@@ -49,6 +50,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 logger = get_logger("api.docker_builder")
+
+_SDK_DIST_NAME = "easy-sandbox"
+_PYPI_RELEASE_URL = "https://pypi.org/pypi/{name}/{version}/json"
 
 
 @dataclass
@@ -152,6 +156,34 @@ class BuildResult:
         return self.build_status in ("ready", "building", "pushed")
 
 
+def _redacted_argv(cmd: list[str]) -> str:
+    """Join *cmd* for a log line, hiding ``--build-arg`` values.
+
+    The subprocess still receives the real arguments. Only the info log
+    is rewritten, so a verbose CLI cannot print registry passwords or
+    other build secrets.
+    """
+    redacted: list[str] = []
+    hide_next = False
+    for part in cmd:
+        if hide_next:
+            key = part.split("=", 1)[0]
+            redacted.append(f"{key}=***")
+            hide_next = False
+            continue
+        if part == "--build-arg":
+            redacted.append(part)
+            hide_next = True
+            continue
+        if part.startswith("--build-arg="):
+            payload = part.split("=", 1)[1]
+            key = payload.split("=", 1)[0]
+            redacted.append(f"--build-arg={key}=***")
+            continue
+        redacted.append(part)
+    return " ".join(redacted)
+
+
 class DockerBuilder:
     """Orchestrates local Docker build → ACR push → template registration.
 
@@ -222,7 +254,10 @@ class DockerBuilder:
         # Users on constrained environments can set DOCKER_BUILDKIT=0 to fall
         # back to the legacy builder (skips the flag automatically).
         if os.environ.get("DOCKER_BUILDKIT", "1") != "0":
+            # Plain progress: stdout is a pipe, so BuildKit's tty UI would be
+            # cursor noise. Step lines are what the CLI shows under the header.
             cmd.insert(4, "--provenance=false")
+            cmd.insert(5, "--progress=plain")
         if dockerfile:
             cmd.extend(["-f", str(dockerfile)])
         if build_args:
@@ -230,7 +265,7 @@ class DockerBuilder:
                 cmd.extend(["--build-arg", f"{k}={v}"])
         cmd.append(str(context))
 
-        logger.info("Building Docker image: %s", " ".join(cmd))
+        logger.info("Building Docker image: %s", _redacted_argv(cmd))
         try:
             proc = subprocess.Popen(
                 cmd,
@@ -440,27 +475,101 @@ class DockerBuilder:
     # ------------------------------------------------------------------ #
 
     @staticmethod
+    def _is_sdk_source_tree(root: Path) -> bool:
+        """Return True if *root* is the easy-sandbox source tree (not some other project)."""
+        pyproject = root / "pyproject.toml"
+        try:
+            text = pyproject.read_text(encoding="utf-8")
+        except OSError:
+            return False
+        return re.search(r'^name\s*=\s*"easy-sandbox"\s*$', text, re.MULTILINE) is not None
+
+    @staticmethod
+    def _download_release_wheel(context_dir: Path) -> list[Path]:
+        """Fetch the published wheel matching the running SDK version from PyPI.
+
+        Used when ebx is *installed* (from PyPI or as a standalone binary), so
+        there is no source tree to build from.  Pinning the exact version keeps
+        the SDK inside the image consistent with the ``ebx`` that generated the
+        template; the plain ``pip install easy-sandbox`` Dockerfile fallback
+        would otherwise pick whatever is newest.  Needs no ``pip`` (a frozen
+        binary has none) and verifies the SHA-256 digest published by PyPI.
+
+        Returns:
+            The wheel copied into *context_dir*, or ``[]`` when this version is
+            not published (dev build) or PyPI is unreachable.  Callers fall
+            back to the Dockerfile's PyPI install.
+        """
+        from easy_sandbox._version import __version__
+
+        url = _PYPI_RELEASE_URL.format(name=_SDK_DIST_NAME, version=__version__)
+        try:
+            with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+                resp = client.get(url)
+                resp.raise_for_status()
+                wheels = [u for u in resp.json()["urls"] if u.get("packagetype") == "bdist_wheel"]
+                if not wheels:
+                    logger.warning("No wheel published for %s %s", _SDK_DIST_NAME, __version__)
+                    return []
+                # Prefer the universal wheel; the SDK is pure Python.
+                wheels.sort(key=lambda u: not str(u["filename"]).endswith("-none-any.whl"))
+                info = wheels[0]
+                filename = Path(str(info["filename"])).name
+                data = client.get(str(info["url"])).raise_for_status().content
+            expected = str(info.get("digests", {}).get("sha256", ""))
+            if expected and hashlib.sha256(data).hexdigest() != expected:
+                logger.warning("SHA-256 mismatch for downloaded %s; not injecting", filename)
+                return []
+            dest = context_dir / filename
+            dest.write_bytes(data)
+        except (httpx.HTTPError, KeyError, ValueError, OSError) as exc:
+            logger.warning(
+                "Could not fetch %s %s from PyPI (%s); the Dockerfile will install from PyPI",
+                _SDK_DIST_NAME,
+                __version__,
+                exc,
+            )
+            return []
+        logger.info("Injected released SDK wheel: %s", dest.name)
+        return [dest]
+
+    @staticmethod
     def inject_sdk_wheel(
         context_dir: Path,
         project_root: Path | None = None,
     ) -> list[Path]:
-        """Build an SDK wheel and copy it into the Docker build context.
+        """Put an SDK wheel into the Docker build context.
 
         This allows templates to ``COPY *.whl /tmp/`` in their Dockerfile
-        and ``pip install /tmp/*.whl`` to get the local SDK version.
+        and ``pip install /tmp/*.whl`` to get the SDK version that matches
+        this ``ebx``:
+
+        * running from a source checkout (editable/dev install): build a wheel
+          from the working tree, so unreleased changes reach the image;
+        * installed from PyPI or run as the standalone binary: download the
+          released wheel of the same version (see ``_download_release_wheel``).
+
+        When neither works nothing is injected and the Dockerfile falls back to
+        ``pip install easy-sandbox`` (the ``COPY *.whl`` line matches nothing,
+        which BuildKit accepts).
 
         Args:
             context_dir: Docker build context directory.
-            project_root: SDK project root (auto-detected from this file
-                location if not given).
+            project_root: SDK project root.  Auto-detected from this file's
+                location when omitted; an explicit value is always built from.
 
         Returns:
             List of wheel file paths copied into the context.
         """
+        import sys
+
         if project_root is None:
-            # Navigate from api/docker_builder.py → src/easy_sandbox/api/
-            # → src/easy_sandbox → src → project root
-            project_root = Path(__file__).resolve().parent.parent.parent.parent
+            # api/docker_builder.py -> api -> easy_sandbox -> src -> project root
+            candidate = Path(__file__).resolve().parent.parent.parent.parent
+            frozen = getattr(sys, "frozen", False)
+            if frozen or not DockerBuilder._is_sdk_source_tree(candidate):
+                return DockerBuilder._download_release_wheel(context_dir)
+            project_root = candidate
 
         pyproject = project_root / "pyproject.toml"
         if not pyproject.exists():
@@ -468,7 +577,6 @@ class DockerBuilder:
             return []
 
         # Build wheel in a temp directory
-        import sys
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -524,6 +632,7 @@ class DockerBuilder:
         access_key_id: str | None = None,
         access_key_secret: str | None = None,
         timeout: int = 600,
+        on_output: Callable[[str], None] | None = None,
     ) -> BuildResult:
         """Full chain: local Docker build → ACR push → platform template creation.
 
@@ -544,6 +653,7 @@ class DockerBuilder:
             access_key_id: AK override.
             access_key_secret: SK override.
             timeout: Build wait timeout.
+            on_output: Called with each ``docker build`` / ``docker push`` line.
 
         Returns:
             :class:`BuildResult` with template_id and build status.
@@ -556,6 +666,11 @@ class DockerBuilder:
             if on_progress:
                 on_progress(msg)
             logger.info(msg)
+
+        def _emit(line: str) -> None:
+            logger.debug("  %s", line)
+            if on_output is not None:
+                on_output(line)
 
         # Step 1: Check Docker
         _progress("[1/5] Checking Docker daemon...")
@@ -583,7 +698,7 @@ class DockerBuilder:
                 tag=local_tag,
                 platform=platform,
                 dockerfile=dockerfile,
-                on_output=lambda line: logger.debug("  %s", line),
+                on_output=_emit,
             )
         finally:
             # Clean up injected wheels regardless of build outcome
@@ -602,7 +717,7 @@ class DockerBuilder:
             instance_id=acr.acree_instance_id or None,
         )
         self.tag(local_tag, acr_ref)
-        self.push(acr_ref, on_output=lambda line: logger.debug("  %s", line))
+        self.push(acr_ref, on_output=_emit)
         result.build_status = "pushed"
 
         # Step 4: Create template via v3 API
@@ -654,13 +769,19 @@ class DockerBuilder:
                 acr_headers=acr_headers,
             )
 
-            # Wait for build
+            # Wait for build. Poll lines go to on_output (the grey feed);
+            # on_progress stays on the "Waiting..." phase so it is not restarted.
             _progress("Waiting for build to complete...")
+
+            def _poll(status: str, elapsed: int) -> None:
+                _emit(f"{status}  {elapsed}s")
+
             try:
                 await protocol.wait_for_build(
                     result.template_id,
                     result.build_id,
                     timeout=timeout,
+                    on_poll=_poll,
                 )
                 result.build_status = "ready"
                 _progress(f"Template ready: {result.template_id}")
@@ -938,11 +1059,7 @@ def _get_acr_auth_token_personal(
     with httpx.Client() as client:
         resp = client.get(f"{endpoint}{path}", headers=headers, timeout=15)
     data = resp.json()
-    logger.debug(
-        "ACR personal GetAuthorizationToken response: status=%s body=%s",
-        resp.status_code,
-        str(data)[:300],
-    )
+    logger.debug("ACR personal GetAuthorizationToken response: status=%s", resp.status_code)
 
     if resp.status_code != 200:
         msg = data.get("message", data.get("Message", str(data)))
@@ -985,11 +1102,7 @@ def _get_acr_auth_token_ee(
     with httpx.Client() as client:
         resp = client.get(endpoint, params=params, timeout=15)
     data = resp.json()
-    logger.debug(
-        "ACR EE GetAuthorizationToken response: status=%s body=%s",
-        resp.status_code,
-        str(data)[:300],
-    )
+    logger.debug("ACR EE GetAuthorizationToken response: status=%s", resp.status_code)
 
     if resp.status_code != 200:
         msg = data.get("Message", data.get("message", str(data)))

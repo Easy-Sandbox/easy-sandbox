@@ -256,6 +256,30 @@ class TestDotenvIsolation:
         cfg = load_config()
         assert cfg.region == "explicit-region"
 
+    def test_project_dotenv_falls_through_to_system_file(self, monkeypatch, tmp_path):
+        """A project .env that omits a key must not hide ~/.ebx/.env."""
+        project = tmp_path / "project.env"
+        system = tmp_path / "system.env"
+        project.write_text("SANDBOX_REGION=from-project\n", encoding="utf-8")
+        system.write_text("E2B_API_KEY=from-system\n", encoding="utf-8")
+        monkeypatch.setattr(config_module, "_ENV_FILE_CANDIDATES", [project, system])
+        reset_config()
+
+        cfg = load_config()
+        assert cfg.api_key == "from-system"
+        assert cfg.region == "from-project"
+
+    def test_project_dotenv_key_beats_system_file(self, monkeypatch, tmp_path):
+        project = tmp_path / "project.env"
+        system = tmp_path / "system.env"
+        project.write_text("E2B_API_KEY=from-project\n", encoding="utf-8")
+        system.write_text("E2B_API_KEY=from-system\n", encoding="utf-8")
+        monkeypatch.setattr(config_module, "_ENV_FILE_CANDIDATES", [project, system])
+        reset_config()
+
+        cfg = load_config()
+        assert cfg.api_key == "from-project"
+
     def test_process_env_beats_dotenv(self, monkeypatch, tmp_path):
         """Process env vars (layer 2) keep priority over ``.env`` (layer 3)."""
         explicit_env = tmp_path / "explicit.env"
@@ -266,6 +290,22 @@ class TestDotenvIsolation:
 
         cfg = load_config()
         assert cfg.region == "from-env"
+
+    def test_blank_process_env_and_override_fall_through(self, monkeypatch, tmp_path):
+        """Whitespace does not hide a key stored in .env or config.toml."""
+        dotenv = tmp_path / "system.env"
+        dotenv.write_text("E2B_API_KEY=from-dotenv\n", encoding="utf-8")
+        toml = tmp_path / "config.toml"
+        toml.write_text('[transport]\nregion = "cn-beijing"\n', encoding="utf-8")
+        monkeypatch.setattr(config_module, "_ENV_FILE_CANDIDATES", [dotenv])
+        monkeypatch.setattr(config_module, "_CONFIG_FILE", toml)
+        monkeypatch.setenv("E2B_API_KEY", "   ")
+        monkeypatch.setenv("SANDBOX_REGION", "  ")
+        reset_config()
+
+        cfg = load_config(api_key="  ", region="   ")
+        assert cfg.api_key == "from-dotenv"
+        assert cfg.region == "cn-beijing"
 
 
 class TestEnvdPort:

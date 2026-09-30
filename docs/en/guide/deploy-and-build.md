@@ -1,31 +1,73 @@
 # Deploy and Build
 
-Easy Sandbox provides two build and deployment mechanisms: **NL (Natural Language) Deploy** and **Image Chained Build**.
+Easy Sandbox provides three ways to build and deploy: the **template lifecycle** (`ebx template init` → `ebx deploy` → `ebx create`), the **SDK-only in-sandbox agent deploy**, and the **Image chained build**.
 
 ---
 
-## ebx deploy (NL Deploy)
+## The template lifecycle
 
-`ebx deploy` uses the qwen-code agent to automatically analyze a project and complete deployment.
+A sandbox template goes through three steps. Each has one job, and **what a template is lives in `template.yaml`** — not in command-line flags.
 
-### CLI Usage
+| Step | Command | Input | AI? |
+|------|---------|-------|-----|
+| 1. Author | `ebx template init` / `ebx template init "DESCRIPTION"` / `ebx template init --adopt [DIR]` | a scaffold case, a description, or an existing project | optional |
+| 2. Publish | `ebx deploy [PATH]` | the template directory (`Dockerfile`, `template.yaml`, ...) | never |
+| 3. Launch | `ebx create --template <TEMPLATE_ID>` | the template ID | never |
+
+`ebx create "DESCRIPTION"` is steps 1 + 2 + 3 in one command (with a confirmation before anything is pushed).
 
 ```bash
-ebx deploy <PROJECT_PATH> <DESCRIPTION> [options]
+# 1a. An existing project: files are written into that same directory
+ebx template init --adopt ./app --hint "listens on 8080"
+ebx deploy ./app --acr-namespace my-ns
+
+# 1b. A new project from a sentence: files land in ./<name>/
+ebx template init "a python data science env"
+ebx deploy ./<name> --acr-namespace my-ns
+
+ebx create --template <TEMPLATE_ID>               # 3. launch a sandbox
 ```
+
+`--adopt` sends a copy of the project source to the model (secrets excluded) and writes back only the template files. The rules, the preview, and `--dry-run` are in [Authoring Templates — Adapt an existing project](authoring-templates.md#adapt-an-existing-project).
+
+Everything you would otherwise describe to the AI at deploy time — what the service is, its ports, resources, capabilities, environment, custom commands — is written into `template.yaml` (and `Dockerfile` / `commands.py`) during step 1, where you can review and version it. Describe it once, at authoring time.
+
+### ebx deploy — the publish step
+
+`ebx deploy` is a **fixed, deterministic pipeline** and needs **no LLM and no LLM key**:
+
+1. `docker build` the `Dockerfile`
+2. push the image to Alibaba Cloud ACR
+3. register it as a template (`CreateTemplate`)
+4. wait until the template is ready
+
+It is the same pipeline as `ebx template deploy DIR`, with `PATH` defaulting to `.`, and it accepts every option of that command (`--acr-namespace`, `--alias`, `--yes`, `-v/--verbose`, `--region`, ...). From `template.yaml` it reads the template `name` (used as the ACR repository unless `--acr-repo` is given), `resources.cpu`, `resources.memory` and `generation`; command-line options override them.
+
+On an interactive terminal the build, the push, and the wait for READY each show a `message... 12s` header with the latest four log lines in grey underneath, so a long `docker build` is not a frozen spinner. The elapsed time keeps moving once a second while a step is silent. `--verbose` prints every line instead. `--json`, `--quiet`, CI, and non-TTY keep a single progress line. Creating a sandbox, upload, download, template fetch, image registration, the coding-agent install, and `ebx kill --all` use that same moving header on a terminal. Grey lines are only safe text (paths, milestones, build output); file bytes and credentials stay off the screen. Those commands print nothing for the header when stdout is not a terminal.
 
 ```bash
-ebx deploy ./my-flask-app "Deploy this Flask app on port 8080"
+ebx deploy --acr-namespace my-ns          # publish ./ (needs ./Dockerfile)
+ebx deploy ./my-template --yes -v         # non-interactive, with debug logs
 ```
 
-The agent automatically:
+If the directory has no `Dockerfile`, the command stops and points you at `ebx template init --adopt` (an existing project), `ebx template init "DESCRIPTION"`, or `ebx template init -t`.
+
+> **Migration note.** Earlier versions started an agent inside a cloud sandbox for every `ebx deploy ./p "instruction"` and required `BAILIAN_CODING_PLAN_API_KEY` / `DASHSCOPE_API_KEY` / `OPENAI_API_KEY`. `ebx deploy` no longer takes an instruction; author the template with `ebx template init --adopt` or `ebx template init "DESCRIPTION"` and publish it with `ebx deploy`. The in-sandbox agent flow remains available as the SDK API `Sandbox.deploy()` (below). `--traditional` is deprecated and ignored.
+
+---
+
+## Sandbox.deploy (SDK only)
+
+`Sandbox.deploy()` starts a `qwen-code` template sandbox, uploads the project and lets the in-sandbox agent analyze, install, build and start the service. It is available as a Python API only.
+
+The agent:
 1. Creates a sandbox with the `qwen-code` template (default 2 CPU / 4096MB memory)
 2. Uploads the project directory
 3. Analyzes the project structure and dependencies
 4. Installs dependencies and builds
 5. Starts the service
 
-### SDK Usage
+### Usage
 
 ```python
 from easy_sandbox.api.sandbox import Sandbox
@@ -48,15 +90,16 @@ print(f"Deploy result: {sandbox._deploy_result}")
 
 ### LLM Key Configuration
 
-The deploy feature requires an LLM API Key. The SDK looks for one in the following order:
+`Sandbox.deploy()` (not `ebx deploy`) requires an LLM API key. The SDK looks for one in this order:
 
-1. `llm_api_key` parameter
-2. `BAILIAN_CODING_PLAN_API_KEY` environment variable
-3. `DASHSCOPE_API_KEY` environment variable
-4. `OPENAI_API_KEY` environment variable
-5. `llm_api_key` in `ebx config`
+1. `llm_api_key=` argument
+2. Process environment: `EBX_LLM_API_KEY`, then `BAILIAN_CODING_PLAN_API_KEY`, `DASHSCOPE_API_KEY`, `OPENAI_API_KEY`, then a legacy `EBX_QWEN_CODE_API_KEY`
+3. The same names in `./.env`
+4. `EBX_LLM_API_KEY` saved by `ebx config set llm_api_key` (`~/.ebx/.env`)
 
-If none is found, `DeployLLMKeyMissingError` (E7001) is raised.
+Base URL and model follow the same layers (`openai_base_url=` / `openai_model=`, then `EBX_LLM_BASE_URL` / `OPENAI_BASE_URL` and `EBX_LLM_MODEL` / `OPENAI_MODEL`, then the same names in `./.env`, then `~/.ebx/config.toml`). A blank value does not count. The full table is in [Credential resolution](../reference/configuration.md#credential-resolution).
+
+If no key is found, `DeployLLMKeyMissingError` (E7001) is raised. `ebx deploy` never raises it.
 
 ---
 

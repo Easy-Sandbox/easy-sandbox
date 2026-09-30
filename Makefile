@@ -1,4 +1,4 @@
-.PHONY: install dev test lint format format-check typecheck build dist-check ci hooks clean help
+.PHONY: install dev test lint format format-check typecheck build dist-check binary ci hooks clean help
 
 help:  ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -33,6 +33,10 @@ build:  ## Build sdist and wheel
 dist-check:  ## Verify distributions (twine check + py.typed in wheel, CI equivalent)
 	twine check dist/*
 	@python -c "import zipfile, glob, sys; whl = glob.glob('dist/*.whl')[0]; z = zipfile.ZipFile(whl); names = z.namelist(); z.close(); sys.exit(0 if any('py.typed' in n for n in names) else print('py.typed NOT found in ' + whl, file=sys.stderr) or 1)" && echo "py.typed found in wheel: OK"
+
+binary:  ## Build standalone binary for current platform
+	pip install -e ".[binary]"
+	python scripts/build_binary.py
 
 ci:  ## Run local CI equivalent (single interpreter; NOT a full substitute for the 3.10/3.11/3.12 matrix in GitHub Actions)
 	ruff check src/ tests/

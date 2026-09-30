@@ -25,7 +25,7 @@ except SandboxError as e:
 
 ### Troubleshooting Steps
 
-1. Run `ebx config get api_key` to confirm authentication status
+1. Run `ebx config get sandbox_api_key` to confirm authentication status
 2. Verify environment variables are correctly set
 3. Confirm the API Key has not expired or been revoked
 4. For E1002, check if the system clock is accurate (`date` command)
@@ -42,8 +42,8 @@ except SandboxError as e:
 | E2003 | `RegionUnavailableError` | Region unavailable | Try another region or check service availability | Requested region is temporarily unavailable or does not exist |
 | E2004 | `TemplateParseError` | Template parse failure | Fix template.yaml (see validation errors); capabilities will not be granted until the template parses successfully | template.yaml has format errors or invalid fields |
 | E2005 | `QwenCodeNotInstalledError` | Qwen Code is not installed | Install the official standalone build per the Quick Setup (or run `ebx config init`), or skip AI generation with `ebx create --template <name>` | `ebx create "description"` while Qwen Code is absent from PATH and `~/.ebx/bin`, and the user declines install or a non-TTY shell omits `-y` |
-| E2006 | `QwenCodeCredentialError` | Qwen Code credentials missing | `ebx config set qwen_code_api_key <KEY>` or `ebx config init`; exported `DASHSCOPE_API_KEY`/`OPENAI_API_KEY` also work | No usable credential in `qwen_code_api_key`, `llm_api_key`, environment variables, or `~/.qwen/settings.json` on the AI path |
-| E2007 | `AICodegenError` | AI generation failed | Inspect the retained workspace (`~/.ebx/generated/<name>`) and retry, or use `ebx create --template <name>` | Qwen Code generation failed/timed out, or the produced Dockerfile/template.yaml is missing or fails validation |
+| E2006 | `QwenCodeCredentialError` | Qwen Code credentials missing | `ebx config set llm_api_key <KEY>` or `ebx config init`; exported `DASHSCOPE_API_KEY`/`OPENAI_API_KEY` also work | No usable credential in `llm_api_key`, environment variables, or `~/.qwen/settings.json` on the AI path |
+| E2007 | `AICodegenError` | AI generation failed | Inspect the retained workspace (`~/.ebx/generated/<name>`, or under `--dir`) and retry, or use `ebx create --template <name>` | Qwen Code generation failed/timed out, or the produced Dockerfile/template.yaml is missing or fails validation |
 | E2008 | `DescriptionClarificationError` | Description too incomplete for AI generation | Add the missing details listed in the suggestion (or a similar example description) to `DESCRIPTION`, pass `--yes`/`-y` to generate from the current description anyway, or use `ebx create --template <name>` | After the agent researched the publicly verifiable facts itself, the description still scores below the 80% completeness threshold (missing user preferences / private constraints / business decisions) and the session cannot ask clarifying questions (non-TTY / CI without `-y`), or the interactive clarification was cancelled / interrupted (EOF) |
 
 ### Troubleshooting Steps
@@ -129,7 +129,7 @@ except CapabilityNotSupportedError as e:
 | Error Code | Exception Class | Meaning | Suggestion | Trigger Scenario |
 |------------|----------------|---------|------------|------------------|
 | E7000 | `DeployError` | Deployment failed (base class) | — | General NL-driven deployment errors |
-| E7001 | `DeployLLMKeyMissingError` | LLM API Key not found | Set `BAILIAN_CODING_PLAN_API_KEY`, `DASHSCOPE_API_KEY`, or `OPENAI_API_KEY` environment variable | Missing the LLM Key required by qwen-code agent during deployment |
+| E7001 | `DeployLLMKeyMissingError` | LLM API Key not found | Set `EBX_LLM_API_KEY` (or `BAILIAN_CODING_PLAN_API_KEY`, `DASHSCOPE_API_KEY`, `OPENAI_API_KEY`), run `ebx config set llm_api_key <KEY>`, or pass `llm_api_key=` | Missing the LLM Key required by the in-sandbox qwen-code agent of the SDK's `Sandbox.deploy()` (`ebx deploy` never raises it) |
 | E7002 | `DeployAgentError` | Agent returned an error | Check `DeployResult`'s `raw_output` for details | qwen-code agent encountered an error |
 | E7003 | `DeployTimeoutError` | Deployment timeout | Increase `max_wall_time` or simplify the deployment task | Deployment exceeded the maximum time limit |
 

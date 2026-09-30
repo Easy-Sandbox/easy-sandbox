@@ -6,11 +6,38 @@ import json
 from typing import TYPE_CHECKING
 
 import click
+import pytest
 
 from easy_sandbox.cli.main import LazyGroup, cli
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from click.testing import CliRunner
+
+
+@pytest.fixture(autouse=True)
+def _default_shortcuts_only(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Pin the root CLI to the built-in default shortcuts.
+
+    The help/listing assertions below depend on the default shortcut aliases
+    (``create``/``list``/``init``/…), which normally come from
+    ``~/.ebx/config.toml``.  Re-merging against the built-in defaults keeps
+    the tests deterministic regardless of the developer's local config — and
+    keeps the fresh-install bootstrap away from the real home directory.  The
+    previous merge result is restored afterwards.
+    """
+    import easy_sandbox.cli.commands.config_cmd as config_cmd
+    from easy_sandbox.cli.main import _CORE_COMMANDS, _DEFAULT_SHORTCUTS
+
+    original = dict(cli._lazy_subcommands)
+    monkeypatch.setattr(config_cmd, "load_shortcuts", lambda: dict(_DEFAULT_SHORTCUTS))
+    monkeypatch.setattr(config_cmd, "_config_file_exists", lambda: True)
+    monkeypatch.setattr(config_cmd, "_create_default_config", lambda: None)
+    cli._lazy_subcommands = dict(_CORE_COMMANDS)
+    cli._merge_user_shortcuts()
+    yield
+    cli._lazy_subcommands = original
 
 
 class TestLazyGroup:

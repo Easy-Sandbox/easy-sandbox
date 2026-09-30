@@ -231,7 +231,7 @@ sb = await Sandbox.create(
 Additional rules:
 
 - **Never commit real keys** to a template, `template.yaml`, `custom_commands.env`, a Dockerfile `ENV`, or an uploaded file. A template's `env` block lists **names** with empty or non-secret defaults only.
-- **Never print keys.** Masked display (`ebx config get api_key`) and masked logging apply to Easy Sandbox's own credentials; treat the agent's variables with the same discipline.
+- **Never print keys.** Masked display (`ebx config get sandbox_api_key`) and masked logging apply to Easy Sandbox's own credentials; treat the agent's variables with the same discipline.
 - **One sandbox, one credential.** Sandboxes are disposable; do not reuse a long-lived key across tenants, and rotate any key that has appeared in output or a transcript.
 - **Read the environment-variable guide** for envd direct-exec semantics ([Environment Variables](environment-variables.md)) before debugging why a variable "is not there" — shell features (`$VAR`, pipes, redirects) require `sh -c '...'` inside envd execs.
 - The `custom_commands.<name>.env` block is for **non-secret defaults** (for example `CODEX_MODEL`); it must never carry the values from the table above.

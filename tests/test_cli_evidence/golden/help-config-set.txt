@@ -2,61 +2,78 @@ Usage: cli config set [OPTIONS] KEY [VALUE]
 
   Set a configuration value: KEY [VALUE].
 
-  Settings are stored in ~/.ebx/config.toml, except credentials (api_key,
-  access_key_id, access_key_secret, qwen_code_api_key, github_token) which are
-  written to ~/.ebx/.env using their environment-variable names.
+  Settings are stored in ~/.ebx/config.toml, except credentials
+  (sandbox_api_key, access_key_id, access_key_secret, acr_namespace,
+  llm_api_key, github_token) which are written to ~/.ebx/.env using their
+  environment-variable names. Setting llm_api_key also removes any legacy
+  config.toml copy of it (the secret migrates to the 0600-protected ~/.ebx/.env
+  storage).
 
   Passing an empty VALUE clears the stored value for KEY instead: the key falls
   back to its built-in default or becomes not set. An empty string is never
   stored as a credential or override. Environment variables that are still
   exported keep overriding the key at runtime; their values are never printed.
+  Clearing llm_api_key removes both the ~/.ebx/.env entry and any legacy
+  config.toml copy.
 
   In an interactive terminal VALUE may be omitted: sensitive keys (github_token,
-  api_key, access_key_secret, qwen_code_api_key) are then read through the
+  sandbox_api_key, access_key_secret, llm_api_key) are then read through the
   masked (asterisk) input and the typed value is never echoed; other keys use a
   visible prompt. Pressing Enter at the prompt cancels without changing
   anything. In CI / non-interactive sessions VALUE is required.
 
   Available keys (expected value):
-    api_key            E2B API Key (string)
+    sandbox_api_key    Sandbox service API key, E2B-compatible (string;
+                       env vars E2B_API_KEY > SANDBOX_API_KEY).
+                       ``api_key`` is accepted as an alias.
     access_key_id      Alibaba Cloud AccessKey ID for AK/SK auth, used by
                        template deploy and ACR push (string)
     access_key_secret  Alibaba Cloud AccessKey Secret for AK/SK auth, used by
                        template deploy and ACR push (string)
+    acr_namespace      ACR namespace for template build, push, and install
+                       (string; stored in ~/.ebx/.env as ACR_NAMESPACE)
     api_url            Platform API URL (e.g. https://api.cn-hangzhou.e2b.fc.aliyuncs.com)
     domain             Envd data-plane domain (e.g. cn-hangzhou.e2b.fc.aliyuncs.com)
     region             Default region (e.g. cn-hangzhou, cn-shanghai)
     http_timeout       HTTP request timeout in seconds (number, e.g. 120)
     http2              Enable HTTP/2 (true/false)
     max_retries        Maximum retry attempts (integer, e.g. 3)
-    llm_api_key        LLM API Key for NL inference (string)
-    llm_model          LLM model name (e.g. qwen-plus)
-    llm_base_url       LLM API base URL, OpenAI-compatible (string)
-    qwen_code_api_key  Qwen Code API key for AI template generation,
-                       e.g. a DashScope/ModelStudio key (string;
-                       stored in ~/.ebx/.env)
-    qwen_code_base_url Qwen Code OpenAI-compatible base URL (string)
-    qwen_code_model    Qwen Code model name (e.g. qwen3-coder-plus)
+    llm_api_key        LLM API key for NL inference and the coding agent,
+                       e.g. a DashScope/ModelStudio key (string; stored in
+                       ~/.ebx/.env as EBX_LLM_API_KEY)
+    llm_model          LLM model name (default: qwen3-coder-plus)
+    llm_base_url       LLM API base URL, OpenAI-compatible (string;
+                       default: DashScope compatible-mode)
     github_token       GitHub token for template downloads, used by
                        'ebx template install' / 'ebx template search'
                        (string; stored in ~/.ebx/.env)
+    shortcuts.<name>   Top-level shortcut. The value is the command path
+                       without the "ebx" prefix, for example
+                       "template init" (not "ebx template init"):
+                       'ebx config set shortcuts.ps "sandbox process list"';
+                       an empty VALUE removes the shortcut
 
   Examples:
-    ebx config set api_key YOUR_API_KEY
+    ebx config set sandbox_api_key YOUR_API_KEY
     ebx config set access_key_id YOUR_ACCESS_KEY_ID
     ebx config set access_key_secret YOUR_ACCESS_KEY_SECRET
+    ebx config set acr_namespace YOUR_ACR_NAMESPACE
     ebx config set region cn-hangzhou
     ebx config set http_timeout 120
     ebx config set http2 false
+    ebx config set llm_api_key YOUR_DASHSCOPE_OR_LLM_KEY
     ebx config set region ""          # clear the stored region
-    ebx config set api_key ""         # remove the stored API key
+    ebx config set sandbox_api_key ""  # remove the stored sandbox API key
     ebx config set github_token      # masked prompt (VALUE omitted)
     ebx config set github_token YOUR_GITHUB_TOKEN
     ebx config set github_token ""    # remove the stored token
+    ebx config set shortcuts.ps "sandbox process list"
+    ebx config set shortcuts.ps ""    # remove the 'ps' shortcut
 
   Related commands:
     ebx config get KEY       Verify the effective value
     ebx config list          Review effective values and sources
+    ebx config delete KEY    Remove one stored value
 
 Options:
   -h, --help  Show this message and exit.

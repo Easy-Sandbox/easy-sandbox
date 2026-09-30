@@ -16,7 +16,7 @@ graph LR
 ## Prerequisites
 
 - Docker Desktop running (for local image builds)
-- Python 3.10+
+- Python 3.9+
 - Install the SDK **with the `[cli]` extra**:
 
 ```bash
@@ -172,9 +172,10 @@ $ ebx install ./my-template -y
 Using local template from ./my-template...
 Cannot build + deploy. Missing prerequisites:
   • Missing ACR namespace. Provide via:
-  1. --acr-namespace flag
-  2. export ACR_NAMESPACE=xxx
-  3. ACR_NAMESPACE=xxx in .env (CWD or ~/.ebx/.env)
+  1. ebx config set acr_namespace <ns>   (or re-run 'ebx config init')
+  2. --acr-namespace flag
+  3. export ACR_NAMESPACE=<ns>
+  4. ACR_NAMESPACE=<ns> in .env (CWD or ~/.ebx/.env)
 
 Run with --download-only to just download the template.
 ```
@@ -227,6 +228,20 @@ Next steps:
 ```
 
 > Scaffolding and credentials setup are separate commands: `ebx template init` (this section) writes local files only, while `ebx config init` stores credentials and `ebx create` launches a cloud sandbox. `ebx init` is a top-level shortcut delegating to the exact same command as `ebx template init`.
+
+### Adapt a project that already has source code
+
+When the directory is an application (Flask, Express, a script) and has no `Dockerfile` / `template.yaml`, use `--adopt`. Qwen Code sees a copy; ebx writes `Dockerfile`, `commands.py`, `template.yaml`, and a `.dockerignore` when you don't already have one, into that same directory.
+
+```bash
+$ ebx template init --adopt ./my-app --hint "listens on 8080"
+# review the preview, then:
+$ ebx deploy ./my-app --acr-namespace my-ns
+```
+
+`--dry-run` lists every file that would be sent and contacts no model. `-y` is required outside an interactive terminal. Secrets (`.env`, keys, secret-looking files) stay out of the copy, and the agent process does not inherit cloud credentials. The full rules — backups, `--force`, and what is rejected before a write — are in [Authoring Templates — Adapt an existing project](authoring-templates.md#adapt-an-existing-project).
+
+`ebx template init "DESCRIPTION"` is the other AI path: it creates a **new** directory from a sentence. `--adopt` fills in the project you already have.
 
 ### Understand the generated files
 
@@ -299,7 +314,7 @@ EXPOSE 9000
 CMD ["python3", "commands.py"]
 ```
 
-> **The `.whl` injection pattern**: When you run `ebx template deploy`, the SDK automatically injects the current version's wheel file into the Docker build context, ensuring the container runs the same SDK version as the host. The `COPY *.whl` + fallback pattern above is the recommended way to consume it.
+> **The `.whl` injection pattern**: When you run `ebx template deploy`, the SDK automatically injects the current version's wheel file into the Docker build context, ensuring the container runs the same SDK version as the host. From a source checkout the wheel is built from the working tree; when `ebx` was installed from PyPI (or is the standalone binary) the released wheel of the same version is downloaded from PyPI and its SHA-256 verified. If neither is possible (an unreleased build, or PyPI is unreachable), nothing is injected and the fallback `pip install easy-sandbox` runs inside the image. The `COPY *.whl` + fallback pattern above is the recommended way to consume it.
 
 ### Custom commands (optional)
 
@@ -730,6 +745,8 @@ ebx template delete <template-id>
 
 | Symptom | Possible cause | Solution |
 |---------|---------------|----------|
+| No Dockerfile | The directory is application source, not a template yet | `ebx template init --adopt .`, then `ebx deploy` |
+| Confirmation required before project files are sent | Non-interactive `--adopt` without `-y` | Pass `-y`, or `--dry-run` to list the files without sending them |
 | Docker build failed | Dockerfile syntax / network issue | Add `-v` to see detailed logs |
 | ACR login failed | AK/SK expired or insufficient permissions | Verify credentials in `.env` |
 | Template stuck in "building" | Platform-side image optimization in progress | Wait, or check with `ebx template info <id> --official-api` |

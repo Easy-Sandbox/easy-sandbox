@@ -10,8 +10,8 @@ Covers the region-as-command-option design (task 159):
   ``ebx config set region`` (``~/.ebx/config.toml``) > default
   ``cn-hangzhou``;
 * purely local commands reject ``--region`` with the standard Click error;
-* the ``template deploy`` alias and the top-level ``install`` shortcut
-  expose/forward ``--region`` like the commands they delegate to;
+* the ``template deploy`` alias and the top-level ``install`` / ``deploy``
+  shortcuts expose/forward ``--region`` like the commands they delegate to;
 * ``mcp deploy`` no longer has its own hardcoded default — it shares the
   same resolution semantics as every other regional command.
 """
@@ -119,6 +119,7 @@ _REGIONAL_COMMANDS: list[list[str]] = [
     ["template", "delete", "--help"],
     ["template", "deploy", "--help"],  # alias inherits build's params
     ["install", "--help"],  # top-level shortcut
+    ["deploy", "--help"],  # top-level shortcut of the template build pipeline
     ["mcp", "deploy", "--help"],
 ]
 
@@ -130,7 +131,6 @@ _LOCAL_COMMANDS: list[list[str]] = [
     ["download", "--help"],
     ["run", "--help"],
     ["config", "--help"],
-    ["deploy", "--help"],
     ["template", "search", "--help"],
     ["template", "init", "--help"],
     ["mcp", "start", "--help"],
@@ -332,7 +332,10 @@ class TestMcpDeployRegionSemantics:
             "easy_sandbox.cli.commands.mcp._read_api_key",
             return_value="k",
         ):
-            result = runner.invoke(cli, ["mcp", "deploy", "--output-dir", str(out), *extra])
+            result = runner.invoke(
+                cli,
+                ["mcp", "deploy", "--output-dir", str(out), "--generate-token", *extra],
+            )
         assert result.exit_code == 0, result.output
         return yaml.safe_load((out / "config.yaml").read_text())
 

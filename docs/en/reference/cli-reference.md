@@ -20,13 +20,15 @@ ebx
     install / start / status / deploy
 ```
 
+> The top-level shortcuts above (plus `ebx init`) are **system defaults, not fixed commands**: every one of them can be re-mapped, removed, or extended through the `[shortcuts]` section of `~/.ebx/config.toml`, and any other command path can gain its own alias. They work out of the box with no configuration — see [Shortcut aliases (`shortcuts.<alias>`)](#shortcut-aliases-shortcutsalias).
+
 ### Removed command groups (pre-0.1.0 migration)
 
 The following command groups from earlier pre-releases were removed before the first stable release (`0.1.0`) — these are **breaking changes** with explicit replacements:
 
 | Removed | Replacement |
 |---------|-------------|
-| `ebx auth login/logout/status/switch` | `ebx config set api_key <value>` to persist credentials, or the `E2B_API_KEY` / `SANDBOX_API_KEY` environment variables; check the effective state with `ebx config list` |
+| `ebx auth login/logout/status/switch` | `ebx config set sandbox_api_key <value>` to persist credentials, or the `E2B_API_KEY` / `SANDBOX_API_KEY` environment variables; check the effective state with `ebx config list` |
 | `ebx secret create/list/delete/inject` | Environment variables or `.env` files for credentials and secrets; sandbox environment injection via `ebx create --env KEY=VALUE` |
 | `ebx session` / `ebx sessions list/info/rename/export/import/clean` | Session data is still stored locally in `~/.ebx/sessions/` by `LocalSessionStore`; use the SDK's `Sandbox.connect()` programmatically (the interactive REPL `ebx connect <SANDBOX_ID>` remains available) |
 | `ebx skill search/install/list/create/publish` | Templates are the current capability-distribution mechanism (`ebx template search` / `ebx template install`); the repository-root `SKILL.md` documents agent-facing usage |
@@ -38,8 +40,8 @@ See the `Unreleased` section of the repository `CHANGELOG.md` for the full break
 | Goal | Command | What it does | Talks to the cloud? |
 |------|---------|--------------|---------------------|
 | Store credentials / endpoints before first use | `ebx config init` | Interactive guided wizard (platform API key, region, Qwen Code credentials); on non-TTY or with `--yes` it prints the equivalent `ebx config set` commands | No |
-| Scaffold a local template project | `ebx template init [DIRECTORY]` | Generates an editable `template.yaml` + `Dockerfile` (+ `commands.py`) in a local directory; nothing is built or deployed. `ebx init` is a top-level shortcut that delegates to the exact same command | No |
-| Create a cloud sandbox | `ebx create --template <NAME>` / `ebx create "DESCRIPTION"` | `--template NAME` launches an existing template (`base` for the default sandbox); a DESCRIPTION alone goes through the research-first clarification flow (the agent researches public facts itself, then asks one question per round when interactive), then Qwen Code template generation → build & deploy → create. Bare `ebx create` (no `--template`, no DESCRIPTION) is an explicit usage error, not an implicit `base` launch | Yes |
+| Scaffold a local template project | `ebx template init [DIRECTORY]` / `ebx template init "DESCRIPTION"` / `ebx template init --adopt [DIRECTORY]` | A path scaffolds an editable `template.yaml` + `Dockerfile` (+ `commands.py`). A description (whitespace or CJK) asks Qwen Code for a usable template: `Dockerfile`, `commands.py` (the `SandboxServer` HTTP entry point), `template.yaml` and `README.md`. `--adopt` does the same for a project that already has source code: the agent sees a copy, and only those template files (plus a generated `.dockerignore`) are written back. Nothing is built, pushed, deployed, or launched. `ebx init` is the same command | No |
+| Create a cloud sandbox | `ebx create --template <NAME>` / `ebx create "DESCRIPTION"` | `--template NAME` launches an existing template (`base` for the default sandbox); a DESCRIPTION alone goes through the research-first clarification flow (the agent researches public facts itself, then asks one question per round when interactive), then Qwen Code template generation → build & deploy → create. An interactive terminal is first asked whether to switch to `ebx template init` and stop after the local files. Bare `ebx create` (no `--template`, no DESCRIPTION) is an explicit usage error, not an implicit `base` launch | Yes |
 
 ```bash
 # 1. Guided credentials setup (run first)
@@ -56,6 +58,9 @@ ebx create "a Python data analysis environment with pandas and jupyter"
 
 # 5. Scaffold a local template project to edit and deploy yourself
 ebx template init -t python ./my-template
+
+# 6. Natural language, template files only (no build, push, or sandbox)
+ebx template init "a Python data analysis environment with pandas and jupyter"
 ```
 
 ---
@@ -81,7 +86,7 @@ ebx [global-options] <subcommand> [subcommand-options]
 
 > **`-h` / `--help` work at every level**: the alias is enabled once on the root group and inherited by the whole command tree, so `ebx -h`, `ebx sandbox -h`, `ebx sandbox files list -h` all print the help of the addressed command. A command that reserves `-h` for its own parameter keeps it — Click then drops only the alias there and `--help` keeps working.
 
-> **Region is a command-level option, not a global one**: only commands that talk to a regional control plane accept `--region`/`-r` — [`ebx list`](#ebx-list), [`ebx kill`](#ebx-kill), the template control-plane commands (`list`/`info`/`create`/`push`/`build`/`install`/`delete`), and [`ebx mcp deploy`](#ebx-mcp-deploy). Resolution priority: command `--region` > `ebx config set region` / `SANDBOX_REGION` env > `cn-hangzhou`. Use `ebx config set region` for the persistent default.
+> **Region is a command-level option, not a global one**: only commands that talk to a regional control plane accept `--region`/`-r` — [`ebx list`](#ebx-list), [`ebx kill`](#ebx-kill), the template control-plane commands (`list`/`info`/`create`/`push`/`build`/`install`/`delete`), and [`ebx mcp deploy`](#ebx-mcp-deploy). Resolution priority: command `--region` > `SANDBOX_REGION` > `ebx config set region` > `cn-hangzhou`. Credential order is in [Credential resolution](configuration.md#credential-resolution). Use `ebx config set region` for the persistent default.
 
 ---
 
@@ -97,14 +102,14 @@ Create a new sandbox.
 |-----------|------|
 | `ebx create` (no arguments) | **Rejected** — explicit usage error (exit code 2) with the three valid routing options; bare create no longer defaults to `base` |
 | `ebx create --template <name>` | Direct template path (no AI generation) |
-| `ebx create "natural language description"` | AI path: research-first clarification (the agent researches public facts on its own native session, then asks one question per round when interactive — only for details it cannot infer) → Qwen Code generates Dockerfile + template.yaml → build & deploy → create sandbox |
+| `ebx create "natural language description"` | AI path: an interactive terminal is first asked whether to switch to template init (local files only). Otherwise: research-first clarification (the agent researches public facts on its own native session, then asks one question per round when interactive — only for details it cannot infer) → Qwen Code generates Dockerfile + commands.py (SandboxServer) + template.yaml → build & deploy → create sandbox. `--yes` skips the switch and runs this full pipeline |
 | `ebx create "description" --template <name>` | **Rejected** — `DESCRIPTION` and `--template` are mutually exclusive; a usage error is raised (exit code 1) and the description is never silently ignored |
 
 Mutual exclusion is deliberate: either the description or the template would have to be silently dropped, so the CLI refuses the combination instead.
 
-The AI path requires a locally available Qwen Code CLI and DashScope/ModelStudio credentials. When it is missing, interactive terminals are offered an official standalone install (verified via SHA256, installed into `~/.ebx/bin`); non-interactive environments must pass `--yes` explicitly.
+The AI path requires a locally available Qwen Code CLI and DashScope/ModelStudio credentials. When it is missing, interactive terminals are offered an official standalone install (verified via SHA256, installed into `~/.ebx/bin`); non-interactive environments must pass `--yes` explicitly. On a terminal that install is an `Installing ... 12s` header with the download, checksum, and extract milestones in grey underneath; the archive bytes and the API key are not shown. Creating the sandbox itself uses `Creating sandbox... 12s` (file names appear under it only when `--upload` is set).
 
-Before generating, the agent runs a two-phase clarification on one native session: a plain **research round** first (its own tools settle the publicly verifiable facts — tool stack, official install method, common dependencies; unreachable facts get safe defaults), then a **structured assessment** of the description's completeness (target: 80%). Below the threshold, interactive sessions are asked **one question at a time**, numbered `Question 1`, `Question 2`, … with no total shown (an internal 5-round cap is mentioned only when reached); every answer resumes the same session, re-assesses the full description plus the whole Q/A history, already-asked topics are never repeated, and delegation answers ("you decide" / "use the default") instruct the agent to settle the choice itself with safe defaults. Non-interactive sessions without `--yes` fail fast with `E2008`, listing the missing details and a ready-to-use example description; `--yes` skips research and assessment entirely. If the assessment is unavailable (timeout, crash, unparseable payload), the CLI warns and generates directly.
+Before generating, the agent runs a two-phase clarification on one native session: a plain **research round** first (its own tools settle the publicly verifiable facts — tool stack, official install method, common dependencies; unreachable facts get safe defaults), then a **structured assessment** of the description's completeness (target: 80%). Below the threshold, interactive sessions are asked **one question at a time**, numbered `Question 1`, `Question 2`, … with no total shown (an internal 5-round cap is mentioned only when reached); every answer resumes the same session, re-assesses the full description plus the whole Q/A history, already-asked topics are never repeated, and delegation answers ("you decide" / "use the default") instruct the agent to settle the choice itself with safe defaults. Non-interactive sessions without `--yes` fail fast with `E2008`, listing the missing details and a ready-to-use example description; `--yes` skips research and assessment entirely. The research round is bounded (20 agent turns, 240 s by default, override with `EBX_QWEN_RESEARCH_TIMEOUT`); when it times out or runs out of turns the CLI warns with the reason and continues with safe defaults, and the assessment then starts a fresh session. If the assessment is unavailable (timeout, crash, unparseable payload), the CLI warns and generates directly. While the agent works, a TTY shows a header such as `Researching public facts... 12s` / `Assessing description... 12s` with the agent's last four activity lines in grey on the lines below it (recent assistant text and tool names; they scroll line by line, `EBX_ACTIVITY_LINES=1..10` changes the count, and it also works under `--verbose`); nothing of this is printed to stdout or in `--json` / `--quiet` / CI modes.
 
 ```bash
 ebx create [DESCRIPTION] [options]
@@ -120,6 +125,7 @@ ebx create [DESCRIPTION] [options]
 | `--metadata` | `-m` | Metadata `KEY=VALUE` (repeatable) |
 | `--yes` | `-y` | Skip interactive confirmations and the research-first clarification flow (Qwen Code install, credential input, description research/assessment, build/deploy confirmation); required in non-interactive environments |
 | `--acr-namespace` | | ACR namespace used to build and push AI-generated templates (env: `ACR_NAMESPACE`) |
+| `--dir` | | Parent directory for the AI-generated `Dockerfile` / `template.yaml`; a fresh `<name>-<timestamp>-<id>/` subfolder is created inside it (default `~/.ebx/generated`). When omitted, an interactive terminal is asked (Enter accepts the default); `--yes` / `--json` / non-TTY use the default silently. Requires a `DESCRIPTION`; ignored (with a warning) when you switch to local-only template generation |
 | `--verbose` | `-v` | Verbose output (DEBUG level) |
 
 ```bash
@@ -169,7 +175,7 @@ ebx info <SANDBOX_ID>
 
 ### ebx kill
 
-Permanently destroy one sandbox or all running sandboxes. Confirmation required unless `--yes` is supplied.
+Permanently destroy one sandbox or all running sandboxes. Confirmation required unless `--yes` is supplied. On a terminal, `--all` shows `Killing N sandbox(es)... 12s` with `i/N <id>` in grey underneath; a single kill shows only the elapsed header. Non-TTY sessions print the success or error lines only.
 
 ```bash
 ebx kill [SANDBOX_ID] [options]
@@ -232,6 +238,8 @@ ebx upload abc123 ./script.py /app/script.py
 ebx upload abc123 ./data/ /app/data/
 ```
 
+On an interactive terminal a directory upload shows `Uploading ... 12s` with each relative path in grey underneath. File contents are not printed. `--json`, `--quiet`, CI, and non-TTY print only the success line.
+
 ### ebx download
 
 Download a file from the sandbox to local.
@@ -244,6 +252,8 @@ ebx download <SANDBOX_ID> <REMOTE_PATH> <LOCAL_PATH>
 ebx download abc123 /app/result.csv ./result.csv
 ebx download abc123 /app/output.log .
 ```
+
+On an interactive terminal the transfer shows `Downloading <path>... 12s`. The file bytes are not printed.
 
 ---
 
@@ -331,41 +341,73 @@ Available config keys:
 
 | Key | Description |
 |-----|-------------|
-| `api_key` | E2B API Key (stored in `~/.ebx/.env`, shown masked) |
+| `sandbox_api_key` | Sandbox service API key (stored in `~/.ebx/.env` as `E2B_API_KEY`, shown masked; `api_key` is a get/set alias) |
 | `access_key_id` | Alibaba Cloud AccessKey ID (template deploy, ACR push) |
 | `access_key_secret` | Alibaba Cloud AccessKey Secret (shown masked) |
+| `acr_namespace` | ACR namespace for template build, push, and install (stored as `ACR_NAMESPACE`) |
 | `api_url` | Platform API URL |
 | `domain` | envd data-plane domain |
 | `region` | Default region |
 | `http_timeout` | HTTP request timeout in seconds |
 | `http2` | Enable HTTP/2 (true/false) |
 | `max_retries` | Maximum retry attempts |
-| `llm_api_key` | LLM API Key for NL inference (shown masked; also used as a compatible fallback for Qwen Code credentials) |
-| `llm_model` | LLM model name |
-| `llm_base_url` | LLM API base URL (OpenAI-compatible) |
-| `qwen_code_api_key` | Qwen Code API Key for AI template generation (stored in `~/.ebx/.env`, shown masked) |
-| `qwen_code_base_url` | Qwen Code OpenAI-compatible base URL (default: DashScope compatible-mode) |
-| `qwen_code_model` | Qwen Code model name (default: `qwen3-coder-plus`) |
+| `llm_api_key` | LLM API key for NL inference and the coding agent (shown masked; stored as `EBX_LLM_API_KEY`) |
+| `llm_model` | LLM model name (default: `qwen3-coder-plus`) |
+| `llm_base_url` | LLM API base URL, OpenAI-compatible (default: DashScope compatible-mode) |
 | `github_token` | GitHub token for template downloads (`ebx template install` / `ebx template search`; stored in `~/.ebx/.env`, mapped to `GITHUB_TOKEN`, shown masked) |
+
+`ebx config get shortcuts` reads the whole `[shortcuts]` alias table — see [Shortcut aliases (`shortcuts.<alias>`)](#shortcut-aliases-shortcutsalias) below.
+
+### Shortcut aliases (`shortcuts.<alias>`)
+
+Top-level command aliases are user-configurable in the `[shortcuts]` section of `~/.ebx/config.toml`. The built-in top-level shortcuts (`create`, `list`, `info`, `kill`, `exec`, `connect`, `run`, `upload`, `download`, `deploy`, `install`, `init`) are the **system defaults** — enabled out of the box, freely customizable, never hard-coded.
+
+| Command | Effect |
+|---------|--------|
+| `ebx config set shortcuts.<alias> "<target>"` | Add / modify an alias. The target is an existing command path with no `ebx` prefix, e.g. `"sandbox process list"` or `"template init"` (not `"ebx template init"`). Afterwards `ebx <alias> [args…]` behaves exactly like the target command |
+| `ebx config set shortcuts.<alias> ""` | Delete an alias (the empty value removes it) |
+| `ebx config get shortcuts` | View all configured aliases |
+| `ebx config init --reset-shortcuts` | Reset shortcuts to the default set |
+
+Alternatively, edit the `[shortcuts]` section of `~/.ebx/config.toml` directly:
+
+```toml
+[shortcuts]
+create   = "sandbox create"         # factory default
+list     = "sandbox list"           # factory default
+ps       = "sandbox process list"   # your own alias
+```
+
+Rules:
+
+- The target must be an existing command path; aliases never chain to other aliases, and arguments after the alias are passed through unchanged.
+- Write the path without the `ebx` prefix. `ebx config set shortcuts.aaaaa "ebx template init"` exits 2, saves nothing, and prints the command to retry: `ebx config set shortcuts.aaaaa "template init"`. An unknown path is rejected with the same rule and the legal targets grouped by command (`template: build, init, install, search`). A bad value already in the file is skipped at startup (`Invalid shortcut ignored` on stderr); the other aliases keep working.
+- Reserved command names (`sandbox`, `template`, `config`, `mcp`) cannot be overridden, redirected, or deleted.
+- If `~/.ebx/config.toml` cannot be parsed, the CLI warns on stderr and disables all shortcuts for that session — the built-in command groups (`sandbox` / `config` / `mcp` / `template`) still work, and a broken shortcuts config never bricks the CLI.
 
 ### ebx config init
 
-Guided configuration wizard: platform API Key, default region, and Qwen Code (AI) credentials.
+Guided configuration wizard: platform API key, default region, LLM API key, ACR namespace, and Alibaba Cloud AccessKey pair.
 
 ```bash
 ebx config init
 ebx config init --yes   # Non-interactive: print equivalent ebx config set commands
+ebx config init --reset-shortcuts   # Reset the [shortcuts] aliases to the default set
 ```
 
-- Interactive terminals prompt for the three items in order; sensitive values (API keys) are typed with asterisk feedback (one `*` per character, never echoed) when the terminal supports it — otherwise a no-echo fallback is used with an explicit notice. Secrets are stored in `~/.ebx/.env` (`E2B_API_KEY`, `EBX_QWEN_CODE_API_KEY`), while the region is written to `~/.ebx/config.toml`.
+- Interactive terminals prompt for six items in order; sensitive values (API keys and the AccessKey secret) are typed with asterisk feedback (one `*` per character, never echoed) when the terminal supports it — otherwise a no-echo fallback is used with an explicit notice. Press Enter to skip a prompt. Secrets are stored in `~/.ebx/.env` (`E2B_API_KEY`, `EBX_LLM_API_KEY`, `ALICLOUD_ACCESS_KEY_ID`, `ALICLOUD_ACCESS_KEY_SECRET`); the ACR namespace is stored there as `ACR_NAMESPACE`; the region is written to `~/.ebx/config.toml`.
+- The wizard also writes a complete `[shortcuts]` template (every available command, ready to edit) into `~/.ebx/config.toml`; `--reset-shortcuts` restores the factory defaults without touching credentials.
 - Enter accepts the current value / skips the prompt, Backspace edits, and Ctrl-C / EOF (Ctrl-D) abort the wizard cleanly.
 - Non-TTY environments (CI, piped input) or `--yes` never block: they print the equivalent non-interactive `ebx config set` commands and exit 0.
 
 ```bash
 ebx config init
-# 1/3 Platform API key (E2B_API_KEY, input masked)
-# 2/3 Region (default cn-hangzhou)
-# 3/3 Qwen Code API key (DashScope/ModelStudio, input masked)
+# 1/6 Sandbox API key (E2B_API_KEY, input masked)
+# 2/6 Region (default cn-hangzhou)
+# 3/6 LLM API key (DashScope/ModelStudio, input masked)
+# 4/6 ACR namespace (needed by ebx install / template deploy)
+# 5/6 Alibaba Cloud AccessKey ID
+# 6/6 Alibaba Cloud AccessKey Secret (input masked)
 ```
 
 ### ebx config set
@@ -374,19 +416,20 @@ ebx config init
 ebx config set <KEY> <VALUE>
 ```
 
-Settings are stored in `~/.ebx/config.toml`, except credentials (`api_key`, `access_key_id`, `access_key_secret`, `qwen_code_api_key`, `github_token`) which are written to `~/.ebx/.env` (chmod 600).
+Settings are stored in `~/.ebx/config.toml`, except credentials (`sandbox_api_key`, `access_key_id`, `access_key_secret`, `acr_namespace`, `llm_api_key`, `github_token`) which are written to `~/.ebx/.env` (chmod 600).
 
 Passing an empty `<VALUE>` clears the stored value for `KEY` instead: the key falls back to its built-in default or becomes not set. An empty string is never stored as a credential or as an override. When an environment variable still overrides the key at runtime, the command says so explicitly (without printing its value).
 
-In an interactive terminal `<VALUE>` may be omitted: sensitive keys (`github_token`, `api_key`, `access_key_secret`, `qwen_code_api_key`) are then read through the masked (asterisk) input and the typed value is never echoed, while other keys use a visible prompt. Pressing Enter at the prompt cancels without changing anything; non-interactive sessions must pass `<VALUE>` explicitly (exit code 2 with the equivalent command otherwise).
+In an interactive terminal `<VALUE>` may be omitted: sensitive keys (`github_token`, `sandbox_api_key`, `access_key_secret`, `llm_api_key`) are then read through the masked (asterisk) input and the typed value is never echoed, while other keys use a visible prompt. Pressing Enter at the prompt cancels without changing anything; non-interactive sessions must pass `<VALUE>` explicitly (exit code 2 with the equivalent command otherwise).
 
 ```bash
-ebx config set api_key YOUR_API_KEY
+ebx config set sandbox_api_key YOUR_API_KEY
 ebx config set access_key_id YOUR_ACCESS_KEY_ID
+ebx config set acr_namespace YOUR_ACR_NAMESPACE
 ebx config set region cn-hangzhou
 ebx config set http_timeout 120
 ebx config set region ""        # clear the stored region (falls back to default)
-ebx config set api_key ""       # remove the stored API key (becomes not set)
+ebx config set sandbox_api_key ""       # remove the stored API key (becomes not set)
 ebx config set github_token            # masked prompt (VALUE omitted, interactive terminal)
 ebx config set github_token YOUR_GITHUB_TOKEN
 ebx config set github_token ""         # remove the stored token
@@ -398,11 +441,21 @@ ebx config set github_token ""         # remove the stored token
 ebx config list
 ```
 
-List all effective configuration values and their sources: `(env)` a process environment variable, `(user)` a value stored with `ebx config set`, `(default)` a built-in default, and `(not set)` when no value exists anywhere. Keys with a real business default (e.g. `qwen_code_base_url`, `qwen_code_model`) show the concrete default; keys without one (`llm_api_key`, `llm_base_url`, `llm_model`) show `(not set)`. Sensitive values are always masked.
+List all effective configuration values and their sources: `(env)` a process environment variable, `(user)` a value in `./.env` or stored with `ebx config set`, `(default)` a built-in default, and `(not set)` when no value exists anywhere. A set environment variable wins over either file. `./.env` wins over `~/.ebx` for a key it sets. See [Credential resolution](configuration.md#credential-resolution). Keys with a real business default (e.g. `llm_base_url`, `llm_model`) show the concrete default; `llm_api_key` and `sandbox_api_key` show `(not set)` when absent. Sensitive values are always masked.
 
-### Clearing stored values
+### ebx config delete
 
-There is no `ebx config reset` command. Clear individual keys with `ebx config set KEY ""` — an empty string is never written as a credential — and the key returns to its business default or to not set.
+```bash
+ebx config delete <KEY>
+```
+
+Remove one stored value. The key falls back to its built-in default or becomes not set. `ebx config set KEY ""` does the same thing. An environment variable that still overrides the key is left alone and named in the output, without printing its value. This does not delete `~/.ebx` or every key at once; there is no `ebx config reset`.
+
+```bash
+ebx config delete acr_namespace
+ebx config delete access_key_secret
+ebx config delete shortcuts.ps
+```
 
 ---
 
@@ -412,7 +465,7 @@ Discover, scaffold, build, and manage sandbox templates.
 
 ### ebx template init
 
-Scaffold a new sandbox template project from a built-in case.
+Scaffold a new sandbox template project from a built-in case, from a natural-language description, or from an existing project (`--adopt`). None of these paths builds, pushes, deploys, or creates a sandbox.
 
 ```bash
 ebx template init [DIRECTORY] [options]
@@ -421,12 +474,19 @@ ebx template init [DIRECTORY] [options]
 | Option | Short | Description |
 |--------|-------|-------------|
 | `--template` | `-t` | Built-in scaffold case (`python`, `node`, `minimal`) |
-| `--from` | | Fetch template source from a registry ref |
+| `--from` | | Fetch template source from a registry ref. A local directory with no `template.yaml` is rejected; use `--adopt` |
 | `--name` | | Template name |
 | `--list` | | List available scaffold cases |
-| `--force` | | Overwrite existing files |
+| `--force` | | Overwrite existing files. With `--adopt` and `--yes`, also required to replace an existing Dockerfile |
+| `--adopt` | | Adapt an existing project in DIRECTORY (default `.`): Qwen Code adds the template files |
+| `--hint` | | With `--adopt`: ports, services, anything the code does not say |
+| `--dry-run` | | With `--adopt`: list every file that would be sent. Nothing is sent or written |
+| `-v` / `--verbose` | | Debug logging |
+| `--yes` | `-y` | Skip confirmation. Required for non-interactive AI generation, including `--adopt` |
 
-**DIRECTORY behaviour**: when omitted, a new subdirectory `./<name>` is created. `<name>` is resolved by priority: `--name` > scaffold case name > fetched template name.
+**DIRECTORY behaviour**: when omitted, a new subdirectory `./<name>` is created. `<name>` is resolved by priority: `--name` > scaffold case name > fetched template name > generated name.
+
+A path token (`my-app`, `./my app`) is a directory. Whitespace or CJK text is a description: Qwen Code writes `Dockerfile` + `template.yaml` into `./<name>/` and stops. An interactive terminal asks `Directory for the template project` first; Enter keeps `./<name>/` (or `./<--name>/` when `--name` is set), and any other path is the project directory itself. `--yes`, `--json`, and a non-interactive shell skip the question. That is the same result as answering yes to the switch question on `ebx create "DESCRIPTION"` (the switch does not ask again; it writes `./<name>/`).
 
 ```bash
 ebx template init --list
@@ -434,11 +494,20 @@ ebx template init -t python
 ebx template init -t python --name myapp
 ebx template init -t python ./my-template
 ebx template init --from owner/repo
+ebx template init "a python data science env"
+ebx template init -y "a node.js api server"
+ebx template init --adopt . --hint "listens on 8080"
+ebx template init --adopt ./app --dry-run
+ebx template init --adopt ./app -y          # non-interactive; then ebx deploy ./app
 ```
+
+`--adopt` copies candidate files to a temp directory and asks before sending them to the model. Secrets (`.env`, keys, secret-looking files) are left out of that copy. The agent cannot modify the project: only `Dockerfile`, `commands.py`, `template.yaml` and, when you don't already have one, a generated `.dockerignore` are written, and only after a second confirmation (or `--yes`). Replaced files are kept as `*.ebx-bak`. The model process does not inherit cloud credentials (`ALICLOUD_*`, `E2B_*`, `ACR_*`, …). This shows the model your project source; it is a larger exposure than `ebx template init "DESCRIPTION"`, which only sends the sentence you typed.
 
 > `ebx init` **is** a top-level shortcut: it is the exact same command object as `ebx template init` (options unchanged). Guided credentials setup is `ebx config init`.
 >
 > Unknown top-level commands produce a targeted hint: a close spelling match gets a `Did you mean '…'?` suggestion; otherwise the error points to template `custom_commands` (declared in `template.yaml`) invoked via `ebx run COMMAND`.
+>
+> Top-level shortcuts like `init` are system defaults and can be re-mapped or removed via the `[shortcuts]` config section — see [Shortcut aliases (`shortcuts.<alias>`)](#shortcut-aliases-shortcutsalias).
 
 ### ebx template deploy
 
@@ -570,6 +639,8 @@ ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag \
   --name my-tpl --cpu 4 --memory 4096 --disk-size 10240 --internet-access
 ```
 
+On an interactive terminal the CreateTemplate call shows `Creating template <name>... 12s`. The registry password is not printed.
+
 ### ebx template install
 
 Download a template and (by default) build + deploy it. Use `--download-only` to skip the build/deploy step and only download to the local cache (`~/.ebx/templates/`). Use `--dir` to download to a custom directory.
@@ -604,11 +675,11 @@ ebx install node-web --download-only            # Bare name resolved via the rem
 ebx install Easy-Sandbox/awesome-templates//node-web@v1.0.0 --download-only  # Pin a version
 ```
 
-Token resolution order: `--token` > process `GITHUB_TOKEN` > stored `github_token` (`ebx config set github_token`; masked input, stored in `~/.ebx/.env`) > no token. On an anonymous GitHub rate limit (E5000) the full `owner/repo//subdir@ref` reference is preserved in the error — including subdirectory and pinned ref — together with the officially documented fine-grained PAT prefill URL (public repositories need no extra permissions; 90-day expiry recommended). In an interactive terminal only, the CLI offers a masked one-shot `github_token` setup and retries the failed operation **exactly once**; CI / non-interactive sessions are told to inject `GITHUB_TOKEN` as a secret or to run `ebx config set github_token` in a terminal. The token is never printed or logged.
+Token resolution order: `--token` > process `GITHUB_TOKEN` > `./.env` > stored `github_token` (`ebx config set github_token`; masked input, stored in `~/.ebx/.env`) > no token. On an anonymous GitHub rate limit (E5000) the full `owner/repo//subdir@ref` reference is preserved in the error — including subdirectory and pinned ref — together with the officially documented fine-grained PAT prefill URL (public repositories need no extra permissions; 90-day expiry recommended). In an interactive terminal only, the CLI offers a masked one-shot `github_token` setup and retries the failed operation **exactly once**; CI / non-interactive sessions are told to inject `GITHUB_TOKEN` as a secret or to run `ebx config set github_token` in a terminal. The token is never printed or logged.
 
 ### ebx install (shortcut)
 
-Top-level shortcut for `ebx template install` — same options and behaviour.
+Top-level shortcut for `ebx template install` — same options and behaviour. It is a system-default alias: like every top-level shortcut it can be re-mapped or removed via the `[shortcuts]` config section.
 
 ### ebx template list
 
@@ -693,10 +764,11 @@ ebx mcp install --target <cursor|claude|vscode>
 
 ### ebx mcp start
 
-Start MCP Server in STDIO mode (typically invoked by the IDE).
+Start the local MCP server. The default transport is STDIO: notes, configuration, and how to stop go to stderr, and stdout is JSON-RPC only. The process waits on stdin; that wait is the running state. Stop it with Ctrl-C or `ebx mcp stop`. `--background` detaches an HTTP server (STDIO cannot keep serving after detach).
 
 ```bash
 ebx mcp start [options]
+ebx mcp start --http --background
 ```
 
 | Option | Description |
@@ -705,10 +777,23 @@ ebx mcp start [options]
 | `--api-key` | API Key override |
 | `--api-url` | API URL override |
 | `--domain` | Domain override |
+| `--http` | Serve Streamable HTTP instead of STDIO |
+| `--host` | HTTP bind address (default `127.0.0.1`). A non-loopback host requires a non-empty `--auth-token` |
+| `--port` | HTTP port (default `9000`) |
+| `--auth-token` | HTTP Bearer token (env `EBX_MCP_AUTH_TOKEN`) |
+| `--background` | Detach the HTTP server; stop it later with `ebx mcp stop` |
+
+### ebx mcp stop
+
+Stop the local process recorded by `ebx mcp start` (foreground STDIO or background HTTP). Sends SIGTERM to that pid and waits for it to exit. When nothing is running, prints `MCP server is not running.`
+
+```bash
+ebx mcp stop
+```
 
 ### ebx mcp status
 
-Show MCP tools, authentication state, and IDE installation status.
+Show MCP tools, authentication state, whether the local server is running (`mcp_running`), and IDE installation status.
 
 ```bash
 ebx mcp status
@@ -718,7 +803,7 @@ ebx mcp status
 
 Generate an Alibaba Cloud FC deployment artifact (Streamable HTTP ASGI). Does not call the FC deployment API.
 
-`POST /mcp` handles requests and `DELETE /mcp` terminates a session. `GET /mcp` currently returns 501; SSE server notifications are planned for Phase 2.
+`POST /mcp` handles requests and `DELETE /mcp` terminates a session. `GET /mcp` returns 405 until SSE server notifications exist. Deploy requires a non-empty Bearer token.
 
 ```bash
 ebx mcp deploy [options]
@@ -727,7 +812,7 @@ ebx mcp deploy [options]
 | Option | Description |
 |--------|-------------|
 | `--name` | FC function name (default: `easy-sandbox-mcp`) |
-| `--region` | FC region (command-level override; falls back to `ebx config set region` / `SANDBOX_REGION`, else `cn-hangzhou`) |
+| `--region` | FC region (command `--region` > `SANDBOX_REGION` > `ebx config set region` > `cn-hangzhou`) |
 | `--template` | Default sandbox template |
 | `--memory` | FC function memory in MB |
 | `--timeout` | FC function timeout in seconds |
@@ -747,25 +832,23 @@ ebx mcp deploy --auth-token-file ./token.txt --region cn-shanghai --output-dir .
 
 ## Deploy Command — ebx deploy
 
-Deploy a local project to a sandbox using an AI agent or traditional mode.
+Publish a template project: `docker build` → push to ACR → register the template → wait until ready. Fixed pipeline; **no description, no LLM, no LLM key**. It is step 2 of the template lifecycle (`ebx template init` → **`ebx deploy`** → `ebx create --template`); what the template is lives in `template.yaml`.
 
 ```bash
-ebx deploy [PATH] [INSTRUCTION] [options]
+ebx deploy [PATH] [options]
 ```
 
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--instruction` | `-i` | NL deploy instruction |
-| `--max-wall-time` | | qwen-code max wall time (default: `10m`) |
-| `--max-session-turns` | | qwen-code session turn limit (default: 100) |
-| `--alias` | `-a` | Template alias (traditional mode) |
-| `--watch` | | Watch for file changes and auto-redeploy (traditional mode) |
-| `--traditional` | | Use traditional build+run mode |
+`PATH` is the template directory (default: `.`). It must contain a `Dockerfile` unless `--dockerfile` is given. `template.yaml` supplies `name` (ACR repository), `resources.cpu`, `resources.memory` and `generation`; options override it.
+
+`ebx deploy` accepts **every option of `ebx template deploy`** (`--acr-registry`, `--acr-namespace`, `--acr-repo`, `--alias -a`, `--tag -t`, `--cpu`, `--memory`, `--dockerfile -f`, `--yes -y`, `--verbose -v`, `--region -r`, ...; see `ebx deploy --help`). `--traditional` is deprecated and ignored.
 
 ```bash
-ebx deploy ./my-project "deploy this FastAPI app on port 8080"
-ebx deploy ./my-project --traditional --alias my-app
+ebx template init "a python data science env"   # 1. author (AI optional)
+ebx deploy ./<name> --acr-namespace my-ns       # 2. publish
+ebx create --template <TEMPLATE_ID>             # 3. launch
 ```
+
+There is no instruction argument or `--agent` flag: describe the template once, when you author it. The in-sandbox agent deployment (`Sandbox.deploy`) is available from the SDK only.
 
 ---
 

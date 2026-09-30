@@ -1,25 +1,37 @@
 Usage: cli mcp start [OPTIONS]
 
-  Start MCP Server in STDIO mode.
+  Start the MCP server and print its configuration to stderr.
 
-  This is typically called by the IDE, not manually. The server reads JSON-RPC
-  messages from stdin and writes responses to stdout.
+  The default transport is STDIO: an IDE writes JSON-RPC to stdin and reads
+  responses from stdout. Run it in a terminal to see the configuration and stop
+  it with Ctrl-C or 'ebx mcp stop'.
+
+  --http listens for Streamable HTTP. --background detaches that HTTP server;
+  STDIO cannot keep a client attached after detach, so --background starts HTTP.
 
   Examples:
     ebx mcp start
-    ebx mcp start --template base
-    ebx mcp start --template python-hello         --api-url https://api.cn-hangzhou.e2b.fc.aliyuncs.com
+    ebx mcp start --template python-hello
+    ebx mcp start --http --port 9000
+    ebx mcp start --http --background
+    ebx mcp stop
 
   Related commands:
     ebx mcp install --target cursor  Register the STDIO command in an IDE
+    ebx mcp stop                     Stop the local MCP server
     ebx mcp status                   Check authentication and IDE setup
-    ebx config set api_key VALUE     Persist the API key
 
 Options:
-  --template TEXT  Default sandbox template ID or alias (default: code-
-                   interpreter-v1).
-  --api-key TEXT   API key override.
-  --api-url TEXT   API URL override.
-  --domain TEXT    Domain override.
-  -h, --help       Show this message and exit.
+  --template TEXT    Default sandbox template ID or alias (default: code-
+                     interpreter-v1).
+  --api-key TEXT     API key override.
+  --api-url TEXT     API URL override.
+  --domain TEXT      Domain override.
+  --http             Serve Streamable HTTP instead of STDIO.
+  --host TEXT        HTTP bind address.  [default: 127.0.0.1]
+  --port INTEGER     HTTP bind port.  [default: 9000]
+  --auth-token TEXT  Bearer token for the HTTP server. Required when --host is
+                     not loopback.
+  --background       Detach an HTTP server. Stop it later with 'ebx mcp stop'.
+  -h, --help         Show this message and exit.
 [exit_code:0]

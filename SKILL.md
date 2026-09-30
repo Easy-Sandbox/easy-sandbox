@@ -42,7 +42,7 @@ unless crossing contexts (e.g. an SDK script inspecting a sandbox created via MC
 
 ## Installation
 
-Python 3.10+ is required.
+Python 3.9+ is required.
 
 ```bash
 pip install "easy-sandbox[cli]"   # ebx CLI + MCP STDIO server (most agents want this)
@@ -73,9 +73,9 @@ Authentication options (first available wins):
 Persist them locally instead of exporting in every shell:
 
 ```bash
-ebx config set api_key <YOUR_KEY>        # stored in ~/.ebx/.env
+ebx config set sandbox_api_key <YOUR_KEY>        # stored in ~/.ebx/.env
 ebx config set region cn-hangzhou        # region (or export SANDBOX_REGION)
-ebx config get api_key                   # shows a masked value
+ebx config get sandbox_api_key                   # shows a masked value
 ```
 
 **Credential rules — never violate these:**
@@ -84,7 +84,7 @@ ebx config get api_key                   # shows a masked value
   command output. Do not run `env`, `printenv`, or dump `~/.ebx/.env` into results.
 - **Never paste real keys into chat, code, commit messages, config files, or sandbox
   files.** Use placeholders (`REPLACE_ME`) in anything that gets committed.
-- Read credentials only via masked commands (`ebx config get api_key`) or from the
+- Read credentials only via masked commands (`ebx config get sandbox_api_key`) or from the
   environment at runtime.
 - The MCP deploy artifact (`config.yaml` from `ebx mcp deploy`) contains secrets —
   never commit it.
@@ -123,8 +123,9 @@ MCP tool (inside any MCP client):
 ```
 
 Note: sandbox creation involves a cold start; the CLI enforces a ≥120 s client HTTP
-timeout floor for `create` automatically. In MCP sessions, the first tool call
-without `sandbox_id` creates a default sandbox that later calls reuse.
+timeout floor for `create` automatically. In MCP sessions, `create_sandbox` becomes
+the default sandbox, so later tool calls can omit `sandbox_id`. A first tool call
+that omits `sandbox_id` before any create lazily creates that default.
 
 ## Executing code and commands
 
@@ -207,7 +208,7 @@ and `docs_url`. CLI exit codes: 1 general, 3 auth, 4 not found, 5 timeout, 6 quo
 
 | Symptom / code | Cause | Fix |
 |---|---|---|
-| `E1001` / HTTP 401 | Missing or invalid API key | Check `E2B_API_KEY` env or `ebx config get api_key` |
+| `E1001` / HTTP 401 | Missing or invalid API key | Check `E2B_API_KEY` env or `ebx config get sandbox_api_key` |
 | `E1003` / HTTP 403 | Invalid AK/SK or no permission | Check `ALICLOUD_ACCESS_KEY_ID` / `..._SECRET` |
 | `E2001` / HTTP 404 | Template not found | `ebx template list`, fix the template name |
 | `E2002` / HTTP 429 | Quota exceeded | `ebx kill --all --yes`, retry or request quota |
@@ -257,7 +258,9 @@ The guide and the MCP surface are tool-neutral:
 - **MCP-capable tools** (Cursor, Claude Desktop/Code, VS Code, Qoder, …):
   run `ebx mcp install --target cursor|claude|vscode`, or register
   `ebx mcp start` (STDIO) manually in your tool's MCP config. All clients get the
-  same 7 tools.
+  same 7 tools. A manual `ebx mcp start` prints configuration on stderr and
+  waits on stdin; stop it with Ctrl-C or `ebx mcp stop`. `ebx mcp start --http --background`
+  detaches a local HTTP server.
 - **Skills-aware tools** (Qoder, Claude Code, Cursor, Qwen Code, Codex, …):
   once installed as described above, the frontmatter (`name`, `description`)
   makes the tool load this file as a standard Agent Skill.

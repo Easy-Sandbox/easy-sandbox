@@ -13,7 +13,7 @@ Usage: cli mcp install [OPTIONS]
   Related commands:
     ebx mcp status  Verify installed IDE configurations
     ebx mcp start   Run the configured STDIO server
-    ebx config get api_key
+    ebx config get sandbox_api_key
 
 Options:
   --target [cursor|claude|vscode]

@@ -27,6 +27,8 @@ from easy_sandbox.models.errors import (
 from easy_sandbox.utils.logging import get_logger
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from easy_sandbox.transport.http import HttpClient
 
 logger = get_logger("protocol.template")
@@ -316,6 +318,7 @@ class TemplateProtocol:
         *,
         timeout: int = 600,
         poll_interval: int = 5,
+        on_poll: Callable[[str, int], None] | None = None,
     ) -> dict[str, Any]:
         """Wait for a template build to complete.
 
@@ -326,6 +329,10 @@ class TemplateProtocol:
             build_id: Build ID.
             timeout: Maximum wait time in seconds.
             poll_interval: Seconds between polls.
+            on_poll: Optional ``(status, elapsed_seconds)`` callback. Fired
+                once per poll, including the terminal ready/error poll.
+                Callers use it to append a status line; it must not restart
+                the surrounding progress phase.
 
         Returns:
             Final build status dict.
@@ -337,7 +344,9 @@ class TemplateProtocol:
         elapsed = 0
         while elapsed < timeout:
             status_data = await self.get_build_status(template_id, build_id)
-            status = status_data.get("status", "building")
+            status = str(status_data.get("status", "building"))
+            if on_poll is not None:
+                on_poll(status, elapsed)
 
             if status == "ready":
                 logger.info(

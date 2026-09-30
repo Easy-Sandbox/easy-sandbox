@@ -5,7 +5,7 @@
 <!-- badges -->
 [![CI](https://github.com/Easy-Sandbox/easy-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/Easy-Sandbox/easy-sandbox/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/easy-sandbox)](https://pypi.org/project/easy-sandbox/)
-[![Python 3.10+](https://img.shields.io/pypi/pyversions/easy-sandbox)](https://pypi.org/project/easy-sandbox/)
+[![Python 3.9+](https://img.shields.io/pypi/pyversions/easy-sandbox)](https://pypi.org/project/easy-sandbox/)
 [![License](https://img.shields.io/github/license/Easy-Sandbox/easy-sandbox)](LICENSE)
 
 > Cloud sandboxes for AI agents — create, execute, and manage isolated environments in seconds.
@@ -44,6 +44,50 @@ pip install "easy-sandbox[all]"
 # Development (includes test & lint tooling)
 pip install -e ".[dev]"
 ```
+
+### Standalone binary (no Python required)
+
+`ebx` also ships as a **precompiled standalone binary** for macOS (Apple Silicon / Intel),
+Linux (x64), and Windows (x64) — no Python installation required. Binaries are
+published for every release on
+[GitHub Releases](https://github.com/Easy-Sandbox/easy-sandbox/releases).
+
+macOS / Linux (replace `0.1.0` with the release you want; `OS` and `ARCH` are
+auto-detected):
+
+```bash
+VERSION=0.1.0
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')   # darwin or linux
+ARCH=$(uname -m); case "$ARCH" in
+  x86_64) ARCH=x64 ;;
+  arm64|aarch64) ARCH=arm64 ;;
+esac
+
+# Needs write access to /usr/local/bin (prefix with sudo if needed)
+curl -fsSL -o /usr/local/bin/ebx \
+  "https://github.com/Easy-Sandbox/easy-sandbox/releases/download/v${VERSION}/ebx-${VERSION}-${OS}-${ARCH}"
+chmod +x /usr/local/bin/ebx
+```
+
+Windows (PowerShell):
+
+```powershell
+$VERSION = "0.1.0"
+$asset = "ebx-$VERSION-windows-x64.exe"
+
+# Download the release asset
+Invoke-WebRequest `
+  -Uri "https://github.com/Easy-Sandbox/easy-sandbox/releases/download/v$VERSION/$asset" `
+  -OutFile $asset
+
+# Move it to a directory on your PATH (create it first if needed)
+$installDir = "$env:LOCALAPPDATA\Programs\ebx"
+New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+Move-Item $asset "$installDir\ebx.exe"
+```
+
+Checksums, the full platform matrix, and binary vs. pip trade-offs:
+[Binary Installation](docs/en/guide/binary-installation.md) ([中文](docs/zh/guide/binary-installation.md)).
 
 ## Using with AI coding tools
 
@@ -126,7 +170,7 @@ print(result.source)    # "server"
 
 ```bash
 # Configure credentials
-ebx config set api_key <YOUR_API_KEY>
+ebx config set sandbox_api_key <YOUR_API_KEY>
 
 # Sandbox lifecycle
 ebx create --template python-base       # create a sandbox
@@ -149,8 +193,11 @@ ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag --name my-tpl
 ebx template deploy ./examples/templates/python-hello \
     --acr-namespace my-ns --acr-repo python-hello
 
-# One-click project deploy (AI agent builds & starts your project)
-ebx deploy ./my-project --description "Start the web server"
+# Template lifecycle: author -> publish -> launch
+ebx template init --adopt ./app --hint "port 8080" # 1a. adapt an existing project
+ebx template init "a python web server"             # 1b. AI writes ./<name>/ (optional)
+ebx deploy ./app --acr-namespace my-ns              # 2. build, push to ACR, register (no LLM)
+ebx create --template <TEMPLATE_ID>                 # 3. launch a sandbox
 
 # MCP server
 ebx mcp start                            # start MCP tool server
@@ -207,6 +254,7 @@ Lower layers never import upper layers. Full design: [`docs/en/design/architectu
 | Guide | Link |
 |-------|------|
 | Getting Started | [Getting Started](docs/en/guide/getting-started.md) |
+| Binary Installation | [Binary Installation](docs/en/guide/binary-installation.md) |
 | CLI Tutorial | [CLI Tutorial](docs/en/guide/cli-tutorial.md) |
 | SDK Usage | [SDK Usage](docs/en/guide/sdk-usage.md) |
 | Authentication | [Authentication](docs/en/guide/authentication.md) |

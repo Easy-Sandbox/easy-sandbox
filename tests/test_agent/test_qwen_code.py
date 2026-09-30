@@ -11,9 +11,12 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tarfile
+import time
 import zipfile
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -32,6 +35,7 @@ from easy_sandbox.models.errors import (
     AICodegenError,
     QwenCodeCredentialError,
     QwenCodeNotInstalledError,
+    QwenCodeTimeoutError,
 )
 
 # ---------------------------------------------------------------------------
@@ -545,6 +549,38 @@ class TestHeadlessCommand:
         assert json.loads(argv[-5]) == {"type": "object"}
 
 
+class _FakeProc:
+    """Minimal ``Popen`` stand-in for the blocking (json) path."""
+
+    def __init__(
+        self,
+        completed: subprocess.CompletedProcess[str] | None,
+        *,
+        timeout_on_communicate: bool = False,
+    ) -> None:
+        self.completed = completed
+        self.pid = 4242
+        self.returncode = completed.returncode if completed is not None else -9
+        self.communicate_timeout: float | None = None
+        self._timeout_once = timeout_on_communicate
+
+    def communicate(self, timeout: float | None = None) -> tuple[str, str]:
+        self.communicate_timeout = timeout
+        if self._timeout_once:
+            self._timeout_once = False
+            raise subprocess.TimeoutExpired(cmd="qwen", timeout=timeout or 0.0)
+        if self.completed is None:
+            return "", ""
+        return self.completed.stdout, self.completed.stderr
+
+
+def _fake_spawn(completed: subprocess.CompletedProcess[str]):  # type: ignore[no-untyped-def]
+    def _spawn(argv: list[str], **kwargs: object) -> _FakeProc:
+        return _FakeProc(completed)
+
+    return _spawn
+
+
 class TestRunHeadless:
     def test_parses_result_message_and_passes_bounded_options(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -560,13 +596,16 @@ class TestRunHeadless:
             args=["qwen"], returncode=0, stdout=stdout, stderr=""
         )
         captured: dict[str, object] = {}
+        procs: list[_FakeProc] = []
 
-        def _fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        def _fake_run(argv: list[str], **kwargs: object) -> _FakeProc:
             captured["argv"] = argv
             captured["kwargs"] = kwargs
-            return completed
+            proc = _FakeProc(completed)
+            procs.append(proc)
+            return proc
 
-        monkeypatch.setattr("easy_sandbox.agent.qwen_code.subprocess.run", _fake_run)
+        monkeypatch.setattr(qwen_code, "_spawn_headless", _fake_run)
 
         result = run_qwen_code_headless("hello", cwd=tmp_path, timeout=12.0)
 
@@ -581,9 +620,8 @@ class TestRunHeadless:
         assert "--yolo" in argv
         kwargs = captured["kwargs"]
         assert isinstance(kwargs, dict)
-        assert kwargs["cwd"] == str(tmp_path)
-        assert kwargs["timeout"] == 12.0
-        assert kwargs.get("shell") is not True
+        assert kwargs["cwd"] == tmp_path
+        assert procs[0].communicate_timeout == 12.0
 
     def test_max_session_turns_forwarded_to_subprocess(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -596,11 +634,11 @@ class TestRunHeadless:
         )
         captured: dict[str, object] = {}
 
-        def _fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        def _fake_run(argv: list[str], **kwargs: object) -> _FakeProc:
             captured["argv"] = argv
-            return completed
+            return _FakeProc(completed)
 
-        monkeypatch.setattr("easy_sandbox.agent.qwen_code.subprocess.run", _fake_run)
+        monkeypatch.setattr(qwen_code, "_spawn_headless", _fake_run)
 
         run_qwen_code_headless("hello", cwd=tmp_path, max_session_turns=42)
 
@@ -629,9 +667,7 @@ class TestRunHeadless:
         completed = subprocess.CompletedProcess(
             args=["qwen"], returncode=0, stdout=stdout, stderr=""
         )
-        monkeypatch.setattr(
-            "easy_sandbox.agent.qwen_code.subprocess.run", lambda *a, **k: completed
-        )
+        monkeypatch.setattr(qwen_code, "_spawn_headless", _fake_spawn(completed))
 
         result = run_qwen_code_headless("hello", cwd=tmp_path, json_schema={"type": "object"})
 
@@ -648,9 +684,7 @@ class TestRunHeadless:
         completed = subprocess.CompletedProcess(
             args=["qwen"], returncode=0, stdout=stdout, stderr=""
         )
-        monkeypatch.setattr(
-            "easy_sandbox.agent.qwen_code.subprocess.run", lambda *a, **k: completed
-        )
+        monkeypatch.setattr(qwen_code, "_spawn_headless", _fake_spawn(completed))
 
         result = run_qwen_code_headless("hello", cwd=tmp_path)
 
@@ -665,9 +699,7 @@ class TestRunHeadless:
         completed = subprocess.CompletedProcess(
             args=["qwen"], returncode=0, stdout=stdout, stderr=""
         )
-        monkeypatch.setattr(
-            "easy_sandbox.agent.qwen_code.subprocess.run", lambda *a, **k: completed
-        )
+        monkeypatch.setattr(qwen_code, "_spawn_headless", _fake_spawn(completed))
 
         result = run_qwen_code_headless("hello", cwd=tmp_path)
 
@@ -684,11 +716,11 @@ class TestRunHeadless:
         )
         captured: dict[str, object] = {}
 
-        def _fake_run(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        def _fake_run(argv: list[str], **kwargs: object) -> _FakeProc:
             captured["argv"] = argv
-            return completed
+            return _FakeProc(completed)
 
-        monkeypatch.setattr("easy_sandbox.agent.qwen_code.subprocess.run", _fake_run)
+        monkeypatch.setattr(qwen_code, "_spawn_headless", _fake_run)
 
         run_qwen_code_headless(
             "assess",
@@ -709,9 +741,7 @@ class TestRunHeadless:
         completed = subprocess.CompletedProcess(
             args=["qwen"], returncode=1, stdout=stdout, stderr="err"
         )
-        monkeypatch.setattr(
-            "easy_sandbox.agent.qwen_code.subprocess.run", lambda *a, **k: completed
-        )
+        monkeypatch.setattr(qwen_code, "_spawn_headless", _fake_spawn(completed))
 
         result = run_qwen_code_headless("hello", cwd=tmp_path)
 
@@ -727,9 +757,7 @@ class TestRunHeadless:
         completed = subprocess.CompletedProcess(
             args=["qwen"], returncode=0, stdout=stdout, stderr=""
         )
-        monkeypatch.setattr(
-            "easy_sandbox.agent.qwen_code.subprocess.run", lambda *a, **k: completed
-        )
+        monkeypatch.setattr(qwen_code, "_spawn_headless", _fake_spawn(completed))
 
         result = run_qwen_code_headless("hello", cwd=tmp_path)
 
@@ -743,9 +771,7 @@ class TestRunHeadless:
         completed = subprocess.CompletedProcess(
             args=["qwen"], returncode=0, stdout="plain text", stderr=""
         )
-        monkeypatch.setattr(
-            "easy_sandbox.agent.qwen_code.subprocess.run", lambda *a, **k: completed
-        )
+        monkeypatch.setattr(qwen_code, "_spawn_headless", _fake_spawn(completed))
 
         result = run_qwen_code_headless("hello", cwd=tmp_path)
 
@@ -755,14 +781,15 @@ class TestRunHeadless:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.setattr(qwen_code, "find_qwen_code_binary", lambda **kw: Path("/fake/qwen"))
-
-        def _boom(*args: object, **kwargs: object) -> None:
-            raise subprocess.TimeoutExpired(cmd="qwen", timeout=1.0)
-
-        monkeypatch.setattr("easy_sandbox.agent.qwen_code.subprocess.run", _boom)
+        proc = _FakeProc(None, timeout_on_communicate=True)
+        killed: list[object] = []
+        monkeypatch.setattr(qwen_code, "_spawn_headless", lambda argv, **kw: proc)
+        monkeypatch.setattr(qwen_code, "_kill_process_tree", killed.append)
 
         with pytest.raises(AICodegenError, match="did not finish"):
             run_qwen_code_headless("hello", cwd=tmp_path, timeout=1.0)
+
+        assert killed == [proc]  # the whole tree is reaped, not just the parent
 
     def test_missing_binary_raises(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(qwen_code, "find_qwen_code_binary", lambda **kw: None)
@@ -773,3 +800,342 @@ class TestRunHeadless:
         monkeypatch.setattr(qwen_code, "find_qwen_code_binary", lambda **kw: Path("/fake/qwen"))
         with pytest.raises(AICodegenError, match="Working directory"):
             run_qwen_code_headless("hello", cwd=tmp_path / "missing")
+
+
+# ---------------------------------------------------------------------------
+# Real-subprocess tests: process tree, streaming, activity callback
+# ---------------------------------------------------------------------------
+
+_FAKE_QWEN = """#!{python}
+import json, os, sys, time
+
+mode = os.environ.get("FAKE_QWEN_MODE", "ok")
+argv = sys.argv[1:]
+stream = "stream-json" in argv
+pidfile = os.environ.get("FAKE_QWEN_PIDFILE")
+counter = os.environ.get("FAKE_QWEN_COUNTER")
+
+
+def emit(obj):
+    sys.stdout.write(json.dumps(obj) + "\\n")
+    sys.stdout.flush()
+
+
+def finish(text="ok"):
+    result = {{"type": "result", "result": text, "is_error": False, "session_id": "sid"}}
+    if stream:
+        emit(result)
+    else:
+        print(json.dumps([result]), flush=True)
+
+
+if counter:
+    with open(counter, "a") as fh:
+        fh.write("x")
+
+if mode == "reject-stream" and stream:
+    sys.stderr.write("Unknown arguments: include-partial-messages, output-format\\n")
+    sys.exit(1)
+
+if mode == "hang":
+    child = os.fork()
+    if child == 0:
+        time.sleep(120)
+        os._exit(0)
+    with open(pidfile, "w") as fh:
+        fh.write(str(child))
+    if stream:
+        emit({{"type": "system", "subtype": "init"}})
+    time.sleep(120)
+
+if mode == "stream":
+    emit({{"type": "system", "subtype": "init"}})
+    for piece in ("Hel", "lo \\x1b[31mwor\\x1b[0m\\nld"):
+        emit({{"type": "stream_event", "event": {{
+            "type": "content_block_delta",
+            "delta": {{"type": "text_delta", "text": piece}}}}}})
+    emit({{"type": "stream_event", "event": {{
+        "type": "content_block_delta",
+        "delta": {{"type": "thinking_delta", "thinking": "private reasoning"}}}}}})
+    emit({{"type": "assistant", "message": {{"content": [
+        {{"type": "tool_use", "name": "run_shell_command",
+          "input": {{"command": "echo sk-secret-token"}}}}]}}}})
+    finish("streamed")
+elif mode == "flood":
+    sys.stderr.write("e" * 300000)
+    sys.stderr.flush()
+    finish("flooded")
+elif mode == "slow":
+    time.sleep(2.5)
+    finish("slow")
+elif mode == "stdin":
+    finish("stdin=%d" % len(sys.stdin.read()))
+else:
+    finish("ok")
+"""
+
+_posix_only = pytest.mark.skipif(os.name == "nt", reason="POSIX process groups")
+
+
+def _pid_dead(pid: int, *, wait: float = 4.0) -> bool:
+    """``True`` once *pid* is gone (or only a zombie) — polled, never assumed."""
+    deadline = time.monotonic() + wait
+    while time.monotonic() < deadline:
+        try:
+            stat = subprocess.run(
+                ["ps", "-o", "stat=", "-p", str(pid)], capture_output=True, text=True, check=False
+            ).stdout.strip()
+            if not stat or stat.startswith("Z"):
+                return True
+        except OSError:  # ps unavailable (restricted sandbox): fall back to a signal probe
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return True
+        time.sleep(0.1)
+    return False
+
+
+@pytest.fixture
+def fake_qwen(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    script = tmp_path / "fake-qwen"
+    script.write_text(_FAKE_QWEN.format(python=sys.executable), encoding="utf-8")
+    script.chmod(0o755)
+    monkeypatch.setenv("FAKE_QWEN_PIDFILE", str(tmp_path / "child.pid"))
+    monkeypatch.setenv("FAKE_QWEN_COUNTER", str(tmp_path / "counter"))
+    return script
+
+
+@_posix_only
+class TestRealProcess:
+    def test_streaming_reports_activity_without_leaking_input(
+        self, tmp_path: Path, fake_qwen: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FAKE_QWEN_MODE", "stream")
+        seen: list[str] = []
+
+        result = run_qwen_code_headless(
+            "hi", binary=fake_qwen, cwd=tmp_path, timeout=20, on_activity=seen.append
+        )
+
+        assert result.text == "streamed"
+        assert result.session_id == "sid"
+        assert result.is_error is False
+        # The feed scrolls by line: text lines first, the tool as its own line.
+        assert seen[-1].splitlines() == ["starting", "Hello wor", "ld", "tool: run_shell_command"]
+        assert any("Hello wor" in s.splitlines() for s in seen)
+        joined = "\n".join(seen)
+        assert "sk-secret-token" not in joined  # tool input is never surfaced
+        assert "private reasoning" not in joined  # neither is thinking
+        assert "\x1b" not in joined
+        assert all(len(s.splitlines()) <= qwen_code._ACTIVITY_FEED_LINES for s in seen)
+        assert "stream_event" not in result.raw_stdout  # per-token lines are not kept
+
+    def test_without_callback_the_run_stays_plain_json(
+        self, tmp_path: Path, fake_qwen: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FAKE_QWEN_MODE", "stream")
+        result = run_qwen_code_headless("hi", binary=fake_qwen, cwd=tmp_path, timeout=20)
+        assert result.text == "streamed"
+        assert "stream-json" not in result.raw_stdout
+
+    def test_heartbeat_while_the_agent_is_silent(
+        self, tmp_path: Path, fake_qwen: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FAKE_QWEN_MODE", "slow")
+        beats: list[str] = []
+        run_qwen_code_headless(
+            "hi", binary=fake_qwen, cwd=tmp_path, timeout=20, on_activity=beats.append
+        )
+        assert len(beats) >= 2
+
+    def test_stderr_flood_does_not_deadlock(
+        self, tmp_path: Path, fake_qwen: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FAKE_QWEN_MODE", "flood")
+        result = run_qwen_code_headless(
+            "hi", binary=fake_qwen, cwd=tmp_path, timeout=20, on_activity=lambda _s: None
+        )
+        assert result.text == "flooded"
+        assert len(result.raw_stderr) == 300000
+
+    def test_rejected_stream_flags_fall_back_to_json_once(
+        self, tmp_path: Path, fake_qwen: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FAKE_QWEN_MODE", "reject-stream")
+        result = run_qwen_code_headless(
+            "hi", binary=fake_qwen, cwd=tmp_path, timeout=20, on_activity=lambda _s: None
+        )
+        assert result.text == "ok"
+        assert (tmp_path / "counter").read_text() == "xx"  # stream attempt + json retry
+
+    def test_stdin_is_not_inherited(
+        self, tmp_path: Path, fake_qwen: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FAKE_QWEN_MODE", "stdin")
+        result = run_qwen_code_headless("hi", binary=fake_qwen, cwd=tmp_path, timeout=20)
+        assert result.text == "stdin=0"
+
+    @pytest.mark.parametrize("streaming", [False, True], ids=["json", "stream-json"])
+    def test_timeout_kills_the_whole_process_tree(
+        self,
+        tmp_path: Path,
+        fake_qwen: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        streaming: bool,
+    ) -> None:
+        """A timed-out run must not leave descendants running (the 13-minute leak)."""
+        monkeypatch.setenv("FAKE_QWEN_MODE", "hang")
+        started = time.monotonic()
+        with pytest.raises(QwenCodeTimeoutError):
+            run_qwen_code_headless(
+                "hi",
+                binary=fake_qwen,
+                cwd=tmp_path,
+                timeout=1.5,
+                on_activity=(lambda _s: None) if streaming else None,
+            )
+        assert time.monotonic() - started < 15
+        child = int((tmp_path / "child.pid").read_text())
+        assert _pid_dead(child)
+
+    def test_keyboard_interrupt_kills_the_whole_process_tree(
+        self, tmp_path: Path, fake_qwen: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FAKE_QWEN_MODE", "hang")
+
+        def interrupt(_summary: str) -> None:
+            raise KeyboardInterrupt
+
+        with pytest.raises(KeyboardInterrupt):
+            run_qwen_code_headless(
+                "hi", binary=fake_qwen, cwd=tmp_path, timeout=30, on_activity=interrupt
+            )
+        assert _pid_dead(int((tmp_path / "child.pid").read_text()))
+
+    def test_callback_errors_never_fail_the_run(
+        self, tmp_path: Path, fake_qwen: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("FAKE_QWEN_MODE", "stream")
+
+        def broken(_summary: str) -> None:
+            raise RuntimeError("renderer exploded")
+
+        result = run_qwen_code_headless(
+            "hi", binary=fake_qwen, cwd=tmp_path, timeout=20, on_activity=broken
+        )
+        assert result.text == "streamed"
+
+
+class TestStreamHelpers:
+    def test_stream_argv_uses_stream_json_and_partial_messages(self) -> None:
+        argv = qwen_code._build_headless_command(
+            Path("/usr/local/bin/qwen"), "hi", stream=True, windows=False
+        )
+        assert argv[:6] == [
+            "/usr/local/bin/qwen",
+            "hi",
+            "--output-format",
+            "stream-json",
+            "--include-partial-messages",
+            "--yolo",
+        ]
+
+    def test_default_argv_is_unchanged(self) -> None:
+        argv = qwen_code._build_headless_command(Path("/usr/local/bin/qwen"), "hi", windows=False)
+        assert argv == ["/usr/local/bin/qwen", "hi", "--output-format", "json", "--yolo"]
+
+    def test_feed_ignores_thinking_and_unknown_events(self) -> None:
+        feed = qwen_code._ActivityFeed()
+        thinking = {
+            "type": "stream_event",
+            "event": {"delta": {"type": "thinking_delta", "thinking": "secret"}},
+        }
+        assert qwen_code._feed_stream_event(thinking, feed) is False
+        assert qwen_code._feed_stream_event({"type": "wat"}, feed) is False
+        assert qwen_code._feed_stream_event("not a dict", feed) is False
+        assert feed.render() == ""
+
+    @staticmethod
+    def _text(feed: Any, text: str) -> None:
+        qwen_code._feed_stream_event(
+            {
+                "type": "stream_event",
+                "event": {"delta": {"type": "text_delta", "text": text}},
+            },
+            feed,
+        )
+
+    def test_feed_scrolls_by_line(self) -> None:
+        feed = qwen_code._ActivityFeed()
+        self._text(feed, "first li")
+        assert feed.render() == "first li"  # the unfinished line is shown live
+        self._text(feed, "ne\nsecond line\nthi")
+        assert feed.render().splitlines() == ["first line", "second line", "thi"]
+        self._text(feed, "rd\n")
+        assert feed.render().splitlines() == ["first line", "second line", "third"]
+
+    def test_tool_use_starts_its_own_line(self) -> None:
+        feed = qwen_code._ActivityFeed()
+        self._text(feed, "checking docs")
+        qwen_code._feed_stream_event(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [{"type": "tool_use", "name": "web_fetch", "input": {"url": "u"}}]
+                },
+            },
+            feed,
+        )
+        assert feed.render().splitlines() == ["checking docs", "tool: web_fetch"]
+        assert "u" not in feed.render()
+
+    def test_tool_name_shows_when_the_call_starts_and_is_not_repeated(self) -> None:
+        feed = qwen_code._ActivityFeed()
+        started = qwen_code._feed_stream_event(
+            {
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_start",
+                    "content_block": {
+                        "type": "tool_use",
+                        "name": "write_file",
+                        "input": {},
+                    },
+                },
+            },
+            feed,
+        )
+        assert started is True
+        assert feed.render() == "tool: write_file"
+        finished = qwen_code._feed_stream_event(
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {
+                            "type": "tool_use",
+                            "name": "write_file",
+                            "input": {"path": "commands.py", "content": "secret"},
+                        }
+                    ]
+                },
+            },
+            feed,
+        )
+        assert finished is False
+        assert feed.render().splitlines() == ["tool: write_file"]
+        assert "secret" not in feed.render()
+        assert "commands.py" not in feed.render()
+
+    def test_feed_is_bounded_and_single_line_entries_are_clean(self) -> None:
+        feed = qwen_code._ActivityFeed()
+        self._text(feed, "x" * 1000 + "\n\x1b[31mend")
+        lines = feed.render().splitlines()
+        assert lines[-1] == "end"
+        assert all(len(line) <= qwen_code._ACTIVITY_SUMMARY_MAX for line in lines)
+        assert "\x1b" not in feed.render()
+        for n in range(50):
+            self._text(feed, f"line {n}\n")
+        assert len(feed.render().splitlines()) == qwen_code._ACTIVITY_FEED_LINES
+        assert feed.render().splitlines()[-1] == "line 49"

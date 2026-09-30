@@ -30,8 +30,15 @@ _CONFIG_ENV_VARS = (
     "ALICLOUD_ACCESS_KEY_SECRET",
     "AccessKey",
     "AccessSecret",
-    "EBX_QWEN_CODE_API_KEY",
     "EBX_LLM_API_KEY",
+    "EBX_QWEN_CODE_API_KEY",
+    "EBX_LLM_BASE_URL",
+    "EBX_LLM_MODEL",
+    "BAILIAN_CODING_PLAN_API_KEY",
+    "DASHSCOPE_API_KEY",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "OPENAI_MODEL",
     "GITHUB_TOKEN",
 )
 
@@ -301,6 +308,22 @@ class TestConfigAlicloudCredentials:
         assert "ALICLOUD_ACCESS_KEY_ID=LTAI5tExampleAkId" in content
         assert not config_file.exists()
 
+    def test_set_acr_namespace_writes_env(self, runner: CliRunner, tmp_path: Path) -> None:
+        env_file = tmp_path / ".env"
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", tmp_path / "config.toml"),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+            patch("easy_sandbox.cli.commands.config_cmd._ENV_FILE", env_file),
+        ):
+            result = runner.invoke(cli, ["config", "set", "acr_namespace", "serverless-sandbox"])
+            listed = runner.invoke(cli, ["config", "get", "acr_namespace"])
+
+        assert result.exit_code == 0, result.output
+        assert "Set acr_namespace = serverless-sandbox" in result.output
+        assert "ACR_NAMESPACE=serverless-sandbox" in env_file.read_text()
+        assert listed.exit_code == 0
+        assert "serverless-sandbox" in listed.output
+
     def test_set_access_key_secret_masked(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
         env_file = tmp_path / ".env"
@@ -471,7 +494,7 @@ class TestConfigSetEmpty:
 
         assert result.exit_code == 0
         assert "Cleared llm_model" in result.output
-        assert "not set" in result.output
+        assert "falls back to default: qwen3-coder-plus" in result.output
 
     def test_clear_credential_removes_env_entry(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
@@ -488,7 +511,7 @@ class TestConfigSetEmpty:
             get_result = runner.invoke(cli, ["config", "get", "api_key"])
 
         assert result.exit_code == 0
-        assert "Cleared api_key" in result.output
+        assert "Cleared sandbox_api_key" in result.output
         assert "sk-test-abcdef123456" not in result.output
         # The key truly returns to not-set: no empty-string credential remains.
         assert "not set" in get_result.output
@@ -497,9 +520,7 @@ class TestConfigSetEmpty:
     def test_clear_keeps_other_env_entries(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
         env_file = tmp_path / ".env"
-        env_file.write_text(
-            "E2B_API_KEY=sk-test-abcdef123456\nEBX_QWEN_CODE_API_KEY=qwen-key-12345678\n"
-        )
+        env_file.write_text("E2B_API_KEY=sk-test-abcdef123456\nGITHUB_TOKEN=gh-token-12345678\n")
 
         with (
             patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file),
@@ -512,7 +533,7 @@ class TestConfigSetEmpty:
         assert result.exit_code == 0
         content = env_file.read_text()
         assert "E2B_API_KEY" not in content
-        assert "EBX_QWEN_CODE_API_KEY=qwen-key-12345678" in content
+        assert "GITHUB_TOKEN=gh-token-12345678" in content
 
     def test_clear_without_stored_value(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
@@ -555,23 +576,129 @@ class TestConfigResetRemoved:
         assert "No such command" in result.output
 
 
-class TestConfigListSources:
-    """config list shows effective values and their sources; secrets masked."""
+class TestConfigDelete:
+    """``ebx config delete KEY`` removes one stored value."""
 
-    def test_list_shows_business_defaults_for_qwen_code(
+    def test_delete_removes_one_credential_and_keeps_the_rest(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        env_file = tmp_path / ".env"
+        env_file.write_text("E2B_API_KEY=sk-test-abcdef123456\nACR_NAMESPACE=my-ns\n")
+
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", tmp_path / "config.toml"),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+            patch("easy_sandbox.cli.commands.config_cmd._ENV_FILE", env_file),
+            patch.dict("os.environ", _clean_env(), clear=True),
+        ):
+            result = runner.invoke(cli, ["config", "delete", "sandbox_api_key"])
+            remaining = runner.invoke(cli, ["config", "get", "acr_namespace"])
+
+        assert result.exit_code == 0, result.output
+        assert "Cleared sandbox_api_key" in result.output
+        assert "sk-test-abcdef123456" not in result.output
+        assert "E2B_API_KEY" not in env_file.read_text()
+        assert "ACR_NAMESPACE=my-ns" in env_file.read_text()
+        assert "my-ns" in remaining.output
+
+    def test_delete_region_falls_back_to_the_default(
         self, runner: CliRunner, tmp_path: Path
     ) -> None:
         config_file = tmp_path / "config.toml"
+        config_file.write_text('[transport]\nregion = "cn-shanghai"\n')
+
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+            patch.dict("os.environ", _clean_env(), clear=True),
+        ):
+            result = runner.invoke(cli, ["config", "delete", "region"])
+            got = runner.invoke(cli, ["config", "get", "region"])
+
+        assert result.exit_code == 0, result.output
+        assert "Cleared region" in result.output
+        assert "cn-hangzhou" in got.output
+        # The file held only the region, so removing it deletes the file.
+        assert not config_file.exists()
+
+    def test_delete_unknown_key_is_rejected(self, runner: CliRunner, tmp_path: Path) -> None:
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", tmp_path / "config.toml"),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+        ):
+            result = runner.invoke(cli, ["config", "delete", "not_a_key"])
+
+        assert result.exit_code == 2
+        assert "Unknown config key" in result.output
+
+    def test_delete_reports_an_env_override_without_its_value(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text('[transport]\nregion = "cn-shanghai"\n')
+
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+            patch.dict("os.environ", _clean_env(SANDBOX_REGION="cn-zhangjiakou"), clear=True),
+        ):
+            result = runner.invoke(cli, ["config", "delete", "region"])
+
+        assert result.exit_code == 0, result.output
+        assert "SANDBOX_REGION still overrides" in result.output
+        assert "cn-zhangjiakou" not in result.output
+
+    def test_delete_removes_one_shortcut(self, runner: CliRunner, tmp_path: Path) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text('[shortcuts]\nps = "sandbox process list"\n')
 
         with (
             patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file),
             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
         ):
+            result = runner.invoke(cli, ["config", "delete", "shortcuts.ps"])
+
+        assert result.exit_code == 0, result.output
+        assert "Removed shortcut 'ps'" in result.output
+        assert "ps" not in config_file.read_text()
+
+
+class TestConfigListSources:
+    """config list shows effective values and their sources; secrets masked."""
+
+    def test_list_groups_keys_by_function(self, runner: CliRunner, tmp_path: Path) -> None:
+        """config list renders the functional groups in a stable order."""
+        config_file = tmp_path / "config.toml"
+        env_file = tmp_path / ".env"
+
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+            patch("easy_sandbox.cli.commands.config_cmd._ENV_FILE", env_file),
+            patch.dict("os.environ", _clean_env(), clear=True),
+        ):
             result = runner.invoke(cli, ["config", "list"])
 
         assert result.exit_code == 0
-        assert "qwen3-coder-plus (default)" in result.output
-        assert "https://dashscope.aliyuncs.com/compatible-mode/v1 (default)" in result.output
+        titles = [ln for ln in result.output.splitlines() if ln.startswith("── ")]
+        expected_titles = [
+            "Sandbox authentication",
+            "Alibaba Cloud credentials",
+            "Connection",
+            "LLM",
+            "Integrations",
+            "Shortcuts",
+        ]
+        assert [t[3:].rstrip("─").strip() for t in titles] == expected_titles
+        # Every group header renders as a full 64-character rule.
+        assert all(len(t) == 64 for t in titles)
+        # No qwen_code_* keys remain on the config surface.
+        assert "qwen_code_" not in result.output
+        # Grouped key order: connection keys follow the cloud credentials.
+        lines = result.output.splitlines()
+        region_idx = next(i for i, ln in enumerate(lines) if ln.startswith("region"))
+        domain_idx = next(i for i, ln in enumerate(lines) if ln.startswith("domain"))
+        assert region_idx < domain_idx
 
     def test_list_shows_not_set_for_keys_without_default(
         self, runner: CliRunner, tmp_path: Path
@@ -588,9 +715,14 @@ class TestConfigListSources:
             result = runner.invoke(cli, ["config", "list"])
 
         assert result.exit_code == 0
-        for key in ("llm_api_key", "llm_base_url", "llm_model"):
+        line = next(ln for ln in result.output.splitlines() if ln.startswith("llm_api_key"))
+        assert "(not set)" in line
+        for key, default in (
+            ("llm_base_url", "https://dashscope.aliyuncs.com/compatible-mode/v1"),
+            ("llm_model", "qwen3-coder-plus"),
+        ):
             line = next(ln for ln in result.output.splitlines() if ln.startswith(key))
-            assert "(not set)" in line
+            assert f"{default} (default)" in line
 
     def test_list_marks_env_source(self, runner: CliRunner, tmp_path: Path) -> None:
         config_file = tmp_path / "config.toml"
@@ -620,7 +752,7 @@ class TestConfigListSources:
             result = runner.invoke(cli, ["config", "list"])
 
         assert result.exit_code == 0
-        line = next(ln for ln in result.output.splitlines() if ln.startswith("api_key"))
+        line = next(ln for ln in result.output.splitlines() if ln.startswith("sandbox_api_key"))
         assert "***" in line
         assert "(user)" in line
         assert "sk-test-abcdef123456" not in result.output
@@ -780,7 +912,7 @@ class TestConfigGithubToken:
 
 
 class TestResolveGithubToken:
-    """Precedence: --token > process GITHUB_TOKEN > stored github_token > None."""
+    """Precedence: --token > process GITHUB_TOKEN > ./.env > stored github_token."""
 
     @staticmethod
     def _patches(tmp_path: Path, *, stored: str | None = None, env: str | None = None):

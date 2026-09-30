@@ -1,5 +1,7 @@
 [exit_code:1]
 [stderr]
+Natural-language create generates a template, then builds and pushes the image, deploys it, and creates a sandbox. Template only: ebx template init "用 Python 3.12，预装 pandas 和 jupyter，入口命令 jupyter notebook，端口 8888，2 核 4GB 内存，上传 data.csv 数据"
+... Researching public facts
 ... Assessing description
 ... Generating template
 

@@ -20,13 +20,13 @@ All 7 tools are defined in `TOOL_SCHEMAS` (`agent/tools.py`). Omitting `sandbox_
 ```json
 {
   "name": "create_sandbox",
-  "description": "Create a cloud sandbox. Returns sandbox_id for subsequent calls. Defaults to the code-interpreter-v1 template when template is omitted.",
+  "description": "Create a cloud sandbox and make it the session default. When template is omitted, use the MCP server's configured template (code-interpreter-v1 for ebx mcp start).",
   "inputSchema": {
     "type": "object",
     "properties": {
       "template": {
         "type": "string",
-        "description": "Sandbox template name, default code-interpreter-v1"
+        "description": "Sandbox template name; omitted means the server template"
       },
       "timeout": {
         "type": "integer",
@@ -98,7 +98,7 @@ All 7 tools are defined in `TOOL_SCHEMAS` (`agent/tools.py`). Omitting `sandbox_
       "sandbox_id": { "type": "string", "description": "Sandbox ID" },
       "cwd": {
         "type": "string",
-        "description": "Working directory, default /app",
+        "description": "Working directory; omitted uses the image workdir",
         "default": "/app"
       },
       "timeout": {
@@ -170,7 +170,7 @@ All 7 tools are defined in `TOOL_SCHEMAS` (`agent/tools.py`). Omitting `sandbox_
     "properties": {
       "path": {
         "type": "string",
-        "description": "Directory path, default /app",
+        "description": "Directory path, default /",
         "default": "/app"
       },
       "sandbox_id": { "type": "string", "description": "Sandbox ID" }
@@ -217,10 +217,11 @@ graph TD
 
 **Behavior rules** (implemented by `SandboxManager` in `agent/mcp.py`):
 
-1. The first tool call that requires a sandbox and omits `sandbox_id` lazily creates a default sandbox
-2. Default template: `code-interpreter-v1` when started via `ebx mcp start` (the CLI default); `base` when constructing `SandboxMCPServer` / the HTTP `SessionStore` programmatically without an explicit template
-3. The default sandbox is destroyed when the session ends — STDIO EOF / server shutdown, or HTTP `DELETE /mcp` / idle session TTL expiry
-4. Agents can explicitly create new sandboxes via `create_sandbox` and address them with `sandbox_id`; calls without `sandbox_id` keep using the default sandbox
+1. `create_sandbox` creates a sandbox and makes it the default. Later calls that omit `sandbox_id` use that sandbox. Earlier sandboxes stay alive until `kill_sandbox` or the session ends
+2. When there is no default yet, the first tool call that omits `sandbox_id` lazily creates one. Concurrent lazy creates share a single sandbox
+3. Default template: `code-interpreter-v1` when started via `ebx mcp start` (the CLI default); `base` when constructing `SandboxMCPServer` / the HTTP `SessionStore` programmatically without an explicit template. `create_sandbox` uses that server template when `template` is omitted
+4. `kill_sandbox` without `sandbox_id` destroys the default sandbox, and returns an error when there is no default. Session end destroys every sandbox in the session — STDIO EOF / server shutdown, or HTTP `DELETE /mcp` / idle session TTL expiry
+5. An explicit `sandbox_id` addresses that sandbox and does not change the default. Each use calls `Sandbox.set_timeout` with the timeout from create, extending the lifetime
 
 ```mermaid
 sequenceDiagram
@@ -235,11 +236,11 @@ sequenceDiagram
     Agent->>MCP: run_code("print(2)")
     MCP->>SB1: Reuse sb-001
     Agent->>MCP: create_sandbox(template=...)
-    MCP->>SB2: Create new sandbox sb-002
-    Agent->>MCP: run_code("...", sandbox_id=sb-002)
+    MCP->>SB2: Create sb-002 and make it the default
+    Agent->>MCP: write_file / run_code (no sandbox_id)
     MCP->>SB2: Use sb-002
-    Agent->>MCP: run_code("print(3)")
-    MCP->>SB1: Still use default sb-001
+    Agent->>MCP: run_code("...", sandbox_id=sb-001)
+    MCP->>SB1: Explicit id still addresses sb-001
     Note over Agent,MCP: Session ends
     MCP->>SB1: Destroy sb-001 and sb-002
 ```
@@ -261,7 +262,7 @@ graph LR
 - **Protocol version**: `2024-11-05` — the only version the STDIO server supports. `initialize` echoes it when requested and falls back to it for missing/unsupported requests, preserving the original behavior
 - **Supported methods**: `initialize`, `notifications/initialized`, `tools/list`, `tools/call`, `ping`
 - **Use case**: local development, single user; the IDE spawns the process
-- **Startup**: `ebx mcp start [--template NAME] [--api-key KEY] [--api-url URL] [--domain DOMAIN]` (typically launched by the IDE, not manually)
+- **Startup**: `ebx mcp start [--template NAME] [--api-key KEY] [--api-url URL] [--domain DOMAIN]` (typically launched by the IDE). A manual run prints configuration on stderr and keeps stdout as JSON-RPC; `ebx mcp stop` ends the recorded pid. `--http --background` detaches Streamable HTTP
 
 ### Streamable HTTP — Remote Deployment
 
@@ -278,7 +279,7 @@ graph LR
 - **Endpoints**:
   - `POST /mcp` — JSON-RPC requests; `initialize` creates a session and returns `Mcp-Session-Id`; subsequent requests must carry the header
   - `DELETE /mcp` — session termination and sandbox cleanup (requires `Mcp-Session-Id`)
-  - `GET /mcp` — currently returns 501; SSE server-initiated notifications are not implemented
+  - `GET /mcp` — returns 405; SSE server-initiated notifications are not implemented
   - `GET /health` — health probe returning `{"status": "ok", "protocol": "2025-06-18"}`
 - **Sessions**: in-process `SessionStore`; idle TTL 3600 s (default), max 100 concurrent sessions (default); capacity exhaustion returns 503 with JSON-RPC error `-32000`
 - **Version negotiation**: `initialize` echoes the client-requested `protocolVersion` when supported; this transport supports `2025-06-18` only, matching `GET /health`. Missing or unsupported requested versions negotiate to `2025-06-18` — per the MCP spec the server responds with a version it supports, and clients that cannot accept it may disconnect. The STDIO transport independently keeps `2024-11-05`
@@ -287,7 +288,7 @@ graph LR
 
 ### Authentication
 
-- **Client → MCP**: `Authorization: Bearer <token>`, validated with constant-time comparison; configured via `EBX_MCP_AUTH_TOKEN`. When unset, authentication is disabled; a configured-but-empty token fails closed (every request gets 401)
+- **Client → MCP**: `Authorization: Bearer <token>`, validated with constant-time comparison; configured via `EBX_MCP_AUTH_TOKEN`. On loopback, leaving it unset disables authentication; a configured-but-empty token fails closed (every request gets 401). The FC artifact calls `require_auth_token` and refuses to start when the token is empty
 - **MCP → Sandbox**: `E2B_API_KEY` (or `SANDBOX_API_KEY`) environment variable
 
 ### Environment Variables
@@ -337,7 +338,7 @@ ebx mcp install --target claude
 ebx mcp install --target vscode
 ```
 
-`install` merges an `easy-sandbox` entry (`command: ebx`, `args: ["mcp", "start"]`, plus an env block with `E2B_API_KEY` when available) into the target IDE's config file: Cursor `~/.cursor/mcp.json`, Claude Desktop `claude_desktop_config.json`, VS Code workspace `.vscode/settings.json` (under the `mcp.servers` key).
+`install` merges an `easy-sandbox` entry into the target IDE config: Cursor `~/.cursor/mcp.json`, Claude Desktop `claude_desktop_config.json` (`mcpServers`), and the VS Code workspace `.vscode/mcp.json` (`servers`, `type: stdio`). The command is the absolute `ebx` next to the current interpreter, or `python -m easy_sandbox.cli.main` when `ebx` cannot be found. Cursor and Claude receive `E2B_API_KEY` in `env` when a key is available. The VS Code workspace file does not. A config that is not strict JSON is left untouched.
 
 ### Installation Output
 
@@ -408,15 +409,13 @@ Reports the server name, transport (stdio), tool count and names, whether an API
 ### VS Code
 
 ```json
-// .vscode/settings.json
+// .vscode/mcp.json
 {
-  "mcp.servers": {
+  "servers": {
     "easy-sandbox": {
-      "command": "ebx",
-      "args": ["mcp", "start"],
-      "env": {
-        "E2B_API_KEY": "your-api-key"
-      }
+      "type": "stdio",
+      "command": "/path/to/ebx",
+      "args": ["mcp", "start"]
     }
   }
 }
@@ -479,7 +478,7 @@ ebx mcp deploy \
   --output-dir ./mcp-artifact
 ```
 
-Options: `--name` (default `easy-sandbox-mcp`), `--region` (command-level override; falls back to `ebx config set region` / `SANDBOX_REGION` env, else `cn-hangzhou`), `--template` (default `base`), `--memory` (default 512), `--timeout` (default 600), `--auth-token-file` / `--generate-token` / `EBX_MCP_AUTH_TOKEN` env for the Bearer token, `--enable-session-affinity/--no-session-affinity` (default enabled), `--api-key`, `--custom-domain`, `--output-dir`.
+Options: `--name` (default `easy-sandbox-mcp`), `--region` (command `--region` > `SANDBOX_REGION` > `ebx config set region` > `cn-hangzhou`), `--template` (default `base`), `--memory` (default 512), `--timeout` (default 600), `--auth-token-file` / `--generate-token` / `EBX_MCP_AUTH_TOKEN` env for the Bearer token, `--enable-session-affinity/--no-session-affinity` (default enabled), `--api-key`, `--custom-domain`, `--output-dir`.
 
 ### Artifact Contents
 

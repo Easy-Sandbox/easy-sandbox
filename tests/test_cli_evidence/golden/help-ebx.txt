@@ -37,7 +37,7 @@ Commands:
   config    Manage persistent credentials and CLI defaults.
   connect   Open an interactive command REPL for a sandbox.
   create    Create a new sandbox.
-  deploy    Deploy a local project to a sandbox.
+  deploy    Publish a template project: build, push to ACR, register the...
   download  Download a file from the sandbox to local.
   exec      Execute one command in a sandbox and return its exit code.
   info      Show status, template, region, timeout, and URL for a sandbox.

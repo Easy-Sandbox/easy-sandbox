@@ -8,11 +8,13 @@ import pytest
 
 from easy_sandbox.agent.mcp_http import (
     MCP_PROTOCOL_VERSION,
+    MCPAuthConfigError,
     SessionStore,
     _jsonrpc_error,
     _jsonrpc_response,
     _validate_bearer_token,
     create_mcp_app,
+    require_auth_token,
 )
 
 # ---------------------------------------------------------------------------
@@ -42,6 +44,18 @@ class TestJsonRpcHelpers:
 # ---------------------------------------------------------------------------
 # Bearer token validation
 # ---------------------------------------------------------------------------
+
+
+class TestRequireAuthToken:
+    """Remote entry points must not boot with authentication disabled."""
+
+    def test_returns_stripped_token(self):
+        assert require_auth_token("  secret  ") == "secret"
+
+    @pytest.mark.parametrize("value", [None, "", "   ", "\n"])
+    def test_rejects_empty_token(self, value: str | None):
+        with pytest.raises(MCPAuthConfigError):
+            require_auth_token(value)
 
 
 class TestBearerTokenValidation:
@@ -592,11 +606,37 @@ class TestMcpHttpApp:
 
     # ---- GET /mcp (Phase 2 stub) ----
 
-    def test_get_returns_501(self):
+    def test_get_returns_405(self):
         app = self._make_app()
         client = TestClient(app)
         resp = client.get("/mcp")
-        assert resp.status_code == 501
+        assert resp.status_code == 405
+        assert "POST" in resp.headers.get("allow", "")
+
+    def test_foreign_origin_is_rejected(self):
+        app = self._make_app()
+        client = TestClient(app)
+        resp = client.post(
+            "/mcp",
+            json={"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+            headers={"Origin": "http://evil.example"},
+        )
+        assert resp.status_code == 403
+
+    def test_localhost_origin_is_allowed(self):
+        app = self._make_app()
+        client = TestClient(app)
+        resp = client.post(
+            "/mcp",
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": {"protocolVersion": "2025-06-18"},
+            },
+            headers={"Origin": "http://127.0.0.1:9999"},
+        )
+        assert resp.status_code == 200
 
     # ---- Invalid JSON ----
 

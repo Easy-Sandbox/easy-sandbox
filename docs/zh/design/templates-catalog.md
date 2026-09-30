@@ -99,7 +99,7 @@ templates:
 | 默认索引 URL | `https://raw.githubusercontent.com/Easy-Sandbox/awesome-templates/main/awesome-templates.yaml` |
 | 环境变量覆盖 | `EBX_TEMPLATE_INDEX_URL`（HTTP(S) URL 或本地文件路径） |
 | CLI 覆盖 | `ebx template search/install --index-url <URL或路径>` |
-| 认证 | `--token` > `GITHUB_TOKEN` > 持久化 `github_token`（`ebx config set github_token`；私有镜像、提升限流额度） |
+| 认证 | `--token` > `GITHUB_TOKEN` > `./.env` > 持久化 `github_token`（`ebx config set github_token`；私有镜像、提升限流额度） |
 
 选择 `raw.githubusercontent.com` 而非 `api.github.com` 是刻意的：raw 文件由 CDN
 提供服务，**不受** API 匿名 60 次/小时的限流约束；本地文件路径则让企业内网镜像

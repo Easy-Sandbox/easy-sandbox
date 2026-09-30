@@ -252,7 +252,7 @@ ebx config set github_token ""         # 清除已保存的 token
 export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
 ```
 
-优先级：`--token` > 进程环境变量 `GITHUB_TOKEN` > 持久化的 `github_token` > 无 token。token 不会被打印、记录日志或回显；`ebx config get github_token` / `ebx config list` 均脱敏显示（`ghp***xxx`）。
+优先级：`--token` > 进程环境变量 `GITHUB_TOKEN` > `./.env` > 持久化的 `github_token` > 无 token。token 不会被打印、记录日志或回显；`ebx config get github_token` / `ebx config list` 均脱敏显示（`ghp***xxx`）。
 
 `ebx template search` / `ebx template install` 遇到匿名限流（E5000）时，CLI 会展示经官方文档核验的 fine-grained PAT 预填 URL（公共仓库无需额外权限，建议 90 天有效期）；仅在交互终端下询问是否配置，星号（脱敏）粘贴保存后 **只自动重试一次**。拒绝配置或重试仍失败时，返回原始错误。非交互 / CI 场景则提示通过 Secret 注入 `GITHUB_TOKEN` 或在交互终端执行 `ebx config set github_token`；CLI 不会自动读取 `gh auth token`，不会自动打开浏览器，也不会在任何地方记录 token。
 

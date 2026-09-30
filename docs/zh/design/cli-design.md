@@ -87,7 +87,7 @@ graph TB
     config --- cfg_list["list"]
 ```
 
-> `config reset` 已在首个正式版之前移除——清除已存储的值请使用 `ebx config set KEY ""`（传入空值即清除该键，回落到默认值或未设置）。
+> `config reset` 已在首个正式版之前移除——删除一项已保存的值请使用 `ebx config delete KEY`（或 `ebx config set KEY ""`）。该键回落到默认值或未设置。没有一次清空 `~/.ebx` 的命令。
 
 ***
 
@@ -132,7 +132,7 @@ ebx mcp deploy --region cn-shanghai
 ebx config set region cn-shanghai
 ```
 
-解析优先级：命令 `--region` > `ebx config set region` / `SANDBOX_REGION` 环境变量 > `cn-hangzhou`。
+解析优先级：命令 `--region` > `SANDBOX_REGION` > `ebx config set region` > `cn-hangzhou`。
 
 CLI 会自动检测 CI 环境（`CI`、`GITHUB_ACTIONS`、`GITLAB_CI`、`JENKINS_URL` 等环境变量），自动启用 CI 模式。非 TTY 环境下颜色输出自动禁用。
 
@@ -140,7 +140,7 @@ CLI 会自动检测 CI 环境（`CI`、`GITHUB_ACTIONS`、`GITLAB_CI`、`JENKINS
 
 ## 3. 自然语言创建（AI 模板生成）
 
-> **用自然语言描述你需要什么，CLI 调用 Qwen Code 生成 Dockerfile 与精简 template.yaml，构建部署后创建 sandbox。**
+> **用自然语言描述你需要什么，CLI 调用 Qwen Code 生成 Dockerfile、commands.py（HTTP 服务入口）与 template.yaml，构建部署后创建 sandbox。**
 
 `ebx create` 有三条路由，由调用方式决定：
 
@@ -157,31 +157,37 @@ CLI 会自动检测 CI 环境（`CI`、`GITHUB_ACTIONS`、`GITLAB_CI`、`JENKINS
 
 ```mermaid
 graph TD
-    Input["ebx create '描述'"] --> Find{"检测 Qwen Code<br/>PATH / ~/.ebx/bin"}
+    Input["ebx create '描述'"] --> Scope{"交互式终端<br/>且未传 --yes?"}
+    Scope -- "切换到 init" --> Find
+    Scope -- "继续 / --yes / 非 TTY" --> Find{"检测 Qwen Code<br/>PATH / ~/.ebx/bin"}
     Find -- 未安装 --> Install{"交互式终端且未传 --yes?"}
     Install -- 确认安装 --> Download["下载官方 standalone<br/>SHA256 校验 → ~/.ebx/bin"]
     Install -- 拒绝 / 非 TTY --> E2005["E2005 + Quick Setup"]
-    Find -- 已安装 --> Creds{"凭证可用?<br/>qwen_code_api_key → llm_api_key → 环境变量"}
+    Find -- 已安装 --> Creds{"凭证可用?<br/>llm_api_key → 环境变量"}
     Creds -- 缺失 --> Prompt["交互式输入并保存<br/>非 TTY → E2006 + Quick Setup"]
     Creds -- 可用 --> Research["检索轮：Agent 用自身工具确认公开事实<br/>（不带 schema）"]
     Research --> Assess{"结构化评估<br/>同一会话， --json-schema"}
-    Assess -- "完整 / 跳过 / 不可用" --> Generate["Qwen Code headless 生成<br/>Dockerfile + template.yaml"]
+    Assess -- "完整 / 跳过 / 不可用" --> Generate["Qwen Code headless 生成<br/>Dockerfile + commands.py + template.yaml"]
     Assess -- "不完整，非 TTY" --> E2008["E2008 + 缺失项 + 示例"]
     Assess -- "不完整，TTY" --> Ask["每轮仅问一个问题<br/>Question N，不显示总数"]
     Ask --> Assess
     Generate -- 成功 --> Verify["校验 Dockerfile (FROM)<br/>+ YAML schema"]
     Generate -- 失败 / 超时 --> E2007["E2007 + 保留生成目录"]
-    Verify -- 通过 --> Confirm{"确认构建部署?"}
+    Verify -- 通过 --> Gate{"已切换到 init?"}
+    Gate -- 是 --> Local["写入 ./名称/ 后停止"]
+    Gate -- 否 --> Confirm{"确认构建部署?"}
     Confirm -- 确认 --> Deploy["复用 template deploy 链路<br/>构建推送 → 部署"]
     Deploy --> Create["创建沙箱"]
     Verify -- 不通过 --> E2007
 ```
 
+**范围确认。** 在安装或生成之前，交互式终端会先说明自然语言 create 会生成模板、构建并推送镜像、部署模板、再创建沙箱，并询问是否改走 template init。回答「是」时，与 `ebx template init "描述"` 相同：只在 `./<名称>/` 写下 `Dockerfile`、`commands.py`、`template.yaml` 与 `README.md`，然后停止——不构建、不推送、不部署、不创建沙箱。默认是继续完整的 create。`--yes` 与 `--json` 跳过这个问题并走完整流程。非交互终端只打印同一句提醒然后继续；后面的构建确认仍然生效。
+
 1. **可执行文件检测**：先查 `PATH`，再查 `~/.ebx/bin`（Windows 识别 `.cmd`/`.exe` 后缀）。
 2. **安装引导**：未安装时，交互式终端询问是否安装官方 standalone 版本（经 SHA256 校验后原子安装到 `~/.ebx/bin`，Unix 设置执行权限）；非 TTY 或用户拒绝时抛出 `E2005` 并打印 Quick Setup，不阻塞、不降级。
-3. **凭证解析**：优先级为存储的 `qwen_code_api_key` → 现有 `llm_api_key`（官方确认兼容的同族凭证）→ shell 已导出的 `OPENAI_API_KEY`/`DASHSCOPE_API_KEY`/`BAILIAN_CODING_PLAN_API_KEY`（子进程继承，不注入）→ `~/.qwen/settings.json`。交互式终端可提示输入并安全保存；非 TTY 抛 `E2006`。
-4. **生成前澄清（research-first，同一原生会话上的两阶段）**：生成之前，coding agent 先跑一轮普通检索轮（`--session-id`，**不带** `--json-schema`），用它自己的工具（web fetch / shell）确认全部可公开查证的事实——工具技术栈、官方安装方式、常见运行时与依赖——检索不到的逐条记录安全合理默认值；随后同一会话继续（`--resume`）跑一次带 `--json-schema` 的结构化评估轮。已对 qwen-code 0.15.11 核验：`--json-schema` 会在首次有效 `structured_output` 调用时结束会话，因此检索轮刻意不带 schema，以保工具循环不被过早切断。只有用户偏好、私有约束和无法推断的业务决策才可能计为缺失。低于 80% 阈值时，交互式终端每轮只问 **一个问题**，以 `Question 1`、`Question 2` 逐次编号且**不显示总数**（内部 5 轮上限仅在触达时提示）；每次回答都恢复同一原生会话并基于完整描述 + 全部问答历史重新评估，已问过主题嵌入每个后续 prompt（完全重复的问题会防御性地中断循环），回答“你自己决定”“采用默认”等授权语义则指示 Agent 自行采用安全合理默认值。非 TTY / CI 未传 `--yes` 时快速失败并抛 `E2008`，列出缺失的模板要素与可直接套用的示例描述。`--yes` 完全跳过检索与评估；检索轮失败仅告警（绝不作为门槛），评估不可用时降级为直接生成并打印 warning。阶段状态（评估 / 重新评估 / 生成）在 **stderr** 上渲染（TTY 为 spinner，非 TTY 为单行机器可读 progress 行）；stdout 保持干净，且绝不回显模型的研究输出。生成阶段会续接澄清会话，模型在自身记忆中保有描述、研究结论与全部问答。
-5. **生成与校验**：在全新的 `~/.ebx/generated/<slug>-<时间戳>/` 工作目录（模板名 `ebx-nl-<slug>-<随机后缀>`）以 headless 模式调用 Qwen Code（`qwen "<prompt>" --output-format json --yolo`，prompt 为位置参数——0.15.11 `--help` 已将旧 `-p` 标记为弃用；列表参数、限定 cwd 与超时，默认 600s 可用 `EBX_QWEN_CODEGEN_TIMEOUT` 覆盖），要求产出 Dockerfile 与精简 template.yaml；随后校验 Dockerfile 含 `FROM`、template.yaml 通过 `parse_template_data` 的 YAML schema 校验。失败或超时抛 `E2007` 并保留生成目录供检查。
+3. **凭证解析**：进程环境变量优先于 `./.env`，`./.env` 写了的键优先于 `~/.ebx`。API Key 顺序是 `EBX_LLM_API_KEY`，然后 `BAILIAN_CODING_PLAN_API_KEY`、`DASHSCOPE_API_KEY`、`OPENAI_API_KEY`，然后旧的 `EBX_QWEN_CODE_API_KEY`，然后 `./.env` 里的同名变量，然后 `ebx config set llm_api_key` 保存的值。`llm_base_url` 使用 `EBX_LLM_BASE_URL`、然后 `OPENAI_BASE_URL`、然后已保存的值（仅当 `llm_base_url` 未设置时才读旧的 `qwen_code_base_url`），最后是 DashScope 默认地址。`llm_model` 使用 `EBX_LLM_MODEL`、然后 `OPENAI_MODEL`、然后已保存的值，最后是 `qwen3-coder-plus`。以上都没有时才用 `~/.qwen/settings.json`。交互式终端可提示输入并安全保存；非 TTY 抛 `E2006`。
+4. **生成前澄清（research-first，同一原生会话上的两阶段）**：生成之前，coding agent 先跑一轮普通检索轮（`--session-id`，**不带** `--json-schema`），用它自己的工具（web fetch / shell）确认全部可公开查证的事实——工具技术栈、官方安装方式、常见运行时与依赖——检索不到的逐条记录安全合理默认值；随后同一会话继续（`--resume`）跑一次带 `--json-schema` 的结构化评估轮。已对 qwen-code 0.15.11 核验：`--json-schema` 会在首次有效 `structured_output` 调用时结束会话，因此检索轮刻意不带 schema，以保工具循环不被过早切断。只有用户偏好、私有约束和无法推断的业务决策才可能计为缺失。低于 80% 阈值时，交互式终端每轮只问 **一个问题**，以 `Question 1`、`Question 2` 逐次编号且**不显示总数**（内部 5 轮上限仅在触达时提示）；每次回答都恢复同一原生会话并基于完整描述 + 全部问答历史重新评估，已问过主题嵌入每个后续 prompt（完全重复的问题会防御性地中断循环），回答“你自己决定”“采用默认”等授权语义则指示 Agent 自行采用安全合理默认值。非 TTY / CI 未传 `--yes` 时快速失败并抛 `E2008`，列出缺失的模板要素与可直接套用的示例描述。`--yes` 完全跳过检索与评估；检索轮失败仅带原因提示告警（绝不作为门槛；检索限定 20 轮 / 240 秒，可用 `EBX_QWEN_RESEARCH_TIMEOUT` 覆盖，且提示词把耗时的 web fetch 限制在 3 次以内），随后评估会新开一个**全新**会话——qwen 会拒绝重复指定失败检索轮可能已创建的 `--session-id`，这曾表现为莫名的“评估不可用”；评估不可用时降级为直接生成并打印 warning。阶段状态（检索 / 评估 / 重新评估 / 生成）在 **stderr** 上渲染（TTY 为 spinner，非 TTY 为单行机器可读 progress 行），Agent 工作期间还会在标题 `Assessing description... 12s` 下方以灰色显示最近四行动态（常规为 Rich status，`--verbose` / `--no-color` 下为可自擦除的 `\r` 行，`--json` / `--quiet` / CI / `TERM=dumb` 下不显示）。为驱动该行，headless 运行采用 `--output-format stream-json --include-partial-messages`，但只展示助手文本尾部与工具*名称*，绝不展示工具入参或思考内容；超时或 Ctrl-C 时会终止整个 agent 进程树。stdout 保持干净，且绝不回显模型的研究输出。生成阶段会续接澄清会话，模型在自身记忆中保有描述、研究结论与全部问答。
+5. **生成与校验**：在 `--dir` 下全新的 `<slug>-<时间戳>-<随机后缀>/` 工作目录（默认 `~/.ebx/generated/`；交互式终端会询问保存位置，回车即用默认值；模板名 `ebx-nl-<slug>-<随机后缀>`）以 headless 模式调用 Qwen Code（`qwen "<prompt>" --output-format json --yolo`，prompt 为位置参数——0.15.11 `--help` 已将旧 `-p` 标记为弃用；列表参数、限定 cwd 与超时，默认 600s 可用 `EBX_QWEN_CODEGEN_TIMEOUT` 覆盖），要求产出**可直接使用**的模板——Dockerfile、在 9000 端口启动容器内 `easy_sandbox.server` `SandboxServer` 的 `commands.py`（沙箱部署后通过 HTTP(S) 访问，只有 Dockerfile 无法使用）、template.yaml 与 README；提示词内嵌服务端 SDK 参考（`agent/template_guide.py`：Dockerfile 规则、`CapabilityGroup`、`CommandRegistry`、`RouteTable.route`、`template.yaml` 字段）。随后校验：Dockerfile 含 `FROM` 且引用 `commands.py`，`commands.py` 是合法 Python、导入 `easy_sandbox.server` 并调用 `serve()`/`start()`，template.yaml 通过 `parse_template_data` 的 YAML schema 校验。失败或超时抛 `E2007` 并保留生成目录供检查。
 6. **构建与创建**：确认后复用 `ebx template deploy` 的构建/部署链路（`--acr-namespace` 可指定推送命名空间），成功后调用现有 `Sandbox.create`。任何一步失败都不会静默回退到 `base`，而是给出错误码、Quick Setup 与下一步命令。
 
 ### 示例
@@ -211,7 +217,7 @@ graph TD
 
 - **自动安装**：官方 standalone 资产下载到 `~/.ebx/bin`；下载源经核实——优先阿里云镜像、失败回退 GitHub release 资产，`SHA256SUMS` 必须校验，不匹配立即失败（不回退）。
 - **手动安装**：Quick Setup 与 `ebx create --help` 给出官方安装脚本命令（`install-qwen-standalone.sh` / `.ps1`）。
-- **凭证存储**：`ebx config set qwen_code_api_key <KEY>` 存入 `~/.ebx/.env`；或 `ebx config init` 向导一次性完成平台 API Key、region 与 Qwen Code 凭证配置（非 TTY 时打印等效非交互命令）。
+- **凭证存储**：`ebx config set llm_api_key <KEY>` 存入 `~/.ebx/.env`；或 `ebx config init` 向导一次性完成沙箱 API Key、region 与 LLM API Key 配置（非 TTY 时打印等效非交互命令）。
 
 ### 可用模板列表
 
@@ -389,39 +395,31 @@ ebx run <sandbox-id> <command-name> [选项]
 
 ### ebx deploy
 
-`ebx deploy` 支持两种模式：**NL 模式**（默认，基于 qwen-code agent 自动分析、安装依赖、构建并启动服务）和**传统模式**（手动 build + run）。
+`ebx deploy` 是模板生命周期中的**发布步骤**，是一条固定流水线：`docker build` → 推送 ACR → `CreateTemplate` → 轮询直到就绪。它就是 `PATH` 默认为 `.` 的 `ebx template deploy`，逐项复用后者的选项集合（两者不会漂移，`-v/--verbose` 也可用），不需要 LLM。交互式终端上，每个耗时步骤都是 `message... 12s` 标题，标题下方以灰色显示最近四行 docker 或轮询输出（与生成模板时的区块相同；`EBX_ACTIVITY_LINES` 可改行数）。工具暂时没有输出时，标题上的耗时仍每秒刷新。`--verbose` 改为打印完整日志。`--json`、`--quiet`、CI 和非 TTY 仍只留一行 progress。
 
-```bash
-ebx deploy [PATH] [INSTRUCTION] [选项]
+创建沙箱、上传或下载文件、拉取模板或模板索引、用镜像注册模板、安装 coding-agent CLI，以及 `ebx kill --all`，这些可能停住的步骤使用同一套标题。某一步若有安全的日志——相对路径、安装阶段（镜像源、校验和、解压）、docker 输出或轮询状态——最近四行显示在标题下方（`EBX_ACTIVITY_LINES`）。文件内容、工具入参、ACR token 和 `--build-arg` 的值不会进入这几行；记录 docker 命令的 info 日志会把 build-arg 的值写成 `***`。`--verbose` 仍会打印完整的部署日志，并且不画部署区块。其余命令在终端上保留会走动的标题，包括 `--verbose` 和 `--no-color`。`--json`、`--quiet`、CI、`TERM=dumb` 和非 TTY 对这些标题保持沉默。
 
-参数：
-  PATH                            项目目录（默认: .）
-  INSTRUCTION                     自然语言部署指令（可选）
-
-选项：
-  --instruction, -i <text>        NL 部署指令（与位置参数二选一）
-  --max-wall-time <duration>      qwen-code 最大执行时间 (如 '10m', '600s')
-  --max-session-turns <n>         qwen-code 会话轮次上限 (默认: 100)
-  --alias, -a <name>              模板别名（传统模式）
-  --watch                         监听文件变化自动重新部署（传统模式）
-  --traditional                   使用传统 build+run 模式而非 AI 部署
-
-示例：
-  # NL 模式（默认）
-  ebx deploy ./my-project "这是一个 FastAPI 项目，需要 Redis"
-  ebx deploy ./my-project -i "部署到端口 8080"
-
-  # 传统模式
-  ebx deploy ./my-project --traditional
+```text
+ebx template init ["描述" | --adopt 目录]  →  ebx deploy [PATH]  →  ebx create --template ID
+  编写（脚手架、一句话，或已有项目）            发布（固定流程）        启动
+ebx create "描述"  =  以上三步合一，推送任何东西之前先确认
 ```
 
-NL 模式工作流程：
-1. 创建 `qwen-code` 模板沙箱
-2. 上传项目文件到 `/workspace`
-3. qwen-code agent 自动分析项目类型、安装依赖、构建并启动服务
-4. 解析部署结果（状态、URL、端口、日志）
+```bash
+ebx deploy [PATH] [选项]
 
-传统模式支持自动检测项目类型（Python / Node.js / Go / Java / Docker），并提供 `ebx deploy build` 和 `ebx deploy run` 子命令进行细粒度控制。
+参数：
+  PATH                            模板目录（默认: .）
+
+选项：
+  （`ebx template deploy` 的全部选项，如 --acr-namespace、--alias、--yes、-v）
+```
+
+设计说明：
+
+- **描述属于编写阶段，而不是发布阶段。** 模板*是什么*——名称、描述、端口、能力、资源、环境变量、自定义命令，以及让部署后的沙箱可用的 `commands.py` 服务——都由 `ebx template init` 写进 `template.yaml` / `Dockerfile` / `commands.py`（脚手架、一句描述，或对已有项目使用 `--adopt`），可以审阅、可以纳入版本管理。`ebx deploy` 只*读取* `template.yaml`（`name`、`resources.cpu`、`resources.memory`、`generation`）。在部署时再提供一处项目描述，就是再多一个永远不会落进 `template.yaml` 的“真相来源”。`--adopt` 的规格见 ADR `2026-09-30-template-init-adopt-existing-project.md`。
+- 因此 `deploy` **没有 INSTRUCTION 参数，也没有 AI 开关**（之前的 `--agent` 设计正是因此被撤销，见 ADR `2026-09-30-deploy-fixed-pipeline-agent-flag.md`）。
+- 沙箱内 Agent 部署（`Sandbox.deploy`，需要 LLM Key 并启动 `qwen-code` 云端沙箱）仅保留为 SDK 接口。
 
 ### ebx connect
 
@@ -747,25 +745,109 @@ ebx template init [DIRECTORY] [选项]
 选项：
   -t, --template <案例>      内置脚手架案例（python、node、minimal）
   --from <引用>              从注册表引用拉取模板源码（owner/repo 或本地路径）
-  --name <名称>              模板名称（默认：案例名或拉取的模板名）
+  --name <名称>              模板名称（默认：案例名、拉取到的名称或生成名）
   --list                     列出可用的脚手架案例
   --force                    覆盖已存在的文件
+  --adopt                    适配 DIRECTORY 里的已有项目（默认 .）
+  --hint <文本>              配合 --adopt：端口、服务等代码里看不出来的信息
+  --dry-run                  配合 --adopt：列出将要发送的文件；不发送、不写入
+  -y, --yes                  跳过确认（描述澄清，以及 --adopt 的两次确认）
 
 示例：
   ebx template init --list
   ebx template init -t python            # 创建 ./python/
   ebx template init -t python ./my-app   # 指定目录
   ebx template init --from owner/repo
+  ebx template init "一个 Python 数据分析环境"   # 只生成文件，不构建
+  ebx template init -y "a node.js api server"     # 非交互，只生成文件
+  ebx template init --adopt ./app --hint "监听 8080"
+  ebx template init --adopt ./app --dry-run
 ```
 
-在本地生成可编辑的模板工程（`template.yaml` + `Dockerfile` + `commands.py`），不构建、不部署——准备好后执行 `ebx template deploy <目录>`。顶层 `ebx init` 快捷方式与它是同一个命令对象；引导式凭证配置是 `ebx config init`。
+在本地生成可编辑的模板工程，不构建、不推送、不部署、也不创建沙箱——准备好后执行 `ebx template deploy <目录>`。路径记号（`my-app`、`./my app`）仍表示目录。含空白或中文的文本是自然语言描述：Qwen Code 把 `Dockerfile`、`commands.py`（SandboxServer 入口）、`template.yaml` 与 `README.md` 写到 `./<名称>/` 后停止。交互式终端会先询问目录（`Directory for the template project`）：直接回车保持 `./<名称>/`（或 `./<--name>/`），其他输入就是项目目录本身。`--yes`、`--json` 和非交互终端跳过这个问题。路径是文件，或目录里已经有模板文件时，会在生成之前拒绝（`--force` 才覆盖）。这与 `ebx create "描述"` 在交互下询问是否切换到 init 时的停止线相同。`--adopt` 是第三条编写路径：DIRECTORY 是已有项目，Agent 在临时副本里运行（密钥被排除），写回的只有 `Dockerfile`、`commands.py`、`template.yaml` 和自动生成的 `.dockerignore`。`--adopt` 与 `-t`、`--from`、`--list` 互斥。本地 `--from` 目录如果没有 `template.yaml` 会被拒绝，错误信息指向 `--adopt`。顶层 `ebx init` 快捷方式与它是同一个命令对象；引导式凭证配置是 `ebx config init`。
 
 ##### 顶层快捷方式与用户自定义命令的边界
 
-- **内置顶层快捷方式**（`create`、`list`、`init`、`install`、`deploy`、`run` 等）统一注册在 `src/easy_sandbox/cli/main.py` 的 `LazyGroup(lazy_subcommands=...)` 映射中。该映射是**项目维护者的内置顶层入口注册点**，不是面向用户的扩展机制。
-- **用户自定义命令**通过模板的 `template.yaml`（`custom_commands`）或 SandboxServer 的 `@registry.command` 注册，并通过 `ebx run COMMAND` / `Sandbox.custom(name)` 调用。
-- 原始 CLI 设计草案（`2026-09-23-cli-final-design.md` §2.2）中的 `config.toml [shortcuts]` 段**从未实现**：不存在用户侧声明式别名配置。任何在 `~/.ebx/config.toml` 中写 `[shortcuts]` 的文档或示例描述的都是未实现的历史草案，而非当前能力。
-- 未知顶层命令会得到针对性提示：拼写相近（difflib，cutoff 0.6）时给出 `Did you mean '…'?`；无合理候选时错误信息指向 `custom_commands` + `ebx run`。退出码 2、仅输出到 stderr 的约束保持不变；只有根命令组受影响。
+- **内置顶层快捷方式**（`create`、`list`、`init`、`install`、`deploy`、`run` 等）统一注册在 `src/easy_sandbox/cli/main.py` 的 `LazyGroup(lazy_subcommands=...)` 映射中。该映射是**项目维护者的内置顶层入口注册点**；这些快捷方式作为用户可配置的 `[shortcuts]` 段的**系统默认配置**发布（见下文）——并非硬编码不可更改：用户无需改动源码即可自由修改、删除或扩展它们。
+- **CLI 别名**（`[shortcuts]` 配置层）将本地的 `ebx <别名> [参数…]` 路由到一条已有命令路径——不涉及沙箱、凭证或模板。
+- **用户自定义命令**通过模板的 `template.yaml`（`custom_commands`）或 SandboxServer 的 `@registry.command` 注册，并通过 `ebx run COMMAND` / `Sandbox.custom(name)` 调用——它们在**沙箱内**执行，与 CLI 别名是不同的层。
+- 原始 CLI 设计草案（`2026-09-23-cli-final-design.md` §2.2）中的 `config.toml [shortcuts]` 段**已经实现**（ADR `2026-09-30-configurable-cli-shortcuts.md`，取代了 `2026-09-29-init-restore-and-create-explicit-error.md` 中的早期否决）：别名是纯 CLI 路由层关注点，与沙箱内命名命令不构成竞争。
+- 未知顶层命令会得到针对性提示：拼写相近（difflib，cutoff 0.6）时给出 `Did you mean '…'?`；无合理候选时，错误信息给出 `ebx config set shortcuts.NAME "template init"`（目标不含 `ebx` 前缀），并指向 `custom_commands` + `ebx run`。退出码 2、仅输出到 stderr 的约束保持不变；只有根命令组受影响。
+
+##### 可配置快捷方式（`[shortcuts]`）
+
+顶层快捷方式是**用户可配置的**，不是固定的。`~/.ebx/config.toml` 的 `[shortcuts]` 段将别名映射到目标命令路径；列出的每个默认快捷方式（create、list、info 等）都是出厂预置，你可以修改、删除或扩展。
+
+配置格式（别名解析到一条已有命令路径——空格分隔的子命令路径）：
+
+```toml
+# ~/.ebx/config.toml
+
+[shortcuts]
+# 出厂默认 —— 所有内置顶层快捷方式（默认启用）
+create   = "sandbox create"
+list     = "sandbox list"
+info     = "sandbox info"
+kill     = "sandbox kill"
+exec     = "sandbox exec"
+connect  = "sandbox connect"
+run      = "sandbox run"
+upload   = "sandbox upload"
+download = "sandbox download"
+deploy   = "deploy"
+install  = "template install"
+init     = "template init"
+
+# 用户自定义别名 —— 任意已有命令路径均可
+ps      = "sandbox process list"
+sysinfo = "sandbox system info"
+files   = "sandbox files list"
+```
+
+默认别名列表（开箱即用——无需任何配置文件）：
+
+| 默认别名 | 目标 |
+|---------|------|
+| `create` | `sandbox create` |
+| `list` | `sandbox list` |
+| `info` | `sandbox info` |
+| `kill` | `sandbox kill` |
+| `exec` | `sandbox exec` |
+| `connect` | `sandbox connect` |
+| `run` | `sandbox run` |
+| `upload` | `sandbox upload` |
+| `download` | `sandbox download` |
+| `deploy` | `deploy` |
+| `install` | `template install` |
+| `init` | `template init` |
+
+别名管理——也可直接编辑 `~/.ebx/config.toml` 的 `[shortcuts]` 段：
+
+```bash
+# 添加 / 修改别名（命令路径，不要带 "ebx" 前缀）
+ebx config set shortcuts.ps "sandbox process list"
+# 会被拒绝且不会保存：ebx config set shortcuts.init2 "ebx template init"
+ebx config set shortcuts.init2 "template init"
+
+# 删除别名（空值即删除）
+ebx config set shortcuts.ps ""
+
+# 查看所有别名
+ebx config get shortcuts
+
+# 重置为出厂默认 / 生成完整模板
+ebx config init --reset-shortcuts
+ebx config init                 # 写入完整的 [shortcuts] 模板，可直接编辑
+```
+
+设计约束：
+
+- **单层解析** —— 别名解析到恰好一条已有命令路径；别名绝不链式指向其他别名，别名之后的全部参数原样透传（不做参数改写或注入）。
+- **不要带 `ebx` 前缀** —— 存下来的是命令路径（`"template init"`），不是完整调用（`"ebx template init"`）。`config set` 会拒绝带前缀的值（退出码 2，不保存）并打印可重试的命令。文件里已经写错的值会在启动时被忽略，并给出同样的说明；其他别名仍然有效。见 ADR `2026-09-30-shortcut-target-hint.md`。
+- **保留命令不可覆盖** —— 命令组名（`sandbox`、`template`、`config`、`mcp`）及其他保留顶层名称不能被 `[shortcuts]` 条目遮蔽、重定向或删除；冲突条目会被报告并忽略。
+- **配置损坏回退** —— 若 `~/.ebx/config.toml` 无法解析（TOML 语法错误、类型错误），CLI 会在 stderr 输出警告并禁用该会话中的所有 shortcuts；内置命令组（`sandbox`、`config`、`mcp`、`template`）不受影响，损坏的 shortcuts 配置绝不会让 CLI 无法启动。
+
+完整决策记录见 ADR `2026-09-30-configurable-cli-shortcuts.md`。
 
 #### template deploy
 
@@ -862,7 +944,7 @@ ebx template install <template-ref> [选项]
   ebx template install ./my-template           # 本地目录
 ```
 
-token 优先级：`--token` > 进程环境变量 `GITHUB_TOKEN` > 持久化的 `github_token`（`ebx config set github_token`，星号脱敏输入，保存在 `~/.ebx/.env`）> 无 token。匿名限流时错误信息中完整保留 `owner/repo//subdir@ref`，并在交互终端下引导脱敏配置 token 且只自动重试一次。
+token 优先级：`--token` > 进程环境变量 `GITHUB_TOKEN` > `./.env` > 持久化的 `github_token`（`ebx config set github_token`，星号脱敏输入，保存在 `~/.ebx/.env`）> 无 token。匿名限流时错误信息中完整保留 `owner/repo//subdir@ref`，并在交互终端下引导脱敏配置 token 且只自动重试一次。
 
 从 GitHub 或本地目录安装模板。模板目录须包含 `template.yaml` 文件。
 
@@ -959,8 +1041,8 @@ ebx mcp deploy [选项]
 
 选项：
   --name <name>             FC 函数名称（默认: easy-sandbox-mcp）
-  --region <region>         FC 地域；回退到 ebx config set region /
-                            SANDBOX_REGION 环境变量，否则 cn-hangzhou
+  --region <region>         FC 地域；命令 --region > SANDBOX_REGION >
+                            ebx config set region > cn-hangzhou
   --template <name>         默认沙箱模板（默认: base）
   --memory <mb>             FC 函数内存（默认: 512）
   --timeout <seconds>       FC 函数超时（默认: 600）
@@ -989,35 +1071,31 @@ ebx mcp deploy [选项]
 
 | 配置键          | 说明                                  | 默认值                    |
 | --------------- | ------------------------------------- | ------------------------- |
-| `api_key`       | E2B API Key                           | (未设置)                  |
+| `sandbox_api_key` | 沙箱服务 API Key（存为 `E2B_API_KEY`） | (未设置)                  |
 | `api_url`       | Platform API URL                      | (自动)                    |
 | `region`        | 默认区域                               | `cn-hangzhou`             |
 | `http_timeout`  | HTTP 请求超时（秒）                    | (自动)                    |
 | `max_retries`   | 最大重试次数                           | (自动)                    |
 | `domain`        | Envd Domain                           | (自动)                    |
-| `llm_api_key`   | LLM API Key（deploy 用；亦作为 Qwen Code 凭证的兼容回退） | (未设置) |
-| `llm_model`     | LLM 模型名称                          | (未设置)                  |
-| `llm_base_url`  | LLM API Base URL（OpenAI 兼容）       | (未设置)                  |
-| `qwen_code_api_key` | Qwen Code API Key（AI 模板生成，存 `.env`） | (未设置) |
-| `qwen_code_base_url` | Qwen Code OpenAI 兼容 Base URL | DashScope 兼容端点        |
-| `qwen_code_model` | Qwen Code 模型名称                    | `qwen3-coder-plus`       |
+| `llm_api_key`   | LLM API Key，供自然语言推理和编码代理使用 | (未设置) |
+| `llm_model`     | LLM 模型名称                          | `qwen3-coder-plus`       |
+| `llm_base_url`  | LLM API Base URL（OpenAI 兼容）       | DashScope 兼容端点        |
 
-敏感配置项（`api_key`、`llm_api_key`、`qwen_code_api_key`）在 `config list` 输出中自动脱敏显示。
+敏感配置项（`sandbox_api_key`、`llm_api_key`）在 `config list` 输出中自动脱敏显示。
+
+同一文件中的 `[shortcuts]` 段用于配置顶层命令别名（见 [§4 可配置快捷方式](#可配置快捷方式shortcuts)）；通过 `ebx config set shortcuts.<名称> "<目标>"` / `ebx config get shortcuts` / `ebx config init --reset-shortcuts` 管理。
 
 ### 命令示例
 
 ```bash
-# 设置 API Key
-ebx config set api_key e2b_xxx
+# 设置沙箱 API Key
+ebx config set sandbox_api_key e2b_xxx
 
-# 配置 Qwen Code 凭证（AI 模板生成的专用键）
-ebx config set qwen_code_api_key sk-xxx
-
-# 或使用引导向导（平台 API Key、region、Qwen Code）
-ebx config init
-
-# llm_api_key 可作为 Qwen Code 凭证的兼容回退
+# LLM API Key，供自然语言推理和编码代理使用
 ebx config set llm_api_key sk-xxx
+
+# 或使用引导向导（沙箱 API Key、region、LLM API Key）
+ebx config init
 
 # 查看配置
 ebx config list
@@ -1027,7 +1105,7 @@ ebx config get region
 ebx config set region ""
 ```
 
-LLM 配置也支持环境变量覆盖：`EBX_LLM_API_KEY`、`EBX_LLM_MODEL`、`EBX_LLM_BASE_URL`。
+进程环境变量优先于 `./.env`，`./.env` 优先于已保存的 LLM 配置：`EBX_LLM_API_KEY`（然后是 `BAILIAN_CODING_PLAN_API_KEY`、`DASHSCOPE_API_KEY`、`OPENAI_API_KEY`）、`EBX_LLM_BASE_URL` / `OPENAI_BASE_URL`，以及 `EBX_LLM_MODEL` / `OPENAI_MODEL`。空白值不算已配置。这些都没设置时，才用 `~/.ebx` 里的值。
 
 ***
 

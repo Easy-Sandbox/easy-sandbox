@@ -6,7 +6,7 @@ This tutorial walks you through the complete sandbox lifecycle, from installatio
 
 ## Prerequisites
 
-- Python 3.10 or later
+- Python 3.9 or later
 - A valid API Key (obtained from the Easy Sandbox platform)
 - Network access to the Alibaba Cloud Hangzhou region (default `cn-hangzhou`)
 
@@ -23,24 +23,26 @@ pip install "easy-sandbox[cli]"
 ebx --version
 ```
 
+### Standalone binary (no Python required)
+
+If you'd rather not set up a Python environment, `ebx` is also available as a
+precompiled standalone binary for Linux, macOS, and Windows:
+
+```bash
+# Example: install v0.1.0 on macOS (Apple Silicon)
+curl -fsSL -o /usr/local/bin/ebx \
+  "https://github.com/Easy-Sandbox/easy-sandbox/releases/download/v0.1.0/ebx-0.1.0-darwin-arm64"
+chmod +x /usr/local/bin/ebx
+```
+
+For other platforms, checksum verification, and a comparison with the pip
+install, see the [Binary Installation](binary-installation.md) guide.
+
 ## 2. Configure the API Key
 
-There are three ways to configure credentials (in descending order of priority):
+There are three ways to configure credentials. When a call actually needs the key, this is the order (highest first). The full table is in [Configuration — Credential resolution](../reference/configuration.md#credential-resolution).
 
-### Option 1: Environment variable (recommended for CI/CD)
-
-```bash
-export E2B_API_KEY="your-api-key-here"
-```
-
-### Option 2: CLI configuration (recommended for local development)
-
-```bash
-ebx config set api_key your-api-key
-# Writes to ~/.ebx/.env (permissions 600)
-```
-
-### Option 3: Code parameter
+### Option 1: Code parameter (this call only)
 
 ```python
 from easy_sandbox.api.sandbox import Sandbox
@@ -48,10 +50,25 @@ from easy_sandbox.api.sandbox import Sandbox
 sandbox = await Sandbox.create(api_key="your-api-key-here")
 ```
 
+### Option 2: Environment variable (recommended for CI/CD)
+
+```bash
+export E2B_API_KEY="your-api-key-here"
+```
+
+### Option 3: `ebx config set` (recommended for local development)
+
+Used when neither the environment nor the project `.env` sets the key.
+
+```bash
+ebx config set sandbox_api_key your-api-key
+# Writes to ~/.ebx/.env (permissions 600)
+```
+
 Verify the configuration:
 
 ```bash
-ebx config get api_key
+ebx config get sandbox_api_key
 ```
 
 ## 3. Create Your First Sandbox

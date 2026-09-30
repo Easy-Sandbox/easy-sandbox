@@ -22,7 +22,11 @@ from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 
-from easy_sandbox.agent.clarify import ClarifyAssessment
+from easy_sandbox.agent.clarify import (
+    RESEARCH_REASON_AGENT_UNAVAILABLE,
+    ClarifyAssessment,
+    ResearchOutcome,
+)
 from easy_sandbox.agent.codegen import CodegenResult
 from easy_sandbox.cli.main import cli
 from easy_sandbox.models.errors import SandboxCreationError
@@ -76,6 +80,8 @@ class _DummyBackend:
         self.template_name = template_name
         self.assessment = assessment
         self.research_ok = research_ok
+        # Optional classified failure; ``None`` keeps the bool contract.
+        self.research_outcome: ResearchOutcome | None = None
         self.research_calls: list[dict[str, Any]] = []
         self.assess_calls: list[dict[str, Any]] = []
         self.generate_calls: list[dict[str, Any]] = []
@@ -110,7 +116,7 @@ class _DummyBackend:
         binary: Path | str,
         env: dict[str, str] | None,
         session_id: str,
-    ) -> bool:
+    ) -> bool | ResearchOutcome:
         self.research_calls.append(
             {
                 "prompt": prompt,
@@ -120,6 +126,8 @@ class _DummyBackend:
                 "session_id": session_id,
             }
         )
+        if self.research_outcome is not None:
+            return self.research_outcome
         return self.research_ok
 
     def assess(
@@ -392,6 +400,39 @@ class TestBackendDecoupling:
         assert dummy_backend.assess_calls[0]["session_id"] == "dummy-session-1"
         assert dummy_backend.assess_calls[0]["resume"] is None
 
+        mock_create.assert_not_called()
+        _assert_no_real_agent_calls(no_real_agent)
+
+    def test_research_outcome_reason_adds_a_backend_agnostic_hint(
+        self,
+        runner: CliRunner,
+        monkeypatch: pytest.MonkeyPatch,
+        dummy_backend: _DummyBackend,
+        no_real_agent: dict[str, MagicMock],
+    ) -> None:
+        """A classified ``ResearchOutcome`` becomes a hint on any backend."""
+        dummy_backend.research_outcome = ResearchOutcome(
+            ok=False,
+            reason=RESEARCH_REASON_AGENT_UNAVAILABLE,
+            detail="sanitised detail",
+        )
+        dummy_backend.assessment = ClarifyAssessment(completeness=0.95, question=None)
+        monkeypatch.setattr("easy_sandbox.agent.clarify.new_session_id", lambda: "dummy-session-1")
+        _patch_backend(monkeypatch, dummy_backend)
+        monkeypatch.setattr("easy_sandbox.cli.commands.template.do_deploy", MagicMock())
+        mock_create = AsyncMock()
+
+        with patch("easy_sandbox.api.sandbox.Sandbox.create", mock_create):
+            result = runner.invoke(cli, ["create", "a complete dummy description"])
+
+        assert result.exit_code == 1
+        assert "could not research the public facts" in result.output
+        assert "could not be started" in result.output  # reason-specific hint
+        assert "sanitised detail" not in result.output  # detail is never rendered
+        # The failed round hands the session to the assessment (pinned).
+        assert len(dummy_backend.assess_calls) == 1
+        assert dummy_backend.assess_calls[0]["session_id"] == "dummy-session-1"
+        assert dummy_backend.assess_calls[0]["resume"] is None
         mock_create.assert_not_called()
         _assert_no_real_agent_calls(no_real_agent)
 

@@ -48,7 +48,7 @@ Exit code: 2
 Usage: cli [OPTIONS] [COMMAND] [ARGS]...
 Try 'cli --help' for help.
 
-Error: No such command 'frobnicate'. No similar ebx command found. If this is a custom command, declare it in the template's template.yaml (custom_commands) and run it with 'ebx run COMMAND'.
+Error: No such command 'frobnicate'. No similar command. To add a shortcut, use the command path without the "ebx" prefix, for example: ebx config set shortcuts.NAME "template init". A custom command inside a sandbox is declared in template.yaml (custom_commands) and run with 'ebx run COMMAND'.
 ```
 
 ### AuthenticationError

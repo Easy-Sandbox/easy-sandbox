@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import hashlib
+import sys
+from pathlib import Path
+from typing import Any
 from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 
 from easy_sandbox.api.docker_builder import (
@@ -14,10 +18,6 @@ from easy_sandbox.api.docker_builder import (
     _get_acr_auth_token,
     get_acr_auth_token,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
-
 
 # ---------------------------------------------------------------------------
 # Backward-compatible alias tests (task #66 / review item 1)
@@ -581,3 +581,201 @@ class TestBuildAndRegisterOfficial:
         api_kwargs = mock_create.call_args.kwargs
         assert api_kwargs["access_key_id"] == "legacy-ak"
         assert api_kwargs["access_key_secret"] == "test-placeholder-token"
+
+
+# ---------------------------------------------------------------------------
+# SDK wheel injection: source checkout vs. installed / standalone binary
+# ---------------------------------------------------------------------------
+
+
+class TestInjectSdkWheel:
+    """``inject_sdk_wheel`` must yield a wheel wherever ebx is installed."""
+
+    WHEEL = b"PK-fake-wheel-bytes"
+
+    def _client_factory(self, handler: Any) -> Any:
+        """Build a stand-in for ``httpx.Client`` served by *handler*."""
+        real = httpx.Client
+
+        def factory(**kwargs: Any) -> httpx.Client:
+            return real(transport=httpx.MockTransport(handler), **kwargs)
+
+        return factory
+
+    def _pypi_handler(self, *, digest: str | None = None, wheels: bool = True) -> Any:
+        sha = digest or hashlib.sha256(self.WHEEL).hexdigest()
+        filename = "easy_sandbox-0.1.0-py3-none-any.whl"
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            if request.url.path.endswith("/json"):
+                urls = (
+                    [
+                        {
+                            "packagetype": "sdist",
+                            "filename": "easy_sandbox-0.1.0.tar.gz",
+                            "url": "x",
+                        },
+                        {
+                            "packagetype": "bdist_wheel",
+                            "filename": filename,
+                            "url": "https://files.example/" + filename,
+                            "digests": {"sha256": sha},
+                        },
+                    ]
+                    if wheels
+                    else []
+                )
+                return httpx.Response(200, json={"urls": urls})
+            return httpx.Response(200, content=self.WHEEL)
+
+        return handler
+
+    def test_installed_sdk_downloads_the_matching_release(self, tmp_path: Path) -> None:
+        """Outside a source checkout the released wheel is injected into the context."""
+        seen: list[str] = []
+        inner = self._pypi_handler()
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(str(request.url))
+            return inner(request)
+
+        with (
+            patch.object(DockerBuilder, "_is_sdk_source_tree", return_value=False),
+            patch("easy_sandbox.api.docker_builder.httpx.Client", self._client_factory(handler)),
+        ):
+            wheels = DockerBuilder.inject_sdk_wheel(tmp_path)
+
+        assert [w.name for w in wheels] == ["easy_sandbox-0.1.0-py3-none-any.whl"]
+        assert wheels[0].read_bytes() == self.WHEEL
+        from easy_sandbox._version import __version__
+
+        assert seen[0] == f"https://pypi.org/pypi/easy-sandbox/{__version__}/json"
+
+    def test_frozen_binary_never_shells_out_to_pip(self, tmp_path: Path) -> None:
+        """A PyInstaller binary has no pip: it must use the release download path."""
+        with (
+            patch.object(sys, "frozen", True, create=True),
+            patch.object(DockerBuilder, "_is_sdk_source_tree", return_value=True),
+            patch("easy_sandbox.api.docker_builder.subprocess.run") as run,
+            patch(
+                "easy_sandbox.api.docker_builder.httpx.Client",
+                self._client_factory(self._pypi_handler()),
+            ),
+        ):
+            wheels = DockerBuilder.inject_sdk_wheel(tmp_path)
+
+        run.assert_not_called()
+        assert len(wheels) == 1
+
+    def test_digest_mismatch_injects_nothing(self, tmp_path: Path) -> None:
+        with (
+            patch.object(DockerBuilder, "_is_sdk_source_tree", return_value=False),
+            patch(
+                "easy_sandbox.api.docker_builder.httpx.Client",
+                self._client_factory(self._pypi_handler(digest="0" * 64)),
+            ),
+        ):
+            assert DockerBuilder.inject_sdk_wheel(tmp_path) == []
+        assert list(tmp_path.iterdir()) == []
+
+    def test_unpublished_version_falls_back_quietly(self, tmp_path: Path) -> None:
+        """A dev build (404 on PyPI) injects nothing; the Dockerfile installs from PyPI."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(404)
+
+        with (
+            patch.object(DockerBuilder, "_is_sdk_source_tree", return_value=False),
+            patch("easy_sandbox.api.docker_builder.httpx.Client", self._client_factory(handler)),
+        ):
+            assert DockerBuilder.inject_sdk_wheel(tmp_path) == []
+
+    def test_no_published_wheel_injects_nothing(self, tmp_path: Path) -> None:
+        with (
+            patch.object(DockerBuilder, "_is_sdk_source_tree", return_value=False),
+            patch(
+                "easy_sandbox.api.docker_builder.httpx.Client",
+                self._client_factory(self._pypi_handler(wheels=False)),
+            ),
+        ):
+            assert DockerBuilder.inject_sdk_wheel(tmp_path) == []
+
+    def test_network_error_injects_nothing(self, tmp_path: Path) -> None:
+        def handler(request: httpx.Request) -> httpx.Response:
+            raise httpx.ConnectError("offline")
+
+        with (
+            patch.object(DockerBuilder, "_is_sdk_source_tree", return_value=False),
+            patch("easy_sandbox.api.docker_builder.httpx.Client", self._client_factory(handler)),
+        ):
+            assert DockerBuilder.inject_sdk_wheel(tmp_path) == []
+
+    def test_source_checkout_still_builds_from_the_working_tree(self, tmp_path: Path) -> None:
+        """In a dev checkout unreleased code must reach the image: no PyPI download."""
+        built = MagicMock(returncode=0, stderr="")
+
+        def fake_run(cmd: list[str], **_: Any) -> MagicMock:
+            out_dir = Path(cmd[cmd.index("-w") + 1])
+            (out_dir / "easy_sandbox-9.9.9-py3-none-any.whl").write_bytes(b"local")
+            return built
+
+        ctx = tmp_path / "ctx"
+        ctx.mkdir()
+        with (
+            patch.object(sys, "frozen", False, create=True),
+            patch.object(DockerBuilder, "_is_sdk_source_tree", return_value=True),
+            patch("easy_sandbox.api.docker_builder.subprocess.run", side_effect=fake_run),
+            patch.object(DockerBuilder, "_download_release_wheel") as download,
+        ):
+            wheels = DockerBuilder.inject_sdk_wheel(ctx)
+
+        download.assert_not_called()
+        assert [w.name for w in wheels] == ["easy_sandbox-9.9.9-py3-none-any.whl"]
+
+    def test_source_tree_detection_requires_the_sdk_project(self, tmp_path: Path) -> None:
+        """A venv living inside some *other* project must not be mistaken for the SDK."""
+        (tmp_path / "pyproject.toml").write_text('[project]\nname = "my-app"\n')
+        assert DockerBuilder._is_sdk_source_tree(tmp_path) is False
+        (tmp_path / "pyproject.toml").write_text('[project]\nname = "easy-sandbox"\n')
+        assert DockerBuilder._is_sdk_source_tree(tmp_path) is True
+        assert DockerBuilder._is_sdk_source_tree(tmp_path / "missing") is False
+
+    def test_this_checkout_is_detected_as_the_sdk_source_tree(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        assert DockerBuilder._is_sdk_source_tree(root) is True
+
+
+class TestBuildProgress:
+    def test_buildkit_build_streams_plain_progress(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("DOCKER_BUILDKIT", "1")
+        proc = MagicMock()
+        proc.stdout = ["#2 [1/2] FROM python:3.12\n"]
+        proc.returncode = 0
+        seen: list[str] = []
+        with patch("easy_sandbox.api.docker_builder.subprocess.Popen", return_value=proc) as popen:
+            DockerBuilder().build(tmp_path, "app:latest", on_output=seen.append)
+        command = popen.call_args.args[0]
+        assert "--provenance=false" in command
+        assert "--progress=plain" in command
+        assert seen == ["#2 [1/2] FROM python:3.12"]
+
+    def test_build_arg_values_are_redacted_in_the_info_log(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        monkeypatch.setenv("DOCKER_BUILDKIT", "0")
+        proc = MagicMock()
+        proc.stdout = []
+        proc.returncode = 0
+        with (
+            caplog.at_level("INFO", logger="easy_sandbox"),
+            patch("easy_sandbox.api.docker_builder.subprocess.Popen", return_value=proc) as popen,
+        ):
+            DockerBuilder().build(
+                tmp_path, "app:latest", build_args={"ACR_PASSWORD": "s3cret-value"}
+            )
+        command = popen.call_args.args[0]
+        assert "ACR_PASSWORD=s3cret-value" in command
+        assert "s3cret-value" not in caplog.text
+        assert "ACR_PASSWORD=***" in caplog.text

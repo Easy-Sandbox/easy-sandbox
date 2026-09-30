@@ -31,8 +31,8 @@ Easy Sandbox is a cloud sandbox SDK built on Alibaba Cloud Function Compute, pro
 | [SDK Usage](guide/sdk-usage.md) | Python SDK complete usage *(coming soon)* |
 | [CLI Tutorial](guide/cli-tutorial.md) | CLI quick start *(coming soon)* |
 | [Using Templates](guide/using-templates.md) | Official and community templates *(coming soon)* |
-| [Authoring Templates](guide/authoring-templates.md) | Custom template development *(coming soon)* |
-| [Deploy & Build](guide/deploy-and-build.md) | `ebx deploy` deployment *(coming soon)* |
+| [Authoring Templates](guide/authoring-templates.md) | Custom templates, including `ebx template init --adopt` for an existing project |
+| [Deploy & Build](guide/deploy-and-build.md) | template lifecycle (`template init` / `--adopt` → `deploy` → `create`), `Sandbox.deploy`, Image build |
 | [Declarative Usage](guide/declarative-usage.md) | `@sandbox` decorator *(coming soon)* |
 | [MCP Integration](guide/mcp-integration.md) | Cursor / Claude Desktop integration *(coming soon)* |
 | [Session Persistence](guide/session-persistence.md) | Local / OSS session storage *(coming soon)* |

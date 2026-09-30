@@ -18,6 +18,39 @@ Configuration is loaded in the following priority order (highest to lowest):
 
 Within the same priority level, E2B-prefixed variables take priority over SANDBOX-prefixed variables.
 
+`.env` files are merged **per key**. `./.env` overrides `~/.ebx/.env` when both set the same key. A key that the project file does not set still comes from `~/.ebx/.env`.
+
+A blank or whitespace-only value does not count. It does not hide the next layer.
+
+## Credential resolution
+
+Every credential uses that order at the moment it is needed. `ebx config list` shows the winner and labels it `(env)`, `(user)`, `(default)`, or `(not set)`.
+
+| What you need | 1. Explicit argument | 2. Process environment | 3. `./.env` | 4. `~/.ebx` | 5. Default |
+|---|---|---|---|---|---|
+| Sandbox API key | `api_key=` | `E2B_API_KEY`, then `SANDBOX_API_KEY` | same names | `~/.ebx/.env` (`ebx config set sandbox_api_key`) | none |
+| Alibaba Cloud AK/SK | `access_key_id=` / `access_key_secret=` | `ALICLOUD_ACCESS_KEY_ID` / `ALICLOUD_ACCESS_KEY_SECRET`, then `AccessKey` / `AccessSecret` | same names | `~/.ebx/.env` | none |
+| ACR namespace | `--acr-namespace` | `ACR_NAMESPACE` | `ACR_NAMESPACE` | `~/.ebx/.env` (`ebx config set acr_namespace`) | none |
+| GitHub token | `--token` | `GITHUB_TOKEN` | `GITHUB_TOKEN` | `~/.ebx/.env` (`ebx config set github_token`) | none |
+| LLM API key | `llm_api_key=` | `EBX_LLM_API_KEY`, then `BAILIAN_CODING_PLAN_API_KEY`, `DASHSCOPE_API_KEY`, `OPENAI_API_KEY` | same names | `~/.ebx/.env` (`ebx config set llm_api_key`) | none |
+| LLM base URL | `openai_base_url=` | `EBX_LLM_BASE_URL`, then `OPENAI_BASE_URL` | same names | `llm_base_url` in `~/.ebx/config.toml` | DashScope compatible-mode |
+| LLM model | `openai_model=` | `EBX_LLM_MODEL`, then `OPENAI_MODEL` | same names | `llm_model` in `~/.ebx/config.toml` | `qwen3-coder-plus` |
+| Region | command `--region` | `SANDBOX_REGION` | `SANDBOX_REGION` | `region` in `~/.ebx/config.toml` | `cn-hangzhou` |
+
+The same chain is what these calls read:
+
+- `Sandbox.create` and the other SDK clients (`load_config`)
+- `Sandbox.deploy` (`resolve_llm_env`)
+- natural-language `ebx create` (the coding agent)
+- `ebx template install` / `ebx template search` (GitHub token)
+- `ebx mcp install` (the sandbox API key copied into the editor config)
+
+An older `EBX_QWEN_CODE_API_KEY` is still accepted as `llm_api_key` when the `llm_*` value is unset. In the process environment it sits after `OPENAI_API_KEY`. In `~/.ebx` it is used only after `EBX_LLM_API_KEY` and a legacy `llm_api_key` in `config.toml`.
+
+`ebx mcp install` writes that sandbox API key into the Cursor and Claude config. `E2B_API_URL` and `SANDBOX_REGION` are copied into the same file only when the process environment sets them. `ebx mcp start` loads `~/.ebx` again, so a region saved with `ebx config set region` still applies when the editor starts the server.
+
+`ebx config list` marks a process variable as `(env)` and either file as `(user)`. The value in the table is the one the command will use.
+
 ---
 
 ## Environment Variables
@@ -35,9 +68,30 @@ Within the same priority level, E2B-prefixed variables take priority over SANDBO
 | `SANDBOX_HTTP_TIMEOUT` | `http_timeout` | Sandbox | HTTP timeout in seconds |
 | `ALICLOUD_ACCESS_KEY_ID` | `access_key_id` | AK/SK | Alibaba Cloud AK |
 | `ALICLOUD_ACCESS_KEY_SECRET` | `access_key_secret` | AK/SK | Alibaba Cloud SK |
+| `ACR_NAMESPACE` | `acr_namespace` | ACR | ACR namespace (`ebx config set acr_namespace`, or `ebx config init`) |
 | `GITHUB_TOKEN` | `github_token` | GitHub | GitHub token for template downloads (store with `ebx config set github_token`; CI: inject as a secret) |
+| `EBX_LLM_API_KEY` | `llm_api_key` | LLM | LLM API key (store with `ebx config set llm_api_key`) |
+| `BAILIAN_CODING_PLAN_API_KEY` | `llm_api_key` | LLM | LLM API key fallback |
+| `DASHSCOPE_API_KEY` | `llm_api_key` | LLM | LLM API key fallback |
+| `OPENAI_API_KEY` | `llm_api_key` | LLM | LLM API key fallback |
+| `EBX_LLM_BASE_URL` | `llm_base_url` | LLM | LLM base URL |
+| `OPENAI_BASE_URL` | `llm_base_url` | LLM | LLM base URL fallback |
+| `EBX_LLM_MODEL` | `llm_model` | LLM | LLM model name |
+| `OPENAI_MODEL` | `llm_model` | LLM | LLM model name fallback |
 
-When both `E2B_API_KEY` and `SANDBOX_API_KEY` are present, `E2B_API_KEY` takes priority.
+When both `E2B_API_KEY` and `SANDBOX_API_KEY` are present, `E2B_API_KEY` takes priority. The CLI lists that key as `sandbox_api_key`; the SDK field stays `api_key`.
+
+For the LLM API key the environment order is `EBX_LLM_API_KEY`, then `BAILIAN_CODING_PLAN_API_KEY`, `DASHSCOPE_API_KEY`, `OPENAI_API_KEY`. Any of those wins over `./.env`, which wins over `~/.ebx/.env`. Base URL order is `EBX_LLM_BASE_URL` then `OPENAI_BASE_URL`, then the same names in `./.env`, then the stored `llm_base_url`. Model order is `EBX_LLM_MODEL` then `OPENAI_MODEL`, then `./.env`, then the stored `llm_model`. The full chain is in [Credential resolution](#credential-resolution).
+
+### CLI display
+
+These variables change what a terminal shows. They are not stored by `ebx config`.
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `EBX_ACTIVITY_LINES` | `4` | How many grey lines sit under a `message... 12s` header (integer 1–10). Used by deploy, create, upload, download, template fetch, image registration, the coding-agent install, and `ebx kill --all`. |
+
+`--json`, `--quiet`, `--ci`, `TERM=dumb`, and a non-TTY do not draw that header. See [While a command is running](../guide/cli-tutorial.md#while-a-command-is-running).
 
 ### Server-Side Environment Variables
 
@@ -73,7 +127,13 @@ domain = "cn-hangzhou.e2b.fc.aliyuncs.com"
 region = "cn-hangzhou"
 http_timeout = 30.0
 max_retries = 3
+
+[shortcuts]
+init = "template init"          # command path, not "ebx template init"
+ps   = "sandbox process list"
 ```
+
+`[shortcuts]` maps a top-level alias to a command path. The value does not include the `ebx` prefix. `ebx config set shortcuts.ps "ebx sandbox process list"` is rejected; use `"sandbox process list"`. A bad line already in the file is skipped at the next startup and the other aliases keep working. See [Shortcut aliases](cli-reference.md#shortcut-aliases-shortcutsalias).
 
 ---
 
@@ -116,10 +176,10 @@ Manage configuration via `ebx config`:
 ebx config list
 
 # Get a single value
-ebx config get api_key
+ebx config get sandbox_api_key
 
 # Set a value
-ebx config set api_key your-new-key
+ebx config set sandbox_api_key your-new-key
 ebx config set region cn-beijing
 ebx config set http_timeout 60
 
@@ -132,26 +192,24 @@ ebx config set region ""
 ebx config set github_token ""
 ```
 
-The `region` key set here is the **persistent default** for regional commands. A single invocation can override it with the command-level `--region`/`-r` option (accepted by `ebx list`, `ebx kill --all`, the template control-plane commands, and `ebx mcp deploy`). Resolution priority: command `--region` > `ebx config set region` / `SANDBOX_REGION` env > `cn-hangzhou`.
+The `region` key set here is the **persistent default** for regional commands. A single invocation can override it with the command-level `--region`/`-r` option (accepted by `ebx list`, `ebx kill --all`, the template control-plane commands, and `ebx mcp deploy`). Resolution priority: command `--region` > `SANDBOX_REGION` > `ebx config set region` > `cn-hangzhou`.
 
 ### Keys Configurable via ebx config
 
 | Config Key | Description |
 |-----------|-------------|
-| `api_key` | API Key |
+| `sandbox_api_key` | Sandbox service API key (stored as `E2B_API_KEY`; `api_key` is a get/set alias) |
 | `api_url` | Platform API URL |
 | `region` | Region |
 | `http_timeout` | HTTP timeout in seconds |
 | `max_retries` | Maximum retry count |
 | `domain` | Data plane domain |
-| `llm_api_key` | LLM API Key (for deploy; also a compatible fallback for Qwen Code credentials) |
-| `llm_model` | LLM model name (for deploy) |
-| `llm_base_url` | LLM API Base URL (for deploy) |
-| `qwen_code_api_key` | Qwen Code API Key (for AI template generation, stored in `~/.ebx/.env`) |
-| `qwen_code_base_url` | Qwen Code OpenAI-compatible Base URL (default: DashScope compatible-mode) |
-| `qwen_code_model` | Qwen Code model name (default: `qwen3-coder-plus`) |
+| `llm_api_key` | LLM API key for NL inference and the coding agent (stored as `EBX_LLM_API_KEY`) |
+| `llm_model` | LLM model name (default: `qwen3-coder-plus`) |
+| `llm_base_url` | LLM API base URL, OpenAI-compatible (default: DashScope compatible-mode) |
 | `access_key_id` | Alibaba Cloud AccessKey ID (🧪 experimental AK/SK auth) |
 | `access_key_secret` | Alibaba Cloud AccessKey Secret (🧪 experimental AK/SK auth) |
+| `acr_namespace` | ACR namespace for `ebx install` / `ebx template deploy` (stored as `ACR_NAMESPACE`) |
 | `github_token` | GitHub token for template downloads (`ebx template install` / `ebx template search`; mapped to `GITHUB_TOKEN`, stored in `~/.ebx/.env`, shown masked) |
 
 ### Guided Configuration (ebx config init)
@@ -160,7 +218,7 @@ The `region` key set here is the **persistent default** for regional commands. A
 ebx config init
 ```
 
-The interactive wizard prompts for: platform API Key (hidden input, stored as `E2B_API_KEY`), default region, and Qwen Code API Key (hidden input, stored as `EBX_QWEN_CODE_API_KEY`). Non-TTY environments or `--yes` never block; the equivalent `ebx config set` commands are printed instead.
+The interactive wizard prompts for: the sandbox API key, the default region, the LLM API key, the ACR namespace (`ACR_NAMESPACE`), the AccessKey ID, and the AccessKey secret. Press Enter to skip a prompt. Secrets and the namespace are stored in `~/.ebx/.env`; the region goes to `~/.ebx/config.toml`. Non-TTY environments or `--yes` never block; the equivalent `ebx config set` commands are printed instead.
 
 ### AK/SK Authentication Configuration (Experimental)
 
@@ -189,10 +247,10 @@ sandbox = await Sandbox.create(
 
 ## .env File
 
-The SDK searches for `.env` files in the following order:
+The SDK reads both `.env` files and merges them per key:
 
-1. `.env` in the current directory
-2. `~/.ebx/.env`
+1. `.env` in the current directory (wins when it sets the key)
+2. `~/.ebx/.env` (used for any key the project file does not set)
 
 `.env` file format:
 
@@ -201,7 +259,7 @@ E2B_API_KEY=your-api-key
 SANDBOX_REGION=cn-beijing
 ```
 
-The `ebx config set api_key <KEY>` command saves the API Key to `~/.ebx/.env` (file permissions 600). Credential keys such as `github_token` (mapped to `GITHUB_TOKEN`) are stored the same way.
+The `ebx config set sandbox_api_key <KEY>` command saves the API Key to `~/.ebx/.env` (file permissions 600). Credential keys such as `github_token` (mapped to `GITHUB_TOKEN`) are stored the same way.
 
 ---
 

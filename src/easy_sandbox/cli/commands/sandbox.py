@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import os
 import sys
 from contextlib import contextmanager
@@ -15,7 +16,7 @@ from easy_sandbox.cli.output import get_output
 from easy_sandbox.cli.region import region_option
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from pathlib import Path
 
     from easy_sandbox.agent.coding_agent import CodingAgentBackend
@@ -30,155 +31,82 @@ if TYPE_CHECKING:
 # floor so that a small configured value doesn't silently kill create.
 _CREATE_REQUEST_TIMEOUT_FLOOR = 120.0
 
+#: How many file/status lines a live progress block keeps. The display
+#: itself shows only the last ``EBX_ACTIVITY_LINES`` (default 4).
+_PROGRESS_NOTE_LIMIT = 10
+
+
+def _rolling_note(
+    update: Callable[[str], None] | None, *, limit: int = _PROGRESS_NOTE_LIMIT
+) -> Callable[[str], None]:
+    """Return a callback that keeps the last *limit* lines for ``update``.
+
+    ``None`` (quiet, JSON, CI, non-TTY) drops every line. Callers must pass
+    names and counters only — never file bytes, tokens, or tool input.
+    """
+    feed: list[str] = []
+
+    def note(text: str) -> None:
+        cleaned = text.strip()
+        if update is None or not cleaned:
+            return
+        feed.append(cleaned)
+        del feed[:-limit]
+        update("\n".join(feed))
+
+    return note
+
 
 # ---------------------------------------------------------------------------
 # AI template generation helpers for `ebx create "<description>"`
 #
 # The pipeline talks to a pluggable coding-agent backend (see
 # :mod:`easy_sandbox.agent.coding_agent`); Qwen Code is the only shipped
-# backend today, so every default message below stays byte-identical to the
-# Qwen Code wording.
+# backend today, so every default message stays byte-identical to the
+# Qwen Code wording.  Backend resolution, binary install/repair, and
+# credential resolution are shared with the agent-driven deploy route and
+# live in :mod:`easy_sandbox.cli.commands._coding_agent`.
 # ---------------------------------------------------------------------------
 
 
-def _print_quick_setup(out: Any, *, backend: CodingAgentBackend, reason: str) -> None:
-    """Print the backend-provided Quick Setup for the AI template path.
-
-    *reason* is ``"not-installed"`` or ``"no-credentials"``.
-    """
-    out.info("")
-    for line in backend.quick_setup_lines(reason=reason):
-        out.info(line)
-
-
-def _ensure_coding_agent_binary(
-    ctx: click.Context, *, yes: bool, backend: CodingAgentBackend
-) -> Any:
-    """Return a usable coding-agent executable, offering installation if missing.
-
-    Interactive terminals are offered an automatic install of the official
-    standalone build (SHA256-verified); non-interactive shells without
-    ``--yes`` get the Quick Setup and a hard error instead of a hang.
-    """
-    binary = backend.find_binary()
-    if binary is not None:
-        return binary
-
-    out = get_output(ctx)
-    interactive = sys.stdin.isatty()
-    out.warning(f"{backend.display_name} CLI was not found on PATH or in ~/.ebx/bin.")
-    _print_quick_setup(out, backend=backend, reason="not-installed")
-
-    not_installed = backend.not_installed_error
-    if not yes and not interactive:
-        raise not_installed(
-            f"{backend.display_name} CLI is required for AI template generation "
-            "but is not installed.",
-            suggestion=(
-                "Install it with the official command from Quick Setup above, then retry — "
-                "or use 'ebx create --template <name>' to skip AI generation."
-            ),
-        )
-    if interactive and not yes:
-        proceed = click.confirm(
-            f"Install the official {backend.display_name} standalone build into ~/.ebx/bin now?",
-            default=True,
-        )
-        if not proceed:
-            raise not_installed(
-                f"Declined to install {backend.display_name}; AI template generation "
-                "cannot continue.",
-                suggestion=(
-                    "Install it manually (see Quick Setup above) and retry, or use "
-                    "'ebx create --template <name>'."
-                ),
-            )
-    with out.spinner(f"Installing {backend.display_name}"):
-        installed = backend.install()
-    out.success(f"Installed {backend.display_name}: {installed}")
-    return installed
-
-
-def _resolve_coding_agent_credentials(
-    ctx: click.Context, *, yes: bool, backend: CodingAgentBackend
-) -> Any:
-    """Resolve coding-agent credentials, prompting once when allowed.
-
-    Stored values (the backend's ``EBX_QWEN_CODE_API_KEY`` for Qwen Code)
-    win, then the ebx ``llm_api_key`` (officially compatible), then
-    variables already exported in the shell.
-    """
-    from easy_sandbox.cli.commands.config_cmd import (
-        load_config_dict,
-        read_env_var,
-        write_env_var,
-    )
-
-    transport = load_config_dict()
-    stored_key = os.environ.get(backend.env_var) or read_env_var(backend.env_var)
-    llm_key = os.environ.get("EBX_LLM_API_KEY") or transport.get("llm_api_key")
-    base_url = transport.get(backend.base_url_config_key)
-    model = transport.get(backend.model_config_key)
-
-    try:
-        return backend.resolve_credentials(
-            stored_api_key=stored_key,
-            llm_api_key=llm_key,
-            stored_base_url=base_url,
-            stored_model=model,
-        )
-    except backend.credential_error:
-        pass
-
-    out = get_output(ctx)
-    if yes or not sys.stdin.isatty():
-        raise backend.credential_error(
-            f"{backend.display_name} is installed but no model credentials were found.",
-            suggestion=(
-                f"Store a key with 'ebx config set {backend.config_key} <KEY>' (or export "
-                "OPENAI_API_KEY / DASHSCOPE_API_KEY), then retry. Guided setup: "
-                "'ebx config init'."
-            ),
-        )
-    _print_quick_setup(out, backend=backend, reason="no-credentials")
-    key = click.prompt(
-        backend.credential_prompt,
-        hide_input=True,
-        default="",
-        show_default=False,
-    )
-    if not key.strip():
-        raise backend.credential_error(
-            f"No {backend.display_name} API key provided; AI template generation cannot continue.",
-            suggestion=(
-                f"Store one with 'ebx config set {backend.config_key} <KEY>' and retry, "
-                "or use 'ebx create --template <name>'."
-            ),
-        )
-    write_env_var(backend.env_var, key.strip())
-    out.success(f"Stored {backend.config_key} in ~/.ebx/.env")
-    return backend.resolve_credentials(
-        stored_api_key=key.strip(),
-        llm_api_key=llm_key,
-        stored_base_url=base_url,
-        stored_model=model,
-    )
-
-
 @contextmanager
-def _phase_status(out: Any, message: str) -> Iterator[None]:
+def _phase_status(out: Any, message: str) -> Iterator[Callable[[str], None] | None]:
     """Phase status for the clarification / generation flow.
 
-    Interactive TTY: an animated spinner on **stderr** (never stdout, and
-    never the model's research output or chain of thought).  Every other
-    mode (non-TTY, ``--json``, ``--verbose``): one machine-readable
-    progress line on stderr; quiet and CI stay silent.  stdout is never
-    touched in any mode.
+    Interactive TTY: an animated spinner on **stderr** (never stdout)
+    with the ``message... 12s`` header, and below it the agent's last four
+    activity lines in grey (``EBX_ACTIVITY_LINES`` changes the count) that
+    scroll line by line — its recent text and the tools it uses, never tool
+    input or reasoning.  ``--verbose`` keeps the same block as a
+    self-erasing one that log output is written around.  Every other mode (non-TTY, ``--json``): one
+    machine-readable progress line on stderr; quiet and CI stay silent.
+    stdout is never touched in any mode.
+
+    Yields the ``update(summary)`` callable to hand to the agent as
+    ``on_activity``, or ``None`` when no live line is drawn.
     """
     if not out.use_rich_spinner and not out.quiet:
         out.progress(message)
-    with out.spinner(message):
-        yield
+    with out.activity(message) as update:
+        yield update
+
+
+def _activity_kwargs(method: Any, update: Callable[[str], None] | None) -> dict[str, Any]:
+    """``{"on_activity": update}`` when *method* accepts it, else ``{}``.
+
+    Keeps third-party / test backends that predate ``on_activity`` working:
+    the live line is a progressive enhancement, never a requirement.
+    """
+    if update is None:
+        return {}
+    try:
+        parameters = inspect.signature(method).parameters
+    except (TypeError, ValueError):
+        return {}
+    accepts = "on_activity" in parameters or any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values()
+    )
+    return {"on_activity": update} if accepts else {}
 
 
 def _clarify_requirements(
@@ -214,6 +142,9 @@ def _clarify_requirements(
     * anti-repetition — asked questions are embedded in every follow-up
       prompt, and an exactly-repeated question breaks the loop;
     * non-interactive fail-fast with the missing details + example;
+    * research stays fail-open — a failed round only warns (with the
+      outcome's stable ``reason`` hint when the backend provides one)
+      and the assessment continues;
     * degradation to direct generation when the assessment is
       unavailable.
 
@@ -256,28 +187,66 @@ def _clarify_requirements(
         if assessment.example:
             out.info(f'Example description: "{assessment.example}"')
 
+    research_hints = {
+        clarify.RESEARCH_REASON_TIMEOUT: (
+            "The research round timed out; retry, or continue — the assessment "
+            "still applies safe defaults."
+        ),
+        clarify.RESEARCH_REASON_AGENT_UNAVAILABLE: (
+            "The agent could not be started; check that the agent CLI runs, then retry."
+        ),
+        clarify.RESEARCH_REASON_COMMAND_FAILED: (
+            "The agent command failed; re-run with --verbose to inspect the agent's output."
+        ),
+        clarify.RESEARCH_REASON_TURN_LIMIT: (
+            "The research used up its step budget; continuing — the assessment "
+            "still applies safe defaults."
+        ),
+    }
+
+    def research_failure_warning(research: Any) -> str:
+        """Warning for a failed research round, with a reason-specific hint.
+
+        The outcome is bool-compatible (legacy backends return a plain
+        ``bool``), so the stable ``reason`` attribute is read defensively;
+        the sanitised ``detail`` is deliberately not rendered — the
+        warning stays terse.
+        """
+        message = (
+            f"{backend.display_name} could not research the public facts "
+            "behind the description; continuing with the assessment "
+            "(safe defaults apply where facts are missing)."
+        )
+        reason = getattr(research, "reason", "")
+        hint = research_hints.get(reason) if isinstance(reason, str) else None
+        return f"{message} {hint}" if hint else message
+
     # ---- Round 1: research the public facts, then assess (one session) ----
-    with _phase_status(out, "Assessing description"):
-        research_ok = backend.research(
+    with _phase_status(out, "Researching public facts") as update:
+        research = backend.research(
             clarify.research_prompt(description),
             workdir=workdir,
             binary=binary,
             env=env,
             session_id=session_id,
+            **_activity_kwargs(backend.research, update),
         )
-        if not research_ok:
-            out.warning(
-                f"{backend.display_name} could not research the public facts "
-                "behind the description; continuing with the assessment "
-                "(safe defaults apply where facts are missing)."
-            )
+    researched = bool(research)
+    if not researched:
+        out.warning(research_failure_warning(research))
+        # The failed round may already have created ``session_id`` in the
+        # agent (it rejects re-pinning an existing id with "Session Id ... is
+        # already in use"), so the assessment starts a fresh session.
+        session_id = clarify.new_session_id()
+    with _phase_status(out, "Assessing description") as update:
         assessment = backend.assess(
             clarify.assessment_prompt(description),
             workdir=workdir,
             binary=binary,
             env=env,
-            resume=session_id if research_ok else None,
-            session_id=None if research_ok else session_id,
+            resume=session_id if researched else None,
+            session_id=None if researched else session_id,
+            **_activity_kwargs(backend.assess, update),
         )
     if assessment is None:
         out.warning(
@@ -333,13 +302,14 @@ def _clarify_requirements(
                 suggestion=failure_hint(assessment),
             )
         rounds = round_number
-        with _phase_status(out, "Re-assessing description"):
+        with _phase_status(out, "Re-assessing description") as update:
             assessment = backend.assess(
                 clarify.answer_prompt(answer, asked=asked),
                 workdir=workdir,
                 binary=binary,
                 env=env,
                 resume=session_id,
+                **_activity_kwargs(backend.assess, update),
             )
         if assessment is None:
             out.warning(
@@ -366,15 +336,84 @@ def _clarify_requirements(
     return clarify.ClarifyOutcome(session_id=session_id, assessment=assessment, rounds=rounds)
 
 
-def _generate_and_deploy_template(
+def _resolve_output_dir(
+    ctx: click.Context,
+    output_dir: str | None,
+    *,
+    yes: bool,
+    ask: bool,
+) -> Path | None:
+    """Resolve where the generated template workspace is created (``--dir``).
+
+    The returned path is the **parent** directory: a fresh
+    ``<slug>-<timestamp>-<token>`` subdirectory is created inside it, so a
+    previous generation (or the user's own files) is never overwritten and
+    the SDK wheel that the image build copies in stays inside that subdir.
+
+    * ``--dir`` given → used as is;
+    * not given, *ask* is true, and the session is an interactive
+      terminal (not ``--yes`` / ``--json``) → one prompt whose default is
+      the standard location, so Enter accepts it;
+    * otherwise → ``None`` (the standard ``~/.ebx/generated``).
+
+    Nothing is created here: the path is only validated (it must be, or be
+    creatable under, a writable directory).
+
+    Raises:
+        click.UsageError: The path is a file, cannot be created, or is not
+            writable.
+    """
+    from pathlib import Path
+
+    from easy_sandbox.agent.codegen import default_generated_dir
+
+    default_dir = default_generated_dir()
+    chosen = output_dir
+    if chosen is None:
+        fmt = get_formatter(ctx)
+        if not ask or yes or fmt.use_json or not sys.stdin.isatty():
+            return None
+        home = str(Path.home())
+        shown = str(default_dir)
+        if shown.startswith(home):
+            shown = "~" + shown[len(home) :]
+        chosen = click.prompt(
+            "Save the generated template under which directory?",
+            default=shown,
+            err=True,
+        )
+    chosen = chosen.strip() or str(default_dir)
+    target = Path(chosen).expanduser().resolve()
+    if target == default_dir.resolve() and output_dir is None:
+        return None
+    if target.exists() and not target.is_dir():
+        raise click.UsageError(f"--dir {chosen!r} exists and is not a directory.")
+    # Validate only. The directory is created by the generation step itself
+    # (``prepare_workdir``), so an answer typed at the wrong prompt — or a
+    # run cancelled before generation — never leaves stray directories behind.
+    existing = target
+    while not existing.exists() and existing != existing.parent:
+        existing = existing.parent
+    if not existing.is_dir():
+        raise click.UsageError(f"Cannot create --dir {chosen!r}: {existing} is not a directory.")
+    if not os.access(existing, os.W_OK):
+        where = "is" if existing == target else f"cannot be created: {existing} is"
+        raise click.UsageError(f"--dir {chosen!r} {where} not writable.")
+    return target
+
+
+def _generate_template_workspace(
     ctx: click.Context,
     description: str,
     *,
     yes: bool,
-    acr_namespace: str | None,
-    verbose: bool,
-) -> str:
-    """Generate a template with the coding agent, build+deploy it, return its ref.
+    output_dir: str | None = None,
+    ask_output_dir: bool = False,
+) -> Any:
+    """Clarify *description* and generate the template files.
+
+    The agent writes ``Dockerfile``, the ``commands.py`` HTTP server entry
+    point, and ``template.yaml`` (plus README / business code).
 
     The description first goes through the single-question clarification
     loop (:func:`_clarify_requirements`), which runs on the backend's
@@ -382,18 +421,27 @@ def _generate_and_deploy_template(
     very session so the model keeps the clarification context in its own
     memory.
 
-    Returns the template ID (or name) to pass to ``Sandbox.create``.
+    Returns the codegen result. Nothing is built, pushed, or deployed.
     """
-    from easy_sandbox.agent.coding_agent import resolve_coding_agent_backend
-    from easy_sandbox.cli.commands.template import do_deploy, resolve_acr_namespace
+    from easy_sandbox.cli.commands._coding_agent import (
+        ensure_coding_agent_binary,
+        resolve_coding_agent_backend,
+        resolve_coding_agent_credentials,
+    )
 
     fmt = get_formatter(ctx)
     out = get_output(ctx)
 
     backend = resolve_coding_agent_backend()
-    binary = _ensure_coding_agent_binary(ctx, yes=yes, backend=backend)
-    creds = _resolve_coding_agent_credentials(ctx, yes=yes, backend=backend)
-    workdir, template_name = backend.prepare_workdir(description)
+    binary = ensure_coding_agent_binary(ctx, yes=yes, backend=backend)
+    creds = resolve_coding_agent_credentials(ctx, yes=yes, backend=backend)
+    # Decided before any agent call: sessions are keyed by the working
+    # directory, so it must exist (and never change) from research onwards.
+    base_dir = _resolve_output_dir(ctx, output_dir, yes=yes, ask=ask_output_dir)
+    if base_dir is None:
+        workdir, template_name = backend.prepare_workdir(description)
+    else:
+        workdir, template_name = backend.prepare_workdir(description, base_dir=base_dir)
     outcome = _clarify_requirements(
         ctx,
         description,
@@ -405,7 +453,7 @@ def _generate_and_deploy_template(
     )
 
     gen: Any
-    with _phase_status(out, "Generating template"):
+    with _phase_status(out, "Generating template") as update:
         gen = backend.generate(
             description,
             workdir=workdir,
@@ -414,12 +462,237 @@ def _generate_and_deploy_template(
             binary=binary,
             env=creds.as_env(),
             on_progress=None if out.use_rich_spinner else out.progress,
+            **_activity_kwargs(backend.generate, update),
         )
     if not fmt.use_json:
         out.info("")
         out.info(f"\u2713 AI generated template: {gen.template_name}")
         out.info(f"    Dockerfile:    {gen.dockerfile}")
+        commands_py = getattr(gen, "commands_py", None)
+        if commands_py is not None:
+            out.info(f"    commands.py:   {commands_py}")
         out.info(f"    template.yaml: {gen.template_yaml}")
+    return gen
+
+
+def _materialize_local_template(
+    gen: Any,
+    *,
+    name: str | None,
+    force: bool,
+    directory: Path | None = None,
+) -> tuple[Any, list[str]]:
+    """Copy the generated template into ``./<name>/`` and return ``(dir, files)``.
+
+    ``--name`` overrides both the directory and the ``name`` field in
+    ``template.yaml``. *directory*, when given, is the project directory
+    itself (the init prompt). Existing files in the target are left alone
+    unless *force* is set.
+    """
+    import shutil
+    from pathlib import Path
+
+    folder = name or gen.template_name
+    target = directory if directory is not None else (Path.cwd() / folder).resolve()
+    # Every deliverable the agent produced (Dockerfile, commands.py server,
+    # template.yaml, README.md, business code, ...); older results only
+    # carry the two deployment files.
+    filenames = list(getattr(gen, "files", ()) or ("Dockerfile", "template.yaml"))
+    if target == Path(gen.workdir).resolve():
+        return target, [fn for fn in filenames if (target / fn).is_file()]
+
+    target.mkdir(parents=True, exist_ok=True)
+    if not force:
+        conflicts = [fn for fn in filenames if (target / fn).exists()]
+        if conflicts:
+            raise click.ClickException(
+                f"Files already exist in {target}: {', '.join(conflicts)}. "
+                "Use --force to overwrite."
+            )
+    for filename in filenames:
+        destination = target / filename
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(gen.workdir / filename, destination)
+    if name and name != gen.template_name:
+        _rename_generated_template(target / "template.yaml", name)
+    return target, filenames
+
+
+def _rename_generated_template(template_yaml: Any, name: str) -> None:
+    """Set the ``name`` field of a generated ``template.yaml``."""
+    import yaml
+
+    data = yaml.safe_load(template_yaml.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        return
+    data["name"] = name
+    template_yaml.write_text(
+        yaml.safe_dump(data, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+
+
+#: Shown as the default when the generated folder name is not known yet.
+_AUTO_PROJECT_DIR = "./<name>"
+
+
+def _validate_project_directory(chosen: str, *, force: bool) -> Path:
+    """Check *chosen* can become the template project. Do not create it.
+
+    Raises:
+        click.UsageError: The path is a file, or cannot be created under a
+            writable directory.
+        click.ClickException: The directory already holds template files and
+            *force* is not set.
+    """
+    from pathlib import Path
+
+    target = Path(chosen).expanduser().resolve()
+    if target.exists() and not target.is_dir():
+        raise click.UsageError(f"{chosen!r} exists and is not a directory.")
+    existing = target
+    while not existing.exists() and existing != existing.parent:
+        existing = existing.parent
+    if not existing.is_dir() or not os.access(existing, os.W_OK):
+        raise click.UsageError(f"Cannot create {chosen!r}: {existing} is not a writable directory.")
+    if target.exists() and not force:
+        conflicts = [
+            filename
+            for filename in ("Dockerfile", "commands.py", "template.yaml")
+            if (target / filename).exists()
+        ]
+        if conflicts:
+            raise click.ClickException(
+                f"Files already exist in {target}: {', '.join(conflicts)}. "
+                "Use --force to overwrite."
+            )
+    return target
+
+
+def _prompt_project_directory(
+    ctx: click.Context,
+    *,
+    yes: bool,
+    name: str | None,
+    force: bool,
+) -> Path | None:
+    """Ask where ``ebx init "DESCRIPTION"`` should write the project.
+
+    Returns the chosen directory, or ``None`` to keep ``./<name>/`` (or
+    ``./<--name>/``). ``--yes``, ``--json``, and a non-interactive terminal
+    skip the prompt. Enter accepts the default. Nothing is created here.
+    """
+    fmt = get_formatter(ctx)
+    if yes or fmt.use_json or not sys.stdin.isatty():
+        return None
+    default = f"./{name}" if name else _AUTO_PROJECT_DIR
+    chosen = click.prompt(
+        "Directory for the template project",
+        default=default,
+        err=True,
+    )
+    chosen = chosen.strip()
+    if not chosen or chosen in {default, _AUTO_PROJECT_DIR}:
+        return None
+    return _validate_project_directory(chosen, force=force)
+
+
+def _generate_local_template(
+    ctx: click.Context,
+    description: str,
+    *,
+    yes: bool,
+    name: str | None = None,
+    force: bool = False,
+    ask_directory: bool = False,
+) -> None:
+    """Generate a local template project and stop.
+
+    Shared by ``ebx template init "DESCRIPTION"`` and by the create-path
+    switch that opts out of build, push, deploy, and sandbox creation.
+    *ask_directory* prompts for the project directory before generation
+    (init). The create switch keeps ``./<name>/``.
+    """
+    from easy_sandbox.cli.commands.template import _print_init_summary
+
+    project_dir = (
+        _prompt_project_directory(ctx, yes=yes, name=name, force=force) if ask_directory else None
+    )
+    gen = _generate_template_workspace(ctx, description, yes=yes)
+    target, created = _materialize_local_template(
+        gen, name=name, force=force, directory=project_dir
+    )
+    _print_init_summary(
+        get_formatter(ctx),
+        get_output(ctx),
+        target,
+        created,
+        name or gen.template_name,
+    )
+
+
+def _wants_template_only(
+    ctx: click.Context,
+    description: str,
+    *,
+    yes: bool,
+) -> bool:
+    """Ask whether natural-language create should stop after the local template.
+
+    ``--yes`` and ``--json`` keep the full create pipeline and do not ask.
+    A non-interactive terminal gets a one-line reminder and continues; the
+    later build confirmation still applies. An interactive terminal must
+    opt in — the default is to continue creating the sandbox.
+    """
+    fmt = get_formatter(ctx)
+    if yes or fmt.use_json:
+        return False
+
+    hint = (
+        "Natural-language create generates a template, then builds and pushes "
+        "the image, deploys it, and creates a sandbox. "
+        f'Template only: ebx template init "{description}"'
+    )
+    if not sys.stdin.isatty():
+        get_output(ctx).info(hint)
+        return False
+
+    click.echo(
+        "Natural-language create will:\n"
+        "  1. generate a template (Dockerfile, commands.py server, template.yaml)\n"
+        "  2. build and push the image\n"
+        "  3. deploy the template\n"
+        "  4. create a sandbox\n",
+        err=True,
+    )
+    return click.confirm(
+        "Switch to template init and only create the local template?",
+        default=False,
+        err=True,
+    )
+
+
+def _generate_and_deploy_template(
+    ctx: click.Context,
+    description: str,
+    *,
+    yes: bool,
+    acr_namespace: str | None,
+    verbose: bool,
+    output_dir: str | None = None,
+) -> str:
+    """Generate a template with the coding agent, build+deploy it, return its ref.
+
+    *output_dir* is ``--dir``: the parent directory for the generated
+    workspace (an interactive terminal is asked when it is omitted).
+
+    Returns the template ID (or name) to pass to ``Sandbox.create``.
+    """
+    from easy_sandbox.cli.commands.template import do_deploy, resolve_acr_namespace
+
+    gen = _generate_template_workspace(
+        ctx, description, yes=yes, output_dir=output_dir, ask_output_dir=True
+    )
 
     if not yes:
         if not sys.stdin.isatty():
@@ -483,9 +756,9 @@ def _generate_and_deploy_template(
     "-y",
     is_flag=True,
     default=False,
-    help="Skip interactive prompts (Qwen Code install, credentials, description "
-    "clarification, build/deploy confirmation). Required for AI generation in "
-    "non-interactive shells.",
+    help="Skip interactive prompts (the template-only switch, Qwen Code install, "
+    "credentials, description clarification, build/deploy confirmation) and run "
+    "the full create pipeline. Required for AI generation in non-interactive shells.",
 )
 @click.option(
     "--acr-namespace",
@@ -493,6 +766,15 @@ def _generate_and_deploy_template(
     default=None,
     help="ACR namespace for building the AI-generated template "
     "(env: ACR_NAMESPACE, or set in .env file)",
+)
+@click.option(
+    "--dir",
+    "output_dir",
+    default=None,
+    metavar="DIRECTORY",
+    help="Parent directory for the AI-generated template files (Dockerfile, "
+    "commands.py, template.yaml); a new <name>-<timestamp>-<id> subfolder is created inside it. "
+    "Default: ~/.ebx/generated (an interactive terminal is asked when omitted).",
 )
 @click.option("-v", "--verbose", "verbose_flag", is_flag=True, help="Verbose output (DEBUG level)")
 @click.pass_context
@@ -508,6 +790,7 @@ def create(
     metadata: tuple[str, ...],
     yes: bool,
     acr_namespace: str | None,
+    output_dir: str | None,
     verbose_flag: bool,
 ) -> None:
     """Create a new sandbox.
@@ -520,7 +803,10 @@ def create(
       ebx create "DESCRIPTION"    →  Qwen Code generates a template, builds
                                     and deploys it, then launches a sandbox;
                                     the agent researches public facts first
-                                    and asks only for details it cannot infer
+                                    and asks only for details it cannot infer.
+                                    An interactive terminal is first asked
+                                    whether to switch to template init
+                                    (local files only)
 
     DESCRIPTION and --template are mutually exclusive: passing both is
     rejected instead of silently ignoring one of them.
@@ -532,7 +818,8 @@ def create(
       ebx create -e API_KEY=xxx -e DEBUG=1    # inject env vars
       ebx create --upload ./app --timeout 600 # upload dir, 10-min lifetime
       ebx create "a python data science env"  # AI-generate, build, deploy, create
-      ebx create -y "a node.js api server"    # non-interactive AI generation
+      ebx create -y "a node.js api server"    # non-interactive full pipeline
+      ebx template init "a python data science env"  # template files only
 
     \b
     Notes:
@@ -541,13 +828,18 @@ def create(
       itself (tool stack, official install method, common dependencies) and
       only asks for private preferences or business decisions it cannot
       infer — one question at a time in interactive sessions. Non-interactive
-      shells must pass --yes to generate without asking.
+      shells must pass --yes to generate without asking. Interactive
+      sessions are asked up front whether to switch to template init,
+      which writes Dockerfile, commands.py, and template.yaml and stops
+      before build, push, deploy, and sandbox create. --yes skips that
+      question and runs the full pipeline.
 
     \b
     Related commands:
       ebx list                 List existing sandboxes
       ebx info SANDBOX_ID      Inspect a created sandbox
       ebx template init DIR    Scaffold a new template project (local)
+      ebx template init "DESC" AI-scaffold a template only (no build)
       ebx template search KEY  Find reusable templates
       ebx config init          Configure platform and Qwen Code credentials
     """
@@ -585,17 +877,32 @@ def create(
             "launch an existing template directly."
         )
 
+    if output_dir and not description:
+        raise click.UsageError(
+            "--dir only applies to AI template generation; pass a DESCRIPTION, "
+            "or drop --dir when launching an existing template."
+        )
+
     fmt = get_formatter(ctx)
 
     # ---- AI template generation when description given and --template omitted --
     effective_template = template or "base"
     if description and not template:
+        if _wants_template_only(ctx, description, yes=yes):
+            if output_dir:
+                get_output(ctx).warning(
+                    "--dir is ignored for template-only generation; the files are "
+                    "written to ./<name>/."
+                )
+            _generate_local_template(ctx, description, yes=yes)
+            return
         effective_template = _generate_and_deploy_template(
             ctx,
             description,
             yes=yes,
             acr_namespace=acr_namespace,
             verbose=verbose_flag,
+            output_dir=output_dir,
         )
         if not fmt.use_json:
             out = get_output(ctx)
@@ -648,34 +955,45 @@ def create(
         configured = _load_cfg().http_timeout
         create_kwargs["request_timeout"] = max(configured, _CREATE_REQUEST_TIMEOUT_FLOOR)
 
-    async def _create_and_upload() -> Any:
-        sbx = await Sandbox.create(**create_kwargs)
-        if upload:
-            from pathlib import Path
-
-            local = Path(upload)
-            remote_base = "/home/user"
-            if local.is_file():
-                content = local.read_bytes()
-                dest = f"{remote_base}/{local.name}"
-                await sbx.files.write(dest, content)
-                if not fmt.use_json:
-                    get_output(ctx).info(f"↑ Uploaded {upload} → {dest}")
-            elif local.is_dir():
-                count = 0
-                for file in local.rglob("*"):
-                    if file.is_file():
-                        rel = file.relative_to(local)
-                        dest = f"{remote_base}/{rel}"
-                        await sbx.files.write(dest, file.read_bytes())
-                        count += 1
-                if not fmt.use_json:
-                    get_output(ctx).info(f"↑ Uploaded {count} file(s) → {remote_base}/")
-        return sbx
-
     out = get_output(ctx)
-    with out.spinner("Creating sandbox"):
-        sandbox = run_sync(_create_and_upload())
+
+    def _run_create(note: Callable[[str], None] | None) -> Any:
+        async def _create_and_upload() -> Any:
+            sbx = await Sandbox.create(**create_kwargs)
+            if upload:
+                from pathlib import Path
+
+                local = Path(upload)
+                remote_base = "/home/user"
+                if local.is_file():
+                    dest = f"{remote_base}/{local.name}"
+                    await sbx.files.write(dest, local.read_bytes())
+                    if note is not None:
+                        note(local.name)
+                    if not fmt.use_json:
+                        out.info(f"↑ Uploaded {upload} → {dest}")
+                elif local.is_dir():
+                    count = 0
+                    for file in local.rglob("*"):
+                        if file.is_file():
+                            rel = file.relative_to(local)
+                            dest = f"{remote_base}/{rel}"
+                            await sbx.files.write(dest, file.read_bytes())
+                            count += 1
+                            if note is not None:
+                                note(str(rel))
+                    if not fmt.use_json:
+                        out.info(f"↑ Uploaded {count} file(s) → {remote_base}/")
+            return sbx
+
+        return run_sync(_create_and_upload())
+
+    if upload:
+        with out.activity("Creating sandbox", tick=True) as update:
+            sandbox = _run_create(_rolling_note(update))
+    else:
+        with out.spinner("Creating sandbox"):
+            sandbox = _run_create(None)
 
     data = {
         "ID": sandbox.id,
@@ -884,15 +1202,20 @@ def kill(
             sbx = await Sandbox.connect(sid)
             await sbx.kill()
 
+        out = get_output(ctx)
         killed = 0
-        for sb in sandboxes:
-            try:
-                run_sync(_connect_and_kill(sb.sandbox_id))
-                killed += 1
-            except Exception as exc:
-                fmt.print_error(f"Failed to kill {sb.sandbox_id}: {exc}")
+        total = len(sandboxes)
+        with out.activity(f"Killing {total} sandbox(es)", tick=True) as update:
+            note = _rolling_note(update)
+            for index, sb in enumerate(sandboxes, start=1):
+                note(f"{index}/{total} {sb.sandbox_id}")
+                try:
+                    run_sync(_connect_and_kill(sb.sandbox_id))
+                    killed += 1
+                except Exception as exc:
+                    fmt.print_error(f"Failed to kill {sb.sandbox_id}: {exc}")
 
-        fmt.print_success(f"Killed {killed}/{len(sandboxes)} sandbox(es).")
+        fmt.print_success(f"Killed {killed}/{total} sandbox(es).")
     else:
         if not yes:
             click.confirm(f"Kill sandbox {sandbox_id}?", abort=True)
@@ -901,7 +1224,8 @@ def kill(
             sbx = await Sandbox.connect(sid)
             await sbx.kill()
 
-        run_sync(_connect_and_kill(sandbox_id))  # type: ignore[arg-type]
+        with get_output(ctx).spinner(f"Killing sandbox {sandbox_id}"):
+            run_sync(_connect_and_kill(sandbox_id))  # type: ignore[arg-type]
 
         fmt.print_success(f"Sandbox {sandbox_id} killed.")
 
@@ -1120,31 +1444,35 @@ def upload(ctx: click.Context, sandbox_id: str, local_path: str, remote_path: st
     fmt = get_formatter(ctx)
     out = get_output(ctx)
 
-    async def _connect_and_upload() -> str:
-        sandbox = await Sandbox.connect(sandbox_id)
-        local = Path(local_path)
+    def _run_upload(note: Callable[[str], None]) -> str:
+        async def _connect_and_upload() -> str:
+            sandbox = await Sandbox.connect(sandbox_id)
+            local = Path(local_path)
 
-        if local.is_file():
-            content = local.read_bytes()
-            await sandbox.files.write(remote_path, content)
-            return f"Uploaded {local_path} -> {remote_path}"
-        if local.is_dir():
-            count = 0
-            for file in local.rglob("*"):
-                if file.is_file():
-                    rel = file.relative_to(local)
-                    dest = f"{remote_path.rstrip('/')}/{rel}"
-                    content = file.read_bytes()
-                    await sandbox.files.write(dest, content)
-                    count += 1
-            return f"Uploaded {count} files from {local_path} -> {remote_path}"
-        return ""
+            if local.is_file():
+                await sandbox.files.write(remote_path, local.read_bytes())
+                note(Path(remote_path).name)
+                return f"Uploaded {local_path} -> {remote_path}"
+            if local.is_dir():
+                count = 0
+                for file in local.rglob("*"):
+                    if file.is_file():
+                        rel = file.relative_to(local)
+                        dest = f"{remote_path.rstrip('/')}/{rel}"
+                        await sandbox.files.write(dest, file.read_bytes())
+                        count += 1
+                        note(str(rel))
+                return f"Uploaded {count} files from {local_path} -> {remote_path}"
+            return ""
 
-    # Upload can take a while for directories — show a spinner in TTY mode.
-    # The success message is printed after the spinner stops so output
-    # never interleaves with the animation.
-    with out.spinner(f"Uploading {local_path}"):
-        message = run_sync(_connect_and_upload())
+        return run_sync(_connect_and_upload())
+
+    # Directory uploads can sit for a long time. On a terminal the header
+    # keeps the elapsed time moving and the grey lines name each file
+    # (never the bytes). Quiet / JSON / CI / non-TTY stay silent here; the
+    # success line below is the only result.
+    with out.activity(f"Uploading {local_path}", tick=True) as update:
+        message = _run_upload(_rolling_note(update))
     if message:
         fmt.print_success(message)
 
@@ -1179,12 +1507,14 @@ def download(ctx: click.Context, sandbox_id: str, remote_path: str, local_path: 
     from easy_sandbox.utils.async_bridge import run_sync
 
     fmt = get_formatter(ctx)
+    out = get_output(ctx)
 
     async def _connect_and_download() -> bytes:
         sandbox = await Sandbox.connect(sandbox_id)
         return await sandbox.files.read_bytes(remote_path)
 
-    content = run_sync(_connect_and_download())
+    with out.spinner(f"Downloading {remote_path}"):
+        content = run_sync(_connect_and_download())
 
     local = Path(local_path)
     if local.is_dir():

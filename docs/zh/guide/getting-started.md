@@ -6,7 +6,7 @@
 
 ## 前置条件
 
-- Python 3.10 或更高版本
+- Python 3.9 或更高版本
 - 一个有效的 API Key（从 Easy Sandbox 平台获取）
 - 网络可访问阿里云杭州区域（默认 `cn-hangzhou`）
 
@@ -23,24 +23,24 @@ pip install "easy-sandbox[cli]"
 ebx --version
 ```
 
+### 独立二进制（无需 Python）
+
+如果不想安装 Python 环境，也可以使用预编译的独立二进制版本（支持 Linux、macOS 和 Windows）：
+
+```bash
+# 示例：在 macOS（Apple Silicon）上安装 v0.1.0
+curl -fsSL -o /usr/local/bin/ebx \
+  "https://github.com/Easy-Sandbox/easy-sandbox/releases/download/v0.1.0/ebx-0.1.0-darwin-arm64"
+chmod +x /usr/local/bin/ebx
+```
+
+其他平台的安装命令、校验和验证以及与 pip 安装的对比，请参阅[二进制安装](binary-installation.md)。
+
 ## 2. 配置 API Key
 
-有三种方式配置认证凭证（按优先级从高到低）：
+有三种方式配置认证凭证。真正生效时按下面的优先级（从高到低）。完整的凭证表见 [配置参考 — 凭证解析](../reference/configuration.md#凭证解析)。
 
-### 方式一：环境变量（推荐用于 CI/CD）
-
-```bash
-export E2B_API_KEY="your-api-key-here"
-```
-
-### 方式二：CLI 配置（推荐用于本地开发）
-
-```bash
-ebx config set api_key your-api-key
-# 写入到 ~/.ebx/.env（权限 600）
-```
-
-### 方式三：代码参数
+### 方式一：代码参数（只影响这一次调用）
 
 ```python
 from easy_sandbox.api.sandbox import Sandbox
@@ -48,10 +48,25 @@ from easy_sandbox.api.sandbox import Sandbox
 sandbox = await Sandbox.create(api_key="your-api-key-here")
 ```
 
+### 方式二：环境变量（推荐用于 CI/CD）
+
+```bash
+export E2B_API_KEY="your-api-key-here"
+```
+
+### 方式三：`ebx config set`（推荐用于本地开发）
+
+环境变量和项目 `.env` 都没写这个键时，才用这里保存的值。
+
+```bash
+ebx config set sandbox_api_key your-api-key
+# 写入到 ~/.ebx/.env（权限 600）
+```
+
 验证配置状态：
 
 ```bash
-ebx config get api_key
+ebx config get sandbox_api_key
 ```
 
 ## 3. 创建第一个 Sandbox

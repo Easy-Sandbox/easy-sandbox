@@ -12,6 +12,7 @@
     "kill_sandbox"
   ],
   "auth_configured": false,
+  "mcp_running": false,
   "installed_cursor": true,
   "installed_claude": true,
   "installed_vscode": true

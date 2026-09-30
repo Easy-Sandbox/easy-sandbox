@@ -2,7 +2,7 @@
 
 Easy Sandbox 支持两种认证模式：**API Key** 和 **AK/SK（阿里云 AccessKey）**。
 
-> **历史说明**：`ebx auth` CLI 命令组（`login`/`logout`/`status`/`switch`）已在首个正式版 `0.1.0` 之前移除。凭证通过下方介绍的环境变量与 `ebx config set api_key` 配置；用 `ebx config list` 查看生效状态。
+> **历史说明**：`ebx auth` CLI 命令组（`login`/`logout`/`status`/`switch`）已在首个正式版 `0.1.0` 之前移除。凭证通过下方介绍的环境变量与 `ebx config set sandbox_api_key` 配置；用 `ebx config list` 查看生效状态。
 
 ---
 
@@ -22,7 +22,7 @@ API Key 是最常用的认证方式，通过 `Authorization: Bearer {api_key}` �
 
 ### 配置方式
 
-#### 1. 环境变量（最高优先级）
+#### 1. 环境变量（优先于 `~/.ebx`）
 
 ```bash
 # 推荐变量名（E2B 兼容）
@@ -37,22 +37,14 @@ export SANDBOX_API_KEY="your-api-key"
 #### 2. ebx config set（持久化到本地文件）
 
 ```bash
-ebx config set api_key your-api-key
+ebx config set sandbox_api_key your-api-key
 # 写入到 ~/.ebx/.env
 # 文件权限: 600（仅所有者可读写）
 ```
 
 存储格式为 `E2B_API_KEY=your-key`，位于 `~/.ebx/.env`。
 
-#### 3. ebx config set
-
-```bash
-ebx config set api_key your-api-key
-```
-
-此命令同样写入 `~/.ebx/.env`。
-
-#### 4. .env 文件
+#### 3. .env 文件
 
 在项目根目录创建 `.env` 文件：
 
@@ -60,11 +52,12 @@ ebx config set api_key your-api-key
 E2B_API_KEY=your-api-key
 ```
 
-SDK 会按以下顺序搜索 `.env` 文件：
+SDK 按键合并 `.env`。`./.env` 写了该键时优先；没写的键仍然来自 `~/.ebx/.env`。
+
 1. 当前目录下的 `.env`
 2. `~/.ebx/.env`
 
-#### 5. config.toml 文件
+#### 4. config.toml 文件
 
 在 `~/.ebx/config.toml` 中设置：
 
@@ -73,7 +66,7 @@ SDK 会按以下顺序搜索 `.env` 文件：
 api_key = "your-api-key"
 ```
 
-#### 6. 代码参数（最高优先级覆盖）
+#### 5. 代码参数（高于环境变量和 `~/.ebx`）
 
 ```python
 from easy_sandbox.api.sandbox import Sandbox
@@ -139,11 +132,13 @@ sandbox = await Sandbox.create(
 
 ```mermaid
 flowchart TD
-    A["1. 代码参数 (api_key= / access_key_id=)"] --> B["2. 环境变量 (E2B_API_KEY, SANDBOX_API_KEY, ALICLOUD_ACCESS_KEY_*)"]
-    B --> C["3. .env 文件 (./.env 或 ~/.ebx/.env)"]
-    C --> D["4. ~/.ebx/config.toml"]
-    D --> E["5. 默认值 (无凭证 — 抛出 InvalidAPIKeyError E1001)"]
+    A["1. 代码参数 (api_key= / access_key_id= / llm_api_key=)"] --> B["2. 进程环境变量"]
+    B --> C["3. ./.env（按键合并，没有的键继续往下）"]
+    C --> D["4. ~/.ebx（.env，然后 config.toml）"]
+    D --> E["5. 内置默认值；沙箱密钥缺失时抛 InvalidAPIKeyError E1001"]
 ```
+
+LLM 密钥、GitHub token 和区域走同一条链。空白或只含空格的值会被跳过。变量名和默认值见 [凭证解析](../reference/configuration.md#凭证解析)。
 
 在同一层级内，API Key 优先于 AK/SK：
 - 若同时提供了 `api_key` 和 `access_key_id`，使用 API Key
@@ -155,18 +150,17 @@ flowchart TD
 
 ```bash
 # 设置 API Key
-ebx config set api_key your-api-key
+ebx config set sandbox_api_key your-api-key
 
 # 设置 AK/SK（实验性）
 ebx config set access_key_id your-access-key-id
 ebx config set access_key_secret your-access-key-secret
 
-# 查看当前配置
+# 查看生效配置以及每个值的来源
 ebx config list
-# 输出包含 api_key / access_key_id 等的来源（user/default）
+# (env) 进程环境变量，(user) ./.env 或 ~/.ebx，(default)，(not set)
 
-# 或直接查看 api_key
-ebx config get api_key
+ebx config get sandbox_api_key
 ebx config get access_key_id
 ```
 
@@ -185,7 +179,7 @@ ebx config get access_key_id
 export E2B_API_KEY="your-api-key"
 
 # 或通过 ebx config 持久化
-ebx config set api_key your-api-key
+ebx config set sandbox_api_key your-api-key
 ```
 
 创建沙箱时通过 `--env` 参数注入密钥：

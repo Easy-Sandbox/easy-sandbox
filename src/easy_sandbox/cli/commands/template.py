@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import shutil
 import sys
+import threading
+from contextlib import suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -281,27 +283,28 @@ def _resolve_acr_namespace(cli_value: str | None) -> str:
     import os
     from pathlib import Path
 
-    if cli_value:
-        return cli_value
+    if cli_value and cli_value.strip():
+        return cli_value.strip()
     env_val = os.environ.get("ACR_NAMESPACE")
-    if env_val:
-        return env_val
-    # Try .env files: CWD first, then ~/.ebx/.env
+    if env_val and env_val.strip():
+        return env_val.strip()
+    # Try .env files: CWD first, then ~/.ebx/.env. A blank value does not count.
     try:
         from dotenv import dotenv_values
 
         for dotenv_path in (Path.cwd() / ".env", Path.home() / ".ebx" / ".env"):
             if dotenv_path.exists():
                 ns = dotenv_values(dotenv_path).get("ACR_NAMESPACE")
-                if ns:
-                    return ns
+                if ns and ns.strip():
+                    return ns.strip()
     except ImportError:
         pass
     raise click.UsageError(
         "Missing ACR namespace. Provide via:\n"
         "  1. --acr-namespace flag\n"
-        "  2. export ACR_NAMESPACE=xxx\n"
-        "  3. ACR_NAMESPACE=xxx in .env (CWD or ~/.ebx/.env)"
+        "  2. export ACR_NAMESPACE=<ns>\n"
+        "  3. ACR_NAMESPACE=<ns> in ./.env\n"
+        "  4. ebx config set acr_namespace <ns>   (or re-run 'ebx config init')"
     )
 
 
@@ -328,40 +331,110 @@ def _coerce_int(value: Any, default: int) -> int:
         return default
 
 
+#: How many build/push lines to remember. The display keeps the last
+#: ``EBX_ACTIVITY_LINES`` of them (default 4).
+_STEP_LOG_LINES = 10
+
+#: Redraw the step header while a build or push is silent, so the elapsed
+#: time keeps moving.
+_STEP_TICK_SECONDS = 1.0
+
+
 class _StepReporter:
     """Progress reporter for the long-running build/push/deploy steps.
 
-    Each :meth:`phase` starts a Rich spinner for the new step (TTY mode) or
-    prints a plain one-line message in degraded modes (quiet / JSON / CI /
-    non-TTY).  The previous spinner is always stopped before the step
-    message is echoed so output never gets garbled.  In verbose TTY mode
-    plain messages are preferred over spinners so that streamed tool output
-    stays readable.
+    On an interactive terminal each :meth:`phase` is the same block as agent
+    generation: a ``message... 12s`` header, and under it the last few log
+    lines in grey (:meth:`log` appends docker build / push / poll output).
+    The block is redrawn once a second even when the tool is silent, so the
+    elapsed time does not freeze. ``--verbose`` prints every line in full
+    instead. Quiet, JSON, CI, and non-TTY sessions get one progress line and
+    no per-line log.
     """
 
     def __init__(self, out: Any, *, verbose: bool = False) -> None:
         self._out = out
         self._verbose = verbose
         self._spinner_cm: Any = None
+        self._update: Callable[[str], None] | None = None
+        self._lines: list[str] = []
+        self._lock = threading.Lock()
+        self._tick_stop: threading.Event | None = None
+        self._tick: threading.Thread | None = None
 
     def phase(self, message: str) -> None:
         """Report that a new long-running step has started."""
         self._stop()
-        if self._verbose or not self._out.use_rich_spinner:
+        self._lines = []
+        if self._verbose or not self._out.use_activity_line:
             self._out.progress(message)
             return
-        self._spinner_cm = self._out.spinner(message)
-        self._spinner_cm.__enter__()
+        self._spinner_cm = self._out.activity(message)
+        self._update = self._spinner_cm.__enter__()
+        self._start_tick()
+
+    def log(self, line: str) -> None:
+        """Append one tool output line to the grey feed (or print it in verbose)."""
+        if self._verbose:
+            text = line.rstrip()
+            if text:
+                self._out.info(text)
+            return
+        text = " ".join(line.split())
+        if not text:
+            return
+        with self._lock:
+            self._lines.append(text)
+            del self._lines[:-_STEP_LOG_LINES]
+            snapshot = "\n".join(self._lines)
+            update = self._update
+        if update is not None:
+            with suppress(Exception):
+                update(snapshot)
 
     def done(self, message: str) -> None:
-        """Stop any spinner and print a completion message."""
+        """Stop any live block and print a completion message."""
         self._stop()
         self._out.progress(message)
 
+    def close(self) -> None:
+        """Stop the live block. Safe to call more than once."""
+        self._stop()
+
+    def _start_tick(self) -> None:
+        stop = threading.Event()
+        self._tick_stop = stop
+
+        def run() -> None:
+            while not stop.wait(_STEP_TICK_SECONDS):
+                with self._lock:
+                    snapshot = "\n".join(self._lines)
+                    update = self._update
+                if update is None:
+                    continue
+                with suppress(Exception):
+                    update(snapshot)
+
+        thread = threading.Thread(target=run, name="ebx-step-activity", daemon=True)
+        self._tick = thread
+        thread.start()
+
     def _stop(self) -> None:
+        stop = self._tick_stop
+        thread = self._tick
+        self._tick_stop = None
+        self._tick = None
+        with self._lock:
+            self._update = None
+        if stop is not None:
+            stop.set()
         if self._spinner_cm is not None:
-            self._spinner_cm.__exit__(None, None, None)
+            cm = self._spinner_cm
             self._spinner_cm = None
+            with suppress(Exception):
+                cm.__exit__(None, None, None)
+        if thread is not None and thread.is_alive():
+            thread.join(timeout=1.0)
 
 
 def _provenance_notice(out: Any) -> None:
@@ -398,9 +471,9 @@ def _build_image(
     Shared by the ``build`` and ``deploy`` commands.
 
     Args:
-        on_output: When given (verbose mode), docker build output lines are
-            streamed to this callback instead of being hidden behind the
-            progress indicator.
+        on_output: Called with each docker build line. The deploy reporter
+            feeds these into the grey activity lines (or prints them in
+            ``--verbose``).
     """
     from pathlib import Path
 
@@ -447,6 +520,7 @@ def _push_image(
     tag: str,
     region: str,
     on_progress: Callable[[str], None],
+    on_output: Callable[[str], None] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Login to ACR, tag, and push a local image.
 
@@ -454,9 +528,8 @@ def _push_image(
     the ACR login (temp username/token, or AK/SK fallback).  Shared by the
     ``push`` and ``deploy`` commands.
 
-    ``on_progress`` is called at the start of each phase; in spinner mode
-    callers pass :meth:`_StepReporter.phase` so the slow ``docker push``
-    phase shows an animated indicator.
+    ``on_progress`` is called at the start of each phase. ``on_output``
+    receives ``docker push`` lines so a live activity block can show them.
     """
     from easy_sandbox.api.docker_builder import DockerBuilder
 
@@ -474,8 +547,166 @@ def _push_image(
     on_progress(f"Tagging: {local_image} → {acr_ref}")
     builder.tag(local_image, acr_ref)
     on_progress(f"Pushing to ACR: {acr_ref}")
-    builder.push(acr_ref)
+    builder.push(acr_ref, on_output=on_output)
     return acr_ref, creds
+
+
+def _run_reported_deploy(
+    reporter: _StepReporter,
+    *,
+    out: Any,
+    config: Any,
+    template_dir: str,
+    acr: Any,
+    template_name: str,
+    region: str,
+    tag: str,
+    platform: str,
+    resolved_cpu: int,
+    resolved_memory: int,
+    start_cmd: str | None,
+    ready_cmd: str | None,
+    timeout: int,
+    dockerfile: str | None,
+    disk_size: int | None,
+    internet_access: bool | None,
+    use_official: bool,
+    team_id: str | None,
+    envd_inject: bool,
+    resolved_generation: int,
+    target_image: str | None,
+    platform_ak: str,
+    platform_sk: str,
+) -> dict[str, Any]:
+    """Build, push, and register, streaming tool output through *reporter*."""
+    from easy_sandbox.api.docker_builder import DockerBuilder
+    from easy_sandbox.utils.async_bridge import run_sync
+
+    if (start_cmd or ready_cmd) and resolved_generation != 2:
+        # Diagnostic channel: rendered once on stderr, suppressed by
+        # --quiet/--ci/--json instead of bypassing the output manager.
+        out.warning("--start-cmd / --ready-cmd only take effect with --generation 2 (MicroVM).")
+
+    # Provenance notice (Task #9)
+    _provenance_notice(out)
+
+    if use_official:
+        local_tag = _build_image(
+            template_dir,
+            tag=tag,
+            repo=acr.repo,
+            platform=platform,
+            dockerfile=dockerfile,
+            on_progress=reporter.phase,
+            on_output=reporter.log,
+        )
+        acr_ref, creds = _push_image(
+            local_tag,
+            acr=acr,
+            tag=tag,
+            region=region,
+            on_progress=reporter.phase,
+            on_output=reporter.log,
+        )
+        reporter.done(f"Image pushed to ACR: {acr_ref}")
+
+        from easy_sandbox.api.fc_template import (
+            create_official_template,
+            wait_for_template_ready,
+        )
+        from easy_sandbox.models.errors import TemplateBuildError
+
+        registry_type = "acree" if acr.acree_instance_id else "acr"
+        reporter.phase(f"Creating template via official API: {template_name}")
+        api_result = create_official_template(
+            name=template_name,
+            image=acr_ref,
+            access_key_id=platform_ak,
+            access_key_secret=platform_sk,
+            region=region,
+            team_id=team_id,
+            cpu=resolved_cpu,
+            memory_size=resolved_memory,
+            disk_size=disk_size,
+            internet_access=internet_access,
+            generation=resolved_generation,
+            start_command=start_cmd,
+            ready_command=ready_cmd,
+            envd_inject=envd_inject,
+            registry_type=registry_type,
+            acr_instance_id=acr.acree_instance_id or None,
+            registry_username=creds.get("tempUserName"),
+            registry_password=creds.get("authorizationToken"),
+            registry_vpc_id=acr.vpc_id or None,
+            registry_vswitch_id=acr.vswitch_ids or None,
+            registry_security_group_id=acr.security_group_id or None,
+            target_image=target_image,
+        )
+        template_id = api_result.get("templateID", "")
+        if not template_id:
+            raise TemplateBuildError(
+                "CreateTemplate returned no template ID.",
+                suggestion="Check the official API response and retry.",
+            )
+        reporter.phase(f"Waiting for template to become READY: {template_id}")
+
+        def on_poll(state: str, elapsed: float) -> None:
+            reporter.log(f"{state}  {elapsed:.0f}s")
+
+        final_data = wait_for_template_ready(
+            template_id,
+            access_key_id=platform_ak,
+            access_key_secret=platform_sk,
+            region=region,
+            team_id=team_id,
+            timeout=timeout,
+            on_poll=on_poll,
+        )
+        final_status = final_data.get("status") or {}
+        build_status = (
+            str(final_status.get("state", "unknown")).lower()
+            if isinstance(final_status, dict)
+            else str(final_status).lower()
+        )
+        build_id = ""
+        build_logs: list[str] = []
+    else:
+        builder = DockerBuilder()
+        result = run_sync(
+            builder.build_and_register(
+                template_dir=template_dir,
+                acr=acr,
+                name=template_name,
+                tag=tag,
+                platform=platform,
+                dockerfile=dockerfile,
+                cpu_count=resolved_cpu,
+                memory_mb=resolved_memory,
+                start_cmd=start_cmd,
+                ready_cmd=ready_cmd,
+                on_progress=reporter.phase,
+                on_output=reporter.log,
+                api_key=config.api_key,
+                api_url=config.api_url,
+                access_key_id=config.access_key_id,
+                access_key_secret=config.access_key_secret,
+                timeout=timeout,
+            )
+        )
+        reporter.done(f"Template registration finished: {result.template_id or 'N/A'}")
+        template_id = result.template_id
+        build_id = result.build_id
+        acr_ref = result.acr_ref
+        build_status = result.build_status
+        build_logs = result.logs
+
+    return {
+        "TemplateID": template_id or "N/A",
+        "BuildID": build_id or "N/A",
+        "ACR Image": acr_ref or "N/A",
+        "Status": build_status,
+        "_build_logs": build_logs if not use_official else [],
+    }
 
 
 def _do_deploy(
@@ -527,9 +758,8 @@ def _do_deploy(
     Returns:
         Dict with keys TemplateID, BuildID, ACR Image, Status.
     """
-    from easy_sandbox.api.docker_builder import ACRConfig, DockerBuilder
+    from easy_sandbox.api.docker_builder import ACRConfig
     from easy_sandbox.transport.config import load_config
-    from easy_sandbox.utils.async_bridge import run_sync
 
     config = load_config(region=region)
 
@@ -547,8 +777,9 @@ def _do_deploy(
 
     if not resolved_acr_username or not resolved_acr_password:
         raise click.ClickException(
-            "ACR credentials missing. Set --acr-username/--acr-password or "
-            "ALICLOUD_ACCESS_KEY_ID/ALICLOUD_ACCESS_KEY_SECRET in .env"
+            "ACR credentials missing. Run 'ebx config init', or "
+            "'ebx config set access_key_id' / 'ebx config set access_key_secret', "
+            "or pass --acr-username/--acr-password."
         )
 
     platform_ak = config.access_key_id or ""
@@ -570,134 +801,35 @@ def _do_deploy(
 
     out = get_output(ctx)
     reporter = _StepReporter(out, verbose=verbose)
-
-    # Warn if start/ready commands used without generation 2
-    if (start_cmd or ready_cmd) and resolved_generation != 2:
-        # Diagnostic channel: rendered once on stderr, suppressed by
-        # --quiet/--ci/--json instead of bypassing the output manager.
-        out.warning("--start-cmd / --ready-cmd only take effect with --generation 2 (MicroVM).")
-
-    # Provenance notice (Task #9)
-    _provenance_notice(out)
-
-    if use_official:
-        local_tag = _build_image(
-            template_dir,
-            tag=tag,
-            repo=resolved_repo,
-            platform=platform,
-            dockerfile=dockerfile,
-            on_progress=reporter.phase,
-            on_output=out.info if verbose else None,
-        )
-        acr_ref, creds = _push_image(
-            local_tag,
+    try:
+        return _run_reported_deploy(
+            reporter,
+            out=out,
+            config=config,
+            template_dir=template_dir,
             acr=acr,
+            template_name=template_name,
+            region=region,
             tag=tag,
-            region=region,
-            on_progress=reporter.phase,
-        )
-        reporter.done(f"Image pushed to ACR: {acr_ref}")
-
-        from easy_sandbox.api.fc_template import (
-            create_official_template,
-            wait_for_template_ready,
-        )
-        from easy_sandbox.models.errors import TemplateBuildError
-
-        registry_type = "acree" if acr.acree_instance_id else "acr"
-        reporter.phase(f"Creating template via official API: {template_name}")
-        api_result = create_official_template(
-            name=template_name,
-            image=acr_ref,
-            access_key_id=platform_ak,
-            access_key_secret=platform_sk,
-            region=region,
-            team_id=team_id,
-            cpu=resolved_cpu,
-            memory_size=resolved_memory,
+            platform=platform,
+            resolved_cpu=resolved_cpu,
+            resolved_memory=resolved_memory,
+            start_cmd=start_cmd,
+            ready_cmd=ready_cmd,
+            timeout=timeout,
+            dockerfile=dockerfile,
             disk_size=disk_size,
             internet_access=internet_access,
-            generation=resolved_generation,
-            start_command=start_cmd,
-            ready_command=ready_cmd,
+            use_official=use_official,
+            team_id=team_id,
             envd_inject=envd_inject,
-            registry_type=registry_type,
-            acr_instance_id=acr.acree_instance_id or None,
-            registry_username=creds.get("tempUserName"),
-            registry_password=creds.get("authorizationToken"),
-            registry_vpc_id=acr.vpc_id or None,
-            registry_vswitch_id=acr.vswitch_ids or None,
-            registry_security_group_id=acr.security_group_id or None,
+            resolved_generation=resolved_generation,
             target_image=target_image,
+            platform_ak=platform_ak,
+            platform_sk=platform_sk,
         )
-        template_id = api_result.get("templateID", "")
-        if not template_id:
-            raise TemplateBuildError(
-                "CreateTemplate returned no template ID.",
-                suggestion="Check the official API response and retry.",
-            )
-        reporter.done(f"Waiting for template to become READY: {template_id}")
-        with out.live_spinner(
-            f"Waiting for template to become READY: {template_id}"
-        ) as update_status:
-
-            def on_poll(state: str, elapsed: float) -> None:
-                update_status(f"Waiting for template {template_id} ({state}, {elapsed:.0f}s)")
-
-            final_data = wait_for_template_ready(
-                template_id,
-                access_key_id=platform_ak,
-                access_key_secret=platform_sk,
-                region=region,
-                team_id=team_id,
-                timeout=timeout,
-                on_poll=on_poll,
-            )
-        final_status = final_data.get("status") or {}
-        build_status = (
-            str(final_status.get("state", "unknown")).lower()
-            if isinstance(final_status, dict)
-            else str(final_status).lower()
-        )
-        build_id = ""
-        build_logs: list[str] = []
-    else:
-        builder = DockerBuilder()
-        result = run_sync(
-            builder.build_and_register(
-                template_dir=template_dir,
-                acr=acr,
-                name=template_name,
-                tag=tag,
-                platform=platform,
-                dockerfile=dockerfile,
-                cpu_count=resolved_cpu,
-                memory_mb=resolved_memory,
-                start_cmd=start_cmd,
-                ready_cmd=ready_cmd,
-                on_progress=reporter.phase,
-                api_key=config.api_key,
-                api_url=config.api_url,
-                access_key_id=config.access_key_id,
-                access_key_secret=config.access_key_secret,
-                timeout=timeout,
-            )
-        )
-        reporter.done(f"Template registration finished: {result.template_id or 'N/A'}")
-        template_id = result.template_id
-        build_id = result.build_id
-        acr_ref = result.acr_ref
-        build_status = result.build_status
-        build_logs = result.logs
-
-    return {
-        "TemplateID": template_id or "N/A",
-        "BuildID": build_id or "N/A",
-        "ACR Image": acr_ref or "N/A",
-        "Status": build_status,
-        "_build_logs": build_logs if not use_official else [],
-    }
+    finally:
+        reporter.close()
 
 
 #: Public alias so other commands (e.g. ``ebx create`` AI path) can reuse the
@@ -814,9 +946,9 @@ def install(
     which case that pinned ref is honoured.
 
     A GitHub token (private repos / higher rate limits) is taken from
-    --token, then the GITHUB_TOKEN environment variable, then the stored
-    github_token; prefer 'ebx config set github_token' - --token may leak
-    into shell history and process listings.
+    --token, then the GITHUB_TOKEN environment variable, then ./.env, then
+    the stored github_token; prefer 'ebx config set github_token' - --token
+    may leak into shell history and process listings.
 
     \b
     Examples:
@@ -973,8 +1105,10 @@ def install(
     config = load_config(region=region)
     if not (config.access_key_id and config.access_key_secret):
         missing.append(
-            "Alibaba Cloud AK/SK credentials not found. "
-            "Set ALICLOUD_ACCESS_KEY_ID / ALICLOUD_ACCESS_KEY_SECRET in .env or environment."
+            "Alibaba Cloud AK/SK credentials not found. Run 'ebx config init', or:\n"
+            "  ebx config set access_key_id <ALICLOUD_ACCESS_KEY_ID>\n"
+            "  ebx config set access_key_secret <ALICLOUD_ACCESS_KEY_SECRET>\n"
+            "  Or set ALICLOUD_ACCESS_KEY_ID / ALICLOUD_ACCESS_KEY_SECRET in the environment."
         )
 
     if missing:
@@ -1335,8 +1469,10 @@ def create_template(
     if not ak or not sk:
         fmt.print_error(
             "Alibaba Cloud AK/SK credentials required for official CreateTemplate API.",
-            suggestion="Set ALICLOUD_ACCESS_KEY_ID / ALICLOUD_ACCESS_KEY_SECRET "
-            "(or AccessKey / AccessSecret) in .env or environment.",
+            suggestion="Run 'ebx config init', or "
+            "'ebx config set access_key_id' / 'ebx config set access_key_secret'. "
+            "ALICLOUD_ACCESS_KEY_ID / ALICLOUD_ACCESS_KEY_SECRET "
+            "(or AccessKey / AccessSecret) in the environment also work.",
         )
         sys.exit(1)
 
@@ -1352,27 +1488,28 @@ def create_template(
             err=True,
         )
 
-    result = create_official_template(
-        name=name,
-        image=image,
-        access_key_id=ak,
-        access_key_secret=sk,
-        region=region,
-        team_id=team_id,
-        cpu=cpu,
-        memory_size=memory,
-        disk_size=disk_size,
-        internet_access=internet_access,
-        generation=resolved_generation,
-        start_command=start_cmd,
-        ready_command=ready_cmd,
-        envd_inject=envd_inject,
-        registry_type=registry_type,
-        acr_instance_id=acree_instance_id,
-        registry_username=registry_username,
-        registry_password=registry_password,
-        target_image=target_image,
-    )
+    with get_output(ctx).spinner(f"Creating template {name}"):
+        result = create_official_template(
+            name=name,
+            image=image,
+            access_key_id=ak,
+            access_key_secret=sk,
+            region=region,
+            team_id=team_id,
+            cpu=cpu,
+            memory_size=memory,
+            disk_size=disk_size,
+            internet_access=internet_access,
+            generation=resolved_generation,
+            start_command=start_cmd,
+            ready_command=ready_cmd,
+            envd_inject=envd_inject,
+            registry_type=registry_type,
+            acr_instance_id=acree_instance_id,
+            registry_username=registry_username,
+            registry_password=registry_password,
+            target_image=target_image,
+        )
 
     data = {
         "TemplateID": result.get("templateID", "N/A"),
@@ -1476,8 +1613,9 @@ def push(
     if not resolved_username or not resolved_password:
         raise ACRLoginError(
             "ACR credentials missing.",
-            suggestion="Set --acr-username/--acr-password or "
-            "ALICLOUD_ACCESS_KEY_ID/ALICLOUD_ACCESS_KEY_SECRET in .env",
+            suggestion="Run 'ebx config init', or "
+            "'ebx config set access_key_id' / 'ebx config set access_key_secret', "
+            "or pass --acr-username/--acr-password.",
         )
 
     acr = ACRConfig(
@@ -1489,19 +1627,22 @@ def push(
         acree_instance_id=acree_instance_id,
     )
 
-    # Login/tag/push phases: show a spinner for the slow push (or plain
-    # one-line messages in quiet/JSON/non-TTY sessions).
+    # Login/tag/push: header plus the last few push lines in grey (or the
+    # full log with --verbose; one progress line when there is no TTY).
     out = get_output(ctx)
     reporter = _StepReporter(out, verbose=out.verbose)
-
-    acr_ref, _creds = _push_image(
-        image,
-        acr=acr,
-        tag=image_tag,
-        region=config.region,
-        on_progress=reporter.phase,
-    )
-    reporter.done(f"Image pushed to ACR: {acr_ref}")
+    try:
+        acr_ref, _creds = _push_image(
+            image,
+            acr=acr,
+            tag=image_tag,
+            region=config.region,
+            on_progress=reporter.phase,
+            on_output=reporter.log,
+        )
+        reporter.done(f"Image pushed to ACR: {acr_ref}")
+    finally:
+        reporter.close()
 
     data = {"ACR Image": acr_ref, "Status": "pushed"}
     if fmt.use_json:
@@ -1722,8 +1863,9 @@ def build(
     if not resolved_acr_username or not resolved_acr_password:
         fmt.print_error(
             "ACR credentials missing.",
-            suggestion="Set --acr-username/--acr-password or "
-            "ALICLOUD_ACCESS_KEY_ID/ALICLOUD_ACCESS_KEY_SECRET in .env",
+            suggestion="Run 'ebx config init', or "
+            "'ebx config set access_key_id' / 'ebx config set access_key_secret', "
+            "or pass --acr-username/--acr-password.",
         )
         sys.exit(1)
 
@@ -1805,9 +1947,10 @@ def build(
         "cloud-side operations that can incur Alibaba Cloud costs (ACR "
         "storage/traffic, template resources).\n\n"
         "Requires: Docker daemon running, ACR credentials, and an ACR namespace "
-        "(--acr-namespace or the ACR_NAMESPACE env var / .env entry). AK/SK "
-        "credentials are read from ALICLOUD_ACCESS_KEY_ID / "
-        "ALICLOUD_ACCESS_KEY_SECRET when --acr-username/--acr-password are omitted.\n\n"
+        "(--acr-namespace, 'ebx config set acr_namespace', or ACR_NAMESPACE in "
+        "the environment / .env). AK/SK credentials come from 'ebx config init' "
+        "(access_key_id / access_key_secret) when --acr-username/--acr-password "
+        "are omitted.\n\n"
         "\b\n"
         "Examples:\n"
         "  ebx template deploy ./examples/templates/python-hello \\\n"
@@ -1945,8 +2088,8 @@ def search(
     warning.
 
     For private mirrors / higher rate limits a token is taken from --token,
-    then the GITHUB_TOKEN environment variable, then the stored github_token
-    (in that order); prefer 'ebx config set github_token'.
+    then the GITHUB_TOKEN environment variable, then ./.env, then the stored
+    github_token (in that order); prefer 'ebx config set github_token'.
 
     \b
     Examples:
@@ -2063,6 +2206,21 @@ def _try_arrow_case_picker(cases: list[tuple[str, str]]) -> str | None:
     return str(answer)
 
 
+def _is_nl_description(value: str) -> bool:
+    """Return whether *value* is a sentence rather than a directory path.
+
+    A path token (``my-app``, ``./my app``, ``.``) stays a directory so
+    existing ``ebx template init [DIRECTORY]`` invocations are unchanged.
+    Whitespace or CJK text is a natural-language description. Prefix a
+    directory that contains spaces with ``./``.
+    """
+    if value in {".", ".."} or value.startswith(".") or "/" in value or "\\" in value:
+        return False
+    if any(ch.isspace() for ch in value):
+        return True
+    return any("\u4e00" <= ch <= "\u9fff" for ch in value)
+
+
 def _select_scaffold_case(cases: list[tuple[str, str]]) -> str:
     """Pick a scaffold case interactively.
 
@@ -2076,7 +2234,7 @@ def _select_scaffold_case(cases: list[tuple[str, str]]) -> str:
     for i, (c, desc) in enumerate(cases, 1):
         click.echo(f"  {i}. {c:<12} {desc}")
     choice = click.prompt("Select a case", type=click.IntRange(1, len(cases)), default=1)
-    return cases[choice - 1][0]
+    return cases[int(choice) - 1][0]
 
 
 @template.command("init")
@@ -2107,6 +2265,36 @@ def _select_scaffold_case(cases: list[tuple[str, str]]) -> str:
     help="List available scaffold cases",
 )
 @click.option("--force", is_flag=True, default=False, help="Overwrite existing files")
+@click.option(
+    "--adopt",
+    is_flag=True,
+    default=False,
+    help="Adapt an existing source project: the coding agent adds the template files "
+    "(Dockerfile, commands.py, template.yaml). DIRECTORY is the project (default: .).",
+)
+@click.option(
+    "--hint",
+    default=None,
+    help="With --adopt: what the code cannot tell the agent (ports, services).",
+)
+@click.option(
+    "--dry-run",
+    is_flag=True,
+    default=False,
+    help="With --adopt: list what would be sent to the model. Nothing is sent or written.",
+)
+@click.option("-v", "--verbose", "verbose_flag", is_flag=True, help="Verbose output (DEBUG level)")
+@click.option(
+    "--yes",
+    "-y",
+    is_flag=True,
+    default=False,
+    help="Skip confirmation prompts: the template directory, description "
+    "clarification, and (with --adopt) the send and write prompts. Required for "
+    "non-interactive AI generation. "
+    "Does not build or deploy. Replacing an existing Dockerfile still needs --force "
+    "when there is no interactive preview.",
+)
 @click.pass_context
 @handle_errors
 def init(
@@ -2117,14 +2305,31 @@ def init(
     name: str | None,
     list_cases: bool,
     force: bool,
+    adopt: bool,
+    hint: str | None,
+    dry_run: bool,
+    verbose_flag: bool,
+    yes: bool,
 ) -> None:
     """Scaffold a new sandbox template project.
 
     Creates a ready-to-build template directory with template.yaml,
     Dockerfile, and (depending on the case) a commands.py file.
+    Nothing is built, pushed, deployed, or turned into a sandbox.
 
     When DIRECTORY is omitted a new ./<name> subdirectory is created
     (derived from --name, the scaffold case, or the fetched template).
+
+    A DIRECTORY that contains whitespace or CJK text is a natural-language
+    description: Qwen Code generates Dockerfile, commands.py (the HTTP
+    server) and template.yaml into ./<name>/ and stops. An interactive
+    terminal is asked for that directory first (Enter keeps ./<name>/).
+    A path token (my-app, ./my app) stays a directory.
+
+    --adopt adapts a project that already has source code and no template
+    files. The agent sees a copy, and only Dockerfile, commands.py,
+    template.yaml and a generated .dockerignore are written back, after you
+    confirm. Nothing is built or deployed.
 
     \b
     Examples:
@@ -2133,17 +2338,43 @@ def init(
       ebx template init -t python --name myapp     # Creates ./myapp/
       ebx template init -t python ./my-template    # Explicit directory
       ebx template init --from owner/repo          # Creates ./<template-name>/
+      ebx template init "a python data science env"  # AI files only, no build
+      ebx template init -y "a node.js api server"    # non-interactive AI files
+      ebx template init --adopt . --hint "port 8080" # adapt this project
+      ebx template init --adopt ./app --dry-run      # show what would be sent
 
     \b
     Related commands:
       ebx template deploy DIRECTORY
       ebx template install TEMPLATE_REF
       ebx create --template TEMPLATE
+      ebx create "DESCRIPTION"   # generate, build, deploy, and create
     """
     from easy_sandbox.cli.scaffold import available_cases, render_scaffold
 
     fmt = get_formatter(ctx)
     out = get_output(ctx)
+
+    if adopt or hint is not None or dry_run:
+        if not adopt:
+            raise click.UsageError("--hint and --dry-run require --adopt.")
+        if case or from_ref or list_cases:
+            raise click.UsageError(
+                "--adopt cannot be combined with --template/-t, --from or --list."
+            )
+        from easy_sandbox.cli.commands._adopt import run_adopt
+
+        run_adopt(
+            ctx,
+            directory,
+            hint=hint,
+            name=name,
+            dry_run=dry_run,
+            force=force,
+            yes=yes,
+            verbose=verbose_flag,
+        )
+        return
 
     # --list: print available cases and exit
     if list_cases:
@@ -2160,6 +2391,23 @@ def init(
         raise click.UsageError(
             "--template/-t and --from are mutually exclusive. Use one or the other."
         )
+
+    # A sentence is a description, not a directory name. Generate the
+    # template files and stop — no build, push, deploy, or sandbox.
+    if directory is not None and _is_nl_description(directory):
+        if case or from_ref:
+            raise click.UsageError(
+                "A natural-language description cannot be combined with "
+                "--template/-t or --from. Drop those flags to generate a "
+                "template from the description, or drop the description to "
+                "scaffold or fetch a template."
+            )
+        from easy_sandbox.cli.commands.sandbox import _generate_local_template
+
+        _generate_local_template(
+            ctx, directory, yes=yes, name=name, force=force, ask_directory=True
+        )
+        return
 
     # Whether the user explicitly provided a DIRECTORY argument
     dir_provided = directory is not None
@@ -2187,6 +2435,14 @@ def init(
         )
 
         source = Path(source_path)
+
+        # A local directory with no manifest is a source project, not a template.
+        # Copying it would also copy .env and .git.  Remote refs stay tolerant.
+        if getattr(ref, "registry_type", "") == "local" and _find_template_yaml(source) is None:
+            raise click.ClickException(
+                f"'{from_ref}' has no template.yaml, so it is not a template. "
+                f"To adapt a source project, run: ebx template init --adopt {from_ref}"
+            )
 
         # Derive name: --name > template.yaml name > ref basename
         if name is None:
@@ -2270,16 +2526,48 @@ def _print_init_summary(
     target: Path,
     created: list[str],
     name: str,
+    *,
+    replaced: list[str] | None = None,
+    backed_up: list[str] | None = None,
+    not_applied: list[str] | None = None,
+    dry_run: bool = False,
+    next_steps: list[str] | None = None,
 ) -> None:
     """Print a friendly summary after scaffold init."""
     if fmt.use_json:
-        fmt.print_data({"name": name, "directory": str(target), "files": created})
+        payload: dict[str, Any] = {"name": name, "directory": str(target), "files": created}
+        if replaced is not None:
+            payload["replaced"] = replaced
+        if backed_up is not None:
+            payload["backed_up"] = backed_up
+        if not_applied is not None:
+            payload["not_applied"] = not_applied
+        if dry_run:
+            payload["dry_run"] = True
+        fmt.print_data(payload)
         return
-    out.info(f"\n✅ Template '{name}' created in {target}")
+    title = "previewed" if dry_run else "created"
+    out.info(f"\n✅ Template '{name}' {title} in {target}")
     out.info("Created files:")
-    for f in sorted(created):
-        out.info(f"  {f}")
+    for filename in sorted(created):
+        out.info(f"  {filename}")
+    if replaced:
+        out.info("Replaced files:")
+        for filename in replaced:
+            out.info(f"  {filename}")
+    if backed_up:
+        out.info("Backups:")
+        for filename in backed_up:
+            out.info(f"  {filename}")
+    if not_applied:
+        out.info("Agent changes not applied:")
+        for filename in not_applied:
+            out.info(f"  {filename}")
     out.info("\nNext steps:")
+    if next_steps is not None:
+        for step in next_steps:
+            out.info(f"  {step}")
+        return
     dir_arg = str(target) if str(target) != str(Path.cwd()) else "."
     out.info(f"  ebx template deploy {dir_arg} --acr-namespace <ns>")
     out.info(f"  ebx install {dir_arg} --acr-namespace <ns>")

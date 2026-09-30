@@ -20,13 +20,13 @@
 ```json
 {
   "name": "create_sandbox",
-  "description": "创建一个云端沙箱环境。返回 sandbox_id 用于后续操作。如果不指定 template，默认使用 code-interpreter-v1。",
+  "description": "创建一个云端沙箱，并将其设为当前会话的默认沙箱。省略 template 时使用 MCP server 配置的模板（ebx mcp start 默认为 code-interpreter-v1）。",
   "inputSchema": {
     "type": "object",
     "properties": {
       "template": {
         "type": "string",
-        "description": "沙箱模板名称，默认 code-interpreter-v1"
+        "description": "沙箱模板名称，省略时使用 server 配置的模板"
       },
       "timeout": {
         "type": "integer",
@@ -98,7 +98,7 @@
       "sandbox_id": { "type": "string", "description": "沙箱 ID" },
       "cwd": {
         "type": "string",
-        "description": "工作目录，默认 /app",
+        "description": "工作目录，省略时使用镜像工作目录",
         "default": "/app"
       },
       "timeout": {
@@ -170,7 +170,7 @@
     "properties": {
       "path": {
         "type": "string",
-        "description": "目录路径，默认 /app",
+        "description": "目录路径，省略时列出 /",
         "default": "/app"
       },
       "sandbox_id": { "type": "string", "description": "沙箱 ID" }
@@ -217,10 +217,11 @@ graph TD
 
 **行为规则**（由 `agent/mcp.py` 中的 `SandboxManager` 实现）：
 
-1. 首次调用任何需要沙箱的工具且未指定 `sandbox_id` 时，懒创建默认沙箱
-2. 默认模板：经 `ebx mcp start` 启动时为 `code-interpreter-v1`（CLI 默认值）；编程式构造 `SandboxMCPServer` / HTTP `SessionStore` 且未显式指定模板时为 `base`
-3. 会话结束时销毁默认沙箱 — STDIO EOF / server 关闭，或 HTTP `DELETE /mcp` / 空闲会话 TTL 到期
-4. Agent 可通过 `create_sandbox` 显式创建新沙箱并用 `sandbox_id` 寻址；无 `sandbox_id` 的调用始终使用默认沙箱
+1. `create_sandbox` 创建沙箱，并把它设为默认沙箱。随后省略 `sandbox_id` 的调用使用这只沙箱；更早创建的沙箱仍存活，直到被 `kill_sandbox` 或会话结束
+2. 还没有默认沙箱时，第一次省略 `sandbox_id` 的工具调用懒创建一只。并发的懒创建只会创建一只
+3. 默认模板：经 `ebx mcp start` 启动时为 `code-interpreter-v1`（CLI 默认值）；编程式构造 `SandboxMCPServer` / HTTP `SessionStore` 且未显式指定模板时为 `base`。`create_sandbox` 省略 `template` 时用的就是这个模板
+4. 省略 `sandbox_id` 的 `kill_sandbox` 销毁默认沙箱；当前没有默认沙箱时返回错误。会话结束时销毁该会话里的全部沙箱 — STDIO EOF / server 关闭，或 HTTP `DELETE /mcp` / 空闲会话 TTL 到期
+5. 显式传入 `sandbox_id` 时寻址那只沙箱，不改变默认沙箱。每次使用前按创建时的 timeout 调用 `Sandbox.set_timeout` 延长存活时间
 
 ```mermaid
 sequenceDiagram
@@ -235,11 +236,11 @@ sequenceDiagram
     Agent->>MCP: run_code("print(2)")
     MCP->>SB1: 复用 sb-001
     Agent->>MCP: create_sandbox(template=...)
-    MCP->>SB2: 创建新沙箱 sb-002
-    Agent->>MCP: run_code("...", sandbox_id=sb-002)
+    MCP->>SB2: 创建 sb-002，并把它设为默认沙箱
+    Agent->>MCP: write_file / run_code（不带 sandbox_id）
     MCP->>SB2: 使用 sb-002
-    Agent->>MCP: run_code("print(3)")
-    MCP->>SB1: 仍使用默认 sb-001
+    Agent->>MCP: run_code("...", sandbox_id=sb-001)
+    MCP->>SB1: 显式 id 仍指向 sb-001
     Note over Agent,MCP: 会话结束
     MCP->>SB1: 销毁 sb-001 与 sb-002
 ```
@@ -261,7 +262,7 @@ graph LR
 - **协议版本**：`2024-11-05` —— STDIO server 唯一支持的版本。`initialize` 在请求该版本时回显，请求缺失或不支持时也回退到该版本，保持原有行为不变
 - **支持方法**：`initialize`、`notifications/initialized`、`tools/list`、`tools/call`、`ping`
 - **适用场景**：本地开发、单用户，IDE 直接拉起进程
-- **启动方式**：`ebx mcp start [--template 名称] [--api-key KEY] [--api-url URL] [--domain DOMAIN]`（通常由 IDE 调用，无需手动执行）
+- **启动方式**：`ebx mcp start [--template 名称] [--api-key KEY] [--api-url URL] [--domain DOMAIN]`（通常由 IDE 调用）。手动运行时配置写到 stderr，stdout 保持 JSON-RPC；`ebx mcp stop` 结束记录的 pid。`--http --background` 把 Streamable HTTP 放到后台
 
 ### Streamable HTTP — 远程部署
 
@@ -278,7 +279,7 @@ graph LR
 - **端点**：
   - `POST /mcp` — JSON-RPC 请求；`initialize` 创建会话并返回 `Mcp-Session-Id`，后续请求必须携带该头
   - `DELETE /mcp` — 会话终止并清理沙箱（需要 `Mcp-Session-Id`）
-  - `GET /mcp` — 当前返回 501；SSE 服务端通知尚未实现
+  - `GET /mcp` — 返回 405；SSE 服务端通知尚未实现
   - `GET /health` — 健康检查，返回 `{"status": "ok", "protocol": "2025-06-18"}`
 - **会话**：进程内 `SessionStore`；空闲 TTL 默认 3600 秒、并发会话上限默认 100；容量满时返回 503 与 JSON-RPC 错误 `-32000`
 - **版本协商**：`initialize` 在请求版本受支持时原样回显；本传输仅支持 `2025-06-18`，与 `GET /health` 一致。请求缺失或不支持的版本时协商到 `2025-06-18` —— 按 MCP 规范，服务器回复自己支持的版本，无法接受的客户端可自行断开。STDIO 传输独立保持 `2024-11-05`
@@ -287,7 +288,7 @@ graph LR
 
 ### 认证
 
-- **客户端 → MCP**：`Authorization: Bearer <token>`，常量时间比较校验；经 `EBX_MCP_AUTH_TOKEN` 配置。未配置时认证关闭；配置为空时 fail-closed（所有请求返回 401）
+- **客户端 → MCP**：`Authorization: Bearer <token>`，常量时间比较校验；经 `EBX_MCP_AUTH_TOKEN` 配置。本机回环未配置时认证关闭；配置为空时 fail-closed（所有请求返回 401）。FC 产物调用 `require_auth_token`，token 为空则进程拒绝启动
 - **MCP → 沙箱**：`E2B_API_KEY`（或 `SANDBOX_API_KEY`）环境变量
 
 ### 环境变量
@@ -337,7 +338,7 @@ ebx mcp install --target claude
 ebx mcp install --target vscode
 ```
 
-`install` 将 `easy-sandbox` 条目（`command: ebx`、`args: ["mcp", "start"]`，以及可用时含 `E2B_API_KEY` 的 env 块）合并进目标 IDE 的配置文件：Cursor `~/.cursor/mcp.json`、Claude Desktop `claude_desktop_config.json`、VS Code 工作区 `.vscode/settings.json`（`mcp.servers` 键）。
+`install` 将 `easy-sandbox` 条目合并进目标 IDE 的配置文件：Cursor `~/.cursor/mcp.json`、Claude Desktop `claude_desktop_config.json`（`mcpServers`）、VS Code 工作区 `.vscode/mcp.json`（`servers`，`type: stdio`）。命令是当前解释器旁的 `ebx` 绝对路径，找不到时使用 `python -m easy_sandbox.cli.main`。Cursor 与 Claude 在 API key 可用时写入 `env`；VS Code 工作区文件不写入 API key。不是严格 JSON 的配置文件不会被覆盖。
 
 ### 安装过程
 
@@ -408,15 +409,13 @@ ebx --json mcp status     # JSON 输出
 ### VS Code
 
 ```json
-// .vscode/settings.json
+// .vscode/mcp.json
 {
-  "mcp.servers": {
+  "servers": {
     "easy-sandbox": {
-      "command": "ebx",
-      "args": ["mcp", "start"],
-      "env": {
-        "E2B_API_KEY": "your-api-key"
-      }
+      "type": "stdio",
+      "command": "/path/to/ebx",
+      "args": ["mcp", "start"]
     }
   }
 }
@@ -479,7 +478,7 @@ ebx mcp deploy \
   --output-dir ./mcp-artifact
 ```
 
-选项：`--name`（默认 `easy-sandbox-mcp`）、`--region`（命令级覆盖；回退到 `ebx config set region` / `SANDBOX_REGION` 环境变量，否则 `cn-hangzhou`）、`--template`（默认 `base`）、`--memory`（默认 512）、`--timeout`（默认 600）、Bearer token 来源 `--auth-token-file` / `--generate-token` / 环境变量 `EBX_MCP_AUTH_TOKEN`、`--enable-session-affinity/--no-session-affinity`（默认启用）、`--api-key`、`--custom-domain`、`--output-dir`。
+选项：`--name`（默认 `easy-sandbox-mcp`）、`--region`（命令 `--region` > `SANDBOX_REGION` > `ebx config set region` > `cn-hangzhou`）、`--template`（默认 `base`）、`--memory`（默认 512）、`--timeout`（默认 600）、Bearer token 来源 `--auth-token-file` / `--generate-token` / 环境变量 `EBX_MCP_AUTH_TOKEN`、`--enable-session-affinity/--no-session-affinity`（默认启用）、`--api-key`、`--custom-domain`、`--output-dir`。
 
 ### 产物内容
 

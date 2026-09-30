@@ -90,10 +90,70 @@ def _exit_code_to_status(code: int) -> str:
 # ---------------------------------------------------------------------------
 
 _LLM_KEY_ENV_VARS = (
+    "EBX_LLM_API_KEY",
     "BAILIAN_CODING_PLAN_API_KEY",
     "DASHSCOPE_API_KEY",
     "OPENAI_API_KEY",
 )
+
+# Older name still honored in the process environment, after the variables
+# above and before anything saved under ~/.ebx.
+_LEGACY_LLM_KEY_ENV = "EBX_QWEN_CODE_API_KEY"
+
+# System config directory. Tests replace this so resolution never reads
+# the developer's real ~/.ebx.
+_EBX_DIR = Path.home() / ".ebx"
+
+
+def _first_env(names: tuple[str, ...]) -> str | None:
+    """Return the first non-empty process environment variable in *names*."""
+    for name in names:
+        value = os.environ.get(name)
+        if value and value.strip():
+            return value.strip()
+    return None
+
+
+def _read_ebx_env_var(name: str) -> str | None:
+    """Read *name* from the system config file ``~/.ebx/.env``."""
+    path = _EBX_DIR / ".env"
+    if not path.is_file():
+        return None
+    prefix = f"{name}="
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    for line in lines:
+        if line.startswith(prefix):
+            value = line.split("=", 1)[1].strip()
+            return value or None
+    return None
+
+
+def _read_ebx_transport(name: str) -> str | None:
+    """Read one ``[transport]`` value from ``~/.ebx/config.toml``."""
+    path = _EBX_DIR / "config.toml"
+    if not path.is_file():
+        return None
+    try:
+        try:
+            import tomllib  # type: ignore[import-not-found]
+        except ImportError:
+            import tomli as tomllib
+
+        with open(path, "rb") as handle:
+            data = tomllib.load(handle)
+    except Exception:
+        return None
+    transport = data.get("transport")
+    source = transport if isinstance(transport, dict) else data
+    if not isinstance(source, dict):
+        return None
+    value = source.get(name)
+    if value in (None, ""):
+        return None
+    return str(value)
 
 
 def resolve_llm_env(
@@ -104,27 +164,47 @@ def resolve_llm_env(
 ) -> dict[str, str]:
     """Build environment variables for the qwen-code agent inside the sandbox.
 
-    Resolution order:
+    Resolution order for the API key (first hit wins):
+
     1. Explicit *llm_api_key* parameter.
-    2. ``BAILIAN_CODING_PLAN_API_KEY`` env var.
-    3. ``DASHSCOPE_API_KEY`` env var.
-    4. ``OPENAI_API_KEY`` env var.
+    2. Process environment: ``EBX_LLM_API_KEY``, then
+       ``BAILIAN_CODING_PLAN_API_KEY``, ``DASHSCOPE_API_KEY``,
+       ``OPENAI_API_KEY``, then a legacy ``EBX_QWEN_CODE_API_KEY``.
+    3. The same names in the project ``.env``.
+    4. System config: ``EBX_LLM_API_KEY`` in ``~/.ebx/.env``, then a legacy
+       ``llm_api_key`` in ``~/.ebx/config.toml``, then
+       ``EBX_QWEN_CODE_API_KEY`` in ``~/.ebx/.env``.
+
+    Base URL and model use the same layers: explicit argument, then
+    ``EBX_LLM_BASE_URL`` / ``OPENAI_BASE_URL`` (and the model equivalents),
+    then the project ``.env``, then ``~/.ebx/config.toml``, then the
+    DashScope default.
 
     Raises:
         DeployLLMKeyMissingError: If no LLM API key can be found.
     """
-    api_key = llm_api_key
+    from easy_sandbox.transport.config import project_dotenv_value
+
+    api_key = (
+        llm_api_key
+        or _first_env(_LLM_KEY_ENV_VARS)
+        or _first_env((_LEGACY_LLM_KEY_ENV,))
+        or project_dotenv_value((*_LLM_KEY_ENV_VARS, _LEGACY_LLM_KEY_ENV))
+    )
     if not api_key:
-        for var in _LLM_KEY_ENV_VARS:
-            api_key = os.environ.get(var)
-            if api_key:
-                break
+        api_key = (
+            _read_ebx_env_var("EBX_LLM_API_KEY")
+            or _read_ebx_transport("llm_api_key")
+            or _read_ebx_env_var(_LEGACY_LLM_KEY_ENV)
+        )
 
     if not api_key:
         raise DeployLLMKeyMissingError(
             "No LLM API key found for qwen-code agent.",
             suggestion=(
-                "Set one of the following environment variables: " + ", ".join(_LLM_KEY_ENV_VARS)
+                "Export one of "
+                + ", ".join(_LLM_KEY_ENV_VARS)
+                + ", or store one with 'ebx config set llm_api_key <KEY>'."
             ),
         )
 
@@ -132,12 +212,24 @@ def resolve_llm_env(
         "DASHSCOPE_API_KEY": api_key,
     }
 
-    # Set OpenAI-compatible endpoint for qwen-code
-    base_url = openai_base_url or os.environ.get(
-        "OPENAI_BASE_URL",
-        "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    # Set OpenAI-compatible endpoint for qwen-code. Environment wins over
+    # the value saved in ~/.ebx/config.toml.
+    base_url = (
+        openai_base_url
+        or _first_env(("EBX_LLM_BASE_URL", "OPENAI_BASE_URL"))
+        or project_dotenv_value(("EBX_LLM_BASE_URL", "OPENAI_BASE_URL"))
+        or _read_ebx_transport("llm_base_url")
+        or _read_ebx_transport("qwen_code_base_url")
+        or "https://dashscope.aliyuncs.com/compatible-mode/v1"
     )
-    model = openai_model or os.environ.get("OPENAI_MODEL", "qwen3-coder-plus")
+    model = (
+        openai_model
+        or _first_env(("EBX_LLM_MODEL", "OPENAI_MODEL"))
+        or project_dotenv_value(("EBX_LLM_MODEL", "OPENAI_MODEL"))
+        or _read_ebx_transport("llm_model")
+        or _read_ebx_transport("qwen_code_model")
+        or "qwen3-coder-plus"
+    )
 
     env["OPENAI_BASE_URL"] = base_url
     env["OPENAI_MODEL"] = model

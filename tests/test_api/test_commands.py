@@ -99,6 +99,23 @@ class TestCommandsRun:
         assert call_kwargs[1]["args"] == ["-la", "/app"]
 
     @pytest.mark.asyncio
+    async def test_run_shell_always_uses_sh(
+        self,
+        commands_module: CommandsModule,
+        mock_process_protocol: AsyncMock,
+    ) -> None:
+        mock_process_protocol.start.return_value = _MockStreamReader(
+            [
+                ProcessChunk(type=ProcessChunkType.STDOUT, data="/tmp\n"),
+                ProcessChunk(type=ProcessChunkType.EXIT, exit_code=0),
+            ]
+        )
+        await commands_module.run("cd /tmp && echo $HOME", shell=True)
+        call_kwargs = mock_process_protocol.start.call_args
+        assert call_kwargs[1]["cmd"] == "sh"
+        assert call_kwargs[1]["args"] == ["-c", "cd /tmp && echo $HOME"]
+
+    @pytest.mark.asyncio
     async def test_run_passes_env_and_cwd(
         self,
         commands_module: CommandsModule,

@@ -63,8 +63,9 @@ Auth interface (headless): ``OPENAI_API_KEY`` + ``OPENAI_BASE_URL`` +
 ``OPENAI_MODEL`` (OpenAI-compatible DashScope endpoint), or
 ``DASHSCOPE_API_KEY`` / ``BAILIAN_CODING_PLAN_API_KEY``, or a preset
 ``~/.qwen/settings.json``.  This is the same credential family that
-``ebx`` already stores for LLM inference, so a stored ``llm_api_key`` is
-an officially compatible fallback (see :func:`resolve_qwen_code_credentials`).
+``ebx`` stores as the unified ``llm_api_key``, so that key is the
+officially supported source ebx injects (see
+:func:`resolve_qwen_code_credentials`).
 """
 
 from __future__ import annotations
@@ -73,11 +74,18 @@ import hashlib
 import json
 import os
 import platform
+import queue
+import re
 import shutil
+import signal
 import subprocess
 import tarfile
+import threading
+import time
 import urllib.request
 import zipfile
+from collections import deque
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import TYPE_CHECKING, Any
@@ -86,6 +94,8 @@ from easy_sandbox.models.errors import (
     AICodegenError,
     QwenCodeCredentialError,
     QwenCodeNotInstalledError,
+    QwenCodeStartupError,
+    QwenCodeTimeoutError,
 )
 from easy_sandbox.utils.logging import get_logger
 
@@ -145,8 +155,10 @@ class QwenCodeCredentials:
 
     ``source`` is one of:
 
-    * ``qwen-stored`` — dedicated ``qwen_code_api_key`` stored by ebx.
-    * ``llm-stored`` — compatible fallback to the stored ``llm_api_key``.
+    * ``qwen-stored`` — the unified ``llm_api_key`` persisted by ebx as
+      ``EBX_LLM_API_KEY`` (process environment or ~/.ebx/.env).
+    * ``llm-stored`` — legacy fallback: a ``llm_api_key`` still stored in
+      the ``[transport]`` section of config.toml (pre-migration installs).
     * ``environment`` — a valid variable already exists in the process
       environment, so the child process inherits it (no injection).
     * ``qwen-settings`` — ``~/.qwen/settings.json`` is already configured
@@ -460,7 +472,10 @@ def _write_wrapper(wrapper: Path, entry: Path, *, windows: bool) -> None:
         quoted = "'" + str(entry).replace("'", "'\"'\"'") + "'"
         content = f'#!/usr/bin/env sh\nexec {quoted} "$@"\n'
     tmp = wrapper.with_name(wrapper.name + ".new")
-    tmp.write_text(content, encoding="utf-8", newline="")
+    # ``newline=""`` keeps the script's line endings. ``Path.write_text``
+    # only accepts that argument on Python 3.10+.
+    with tmp.open("w", encoding="utf-8", newline="") as handle:
+        handle.write(content)
     if not windows:
         os.chmod(tmp, 0o755)
     os.replace(tmp, wrapper)
@@ -629,11 +644,11 @@ def resolve_qwen_code_credentials(
 
     Resolution order (first hit wins):
 
-    1. ``qwen_code_api_key`` stored by ebx (``source="qwen-stored"``).
-    2. The ebx ``llm_api_key`` — officially compatible: Qwen Code accepts
-       OpenAI-compatible / DashScope keys through the ``OPENAI_*``
-       variables, which is exactly what ``llm_api_key`` is
-       (``source="llm-stored"``).
+    1. The ebx ``llm_api_key`` persisted as ``EBX_LLM_API_KEY`` (process
+       environment or ~/.ebx/.env) — injected as the ``OPENAI_*``
+       variables Qwen Code reads (``source="qwen-stored"``).
+    2. A legacy ``llm_api_key`` still stored in config.toml — same
+       injection (``source="llm-stored"``).
     3. A valid variable already present in the process environment
        (``OPENAI_API_KEY`` / ``DASHSCOPE_API_KEY`` /
        ``BAILIAN_CODING_PLAN_API_KEY``) — inherited by the child process,
@@ -666,7 +681,7 @@ def resolve_qwen_code_credentials(
         "Qwen Code is installed but no model credentials were found.",
         suggestion=(
             "Store a DashScope/ModelStudio API key with "
-            "'ebx config set qwen_code_api_key <KEY>' (or run "
+            "'ebx config set llm_api_key <KEY>' (or run "
             "'ebx config init'), export OPENAI_API_KEY / DASHSCOPE_API_KEY, "
             "or configure Qwen Code interactively once via 'qwen'."
         ),
@@ -687,6 +702,7 @@ def _build_headless_command(
     resume: str | None = None,
     json_schema: Mapping[str, Any] | str | None = None,
     windows: bool | None = None,
+    stream: bool = False,
 ) -> list[str]:
     """Build the argv for ``qwen`` headless JSON mode.
 
@@ -708,8 +724,18 @@ def _build_headless_command(
     On Windows the managed wrapper is a ``.cmd`` shim which
     ``CreateProcess`` cannot launch directly, so it is wrapped in
     ``cmd.exe /c`` — the same approach the official installer uses.
+
+    * ``stream`` — request ``--output-format stream-json`` (newline-
+      delimited events, with ``--include-partial-messages`` so text
+      deltas arrive live) instead of the single final JSON document.
+      Both flags are listed by ``qwen --help`` (0.15.11); the terminal
+      ``result`` message keeps the same shape, so
+      :func:`_parse_headless_output` reads either format.
     """
     argv = [str(binary), prompt, "--output-format", "json", "--yolo"]
+    if stream:
+        argv[3] = "stream-json"
+        argv.insert(4, "--include-partial-messages")
     if json_schema is not None:
         schema_text = (
             json_schema
@@ -780,6 +806,333 @@ def _parse_headless_output(stdout: str) -> tuple[str, bool, Any, str]:
     return "", True, None, ""
 
 
+#: Seconds between liveness callbacks while a streaming run is silent.
+_ACTIVITY_HEARTBEAT = 1.0
+
+#: Cap for one activity line handed to ``on_activity``.
+_ACTIVITY_SUMMARY_MAX = 160
+
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07")
+_CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]+")
+_STREAM_FALLBACK_RE = re.compile(r"output-format|include-partial|stream-json", re.IGNORECASE)
+
+
+def _one_line(text: str, limit: int = _ACTIVITY_SUMMARY_MAX) -> str:
+    """Collapse *text* to a single sanitised line of at most *limit* chars."""
+    text = _CONTROL_RE.sub(" ", _ANSI_RE.sub("", text))
+    text = " ".join(text.split())
+    return text if len(text) <= limit else "…" + text[-(limit - 1) :]
+
+
+#: Lines the feed remembers (the UI shows the last few of them).
+_ACTIVITY_FEED_LINES = 10
+
+
+class _ActivityFeed:
+    """Rolling, line-oriented log of what the agent is doing.
+
+    The assistant's text is split into lines as it streams (a newline ends
+    a line; a very long unbroken run is cut at :data:`_ACTIVITY_SUMMARY_MAX`
+    characters), and every tool use adds a ``tool: <name>`` line.  The
+    renderer shows the last few lines, so the display *scrolls by line*
+    instead of rewriting one ever-changing sentence.
+
+    Only the assistant's own text and the *name* of a tool are recorded —
+    never tool input (shell commands can carry secrets) and never thinking.
+    """
+
+    def __init__(self) -> None:
+        self._lines: deque[str] = deque(maxlen=_ACTIVITY_FEED_LINES)
+        self._partial = ""
+
+    def _commit(self, raw: str) -> None:
+        line = _one_line(raw)
+        if line:
+            self._lines.append(line)
+
+    def note(self, line: str) -> None:
+        """Flush the unfinished text line, then add *line* on its own row."""
+        self._commit(self._partial)
+        self._partial = ""
+        self._commit(line)
+
+    def text(self, delta: str) -> None:
+        """Append streamed assistant text, committing every finished line."""
+        *finished, self._partial = (self._partial + delta).split("\n")
+        for raw in finished:
+            self._commit(raw)
+        while len(self._partial) > _ACTIVITY_SUMMARY_MAX:
+            self._commit(self._partial[:_ACTIVITY_SUMMARY_MAX])
+            self._partial = self._partial[_ACTIVITY_SUMMARY_MAX:]
+
+    def render(self) -> str:
+        """The feed as newline-separated lines, oldest first."""
+        lines = list(self._lines)
+        tail = _one_line(self._partial)
+        if tail:
+            lines.append(tail)
+        return "\n".join(lines[-_ACTIVITY_FEED_LINES:])
+
+
+def _note_tool(feed: _ActivityFeed, name: Any) -> bool:
+    """Record ``tool: <name>`` once. Never records tool input.
+
+    A second event for the same call (the stream start, then the completed
+    assistant message) does not add another line.
+    """
+    if not isinstance(name, str) or not name:
+        return False
+    label = "tool: " + _one_line(name, 60)
+    if feed._lines and feed._lines[-1] == label and not feed._partial:
+        return False
+    feed.note(label)
+    return True
+
+
+def _feed_stream_event(message: Any, feed: _ActivityFeed) -> bool:
+    """Record one stream-json event into *feed*; return whether it changed.
+
+    Unknown event shapes change nothing and merely act as a heartbeat.
+    """
+    if not isinstance(message, dict):
+        return False
+    kind = message.get("type")
+    if kind == "stream_event":
+        event = message.get("event")
+        if not isinstance(event, dict):
+            return False
+        delta = event.get("delta")
+        if (
+            isinstance(delta, dict)
+            and delta.get("type") == "text_delta"
+            and isinstance(delta.get("text"), str)
+        ):
+            feed.text(delta["text"])
+            return True
+        # The tool name arrives when the call starts. Recording it here means
+        # a long write is not a blank header until the tool finally returns.
+        # The input itself is never recorded.
+        block = event.get("content_block")
+        if (
+            event.get("type") == "content_block_start"
+            and isinstance(block, dict)
+            and block.get("type") == "tool_use"
+        ):
+            return _note_tool(feed, block.get("name"))
+        return False
+    if kind == "assistant":
+        body = message.get("message")
+        content = body.get("content") if isinstance(body, dict) else None
+        if isinstance(content, list):
+            for block in content:
+                if (
+                    isinstance(block, dict)
+                    and block.get("type") == "tool_use"
+                    and _note_tool(feed, block.get("name"))
+                ):
+                    return True
+        return False
+    if kind == "system":
+        feed.note("starting")
+        return True
+    return False
+
+
+def _spawn_headless(
+    argv: list[str], *, cwd: Path | str | None, env: dict[str, str] | None
+) -> subprocess.Popen[str]:
+    """Start ``qwen`` in its own process group / session.
+
+    Qwen Code re-launches itself as a child ``node`` process that shares
+    the pipes, and the agent's shell tools spawn further descendants.
+    Killing only the parent on a timeout leaves those running (verified:
+    a "killed" research round kept fetching for 13 more minutes), so the
+    run gets its own group and :func:`_kill_process_tree` reaps all of it.
+    """
+    kwargs: dict[str, Any] = {
+        "cwd": str(cwd) if cwd is not None else None,
+        "env": env,
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "encoding": "utf-8",
+        "errors": "replace",
+    }
+    if os.name != "nt":
+        kwargs["start_new_session"] = True
+    return subprocess.Popen(argv, **kwargs)
+
+
+def _kill_process_tree(proc: subprocess.Popen[str]) -> None:
+    """Terminate *proc* and every descendant; never raises."""
+    if os.name == "nt":  # pragma: no cover - exercised on Windows only
+        with suppress(Exception):
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                capture_output=True,
+                check=False,
+                timeout=10,
+            )
+        with suppress(Exception):
+            proc.kill()
+        return
+    with suppress(OSError):
+        os.killpg(proc.pid, signal.SIGTERM)
+    with suppress(Exception):
+        proc.wait(timeout=2.0)
+    group_alive = True
+    try:
+        os.killpg(proc.pid, 0)
+    except OSError:
+        group_alive = False
+    if group_alive:
+        with suppress(OSError):
+            os.killpg(proc.pid, signal.SIGKILL)
+
+
+def _timeout_error(timeout: float) -> QwenCodeTimeoutError:
+    return QwenCodeTimeoutError(
+        f"Qwen Code did not finish within {timeout:.0f}s and was terminated.",
+        suggestion=(
+            "Retry with a shorter description or raise the limit with "
+            "EBX_QWEN_CODEGEN_TIMEOUT (seconds)."
+        ),
+    )
+
+
+def _run_blocking(proc: subprocess.Popen[str], timeout: float) -> tuple[str, str]:
+    """Wait for *proc* (json mode); reap the whole tree on timeout / Ctrl-C."""
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(proc)
+        with suppress(Exception):
+            proc.communicate(timeout=5)
+        raise _timeout_error(timeout) from None
+    except BaseException:
+        _kill_process_tree(proc)
+        raise
+    return stdout or "", stderr or ""
+
+
+def _run_streaming(
+    proc: subprocess.Popen[str],
+    timeout: float,
+    on_activity: Callable[[str], None],
+) -> tuple[str, str]:
+    """Read stream-json events live, reporting activity; reap the tree on exit.
+
+    Two daemon threads drain stdout and stderr into one queue (so a full
+    stderr pipe can never deadlock the child), while the calling thread
+    enforces the deadline and invokes *on_activity* — on every event and
+    as a heartbeat once per second while the agent is silent.  Callback
+    exceptions other than ``KeyboardInterrupt`` are ignored: a broken
+    renderer must never fail the run.  ``stream_event`` lines (one per
+    token) are not retained, keeping ``raw_stdout`` bounded.
+    """
+    events: queue.Queue[tuple[str, str | None]] = queue.Queue()
+
+    def pump(stream: Any, tag: str) -> None:
+        try:
+            for line in stream:
+                events.put((tag, line))
+        except (OSError, ValueError):
+            pass
+        finally:
+            events.put((tag, None))
+
+    readers = [
+        threading.Thread(target=pump, args=(proc.stdout, "out"), daemon=True),
+        threading.Thread(target=pump, args=(proc.stderr, "err"), daemon=True),
+    ]
+    for reader in readers:
+        reader.start()
+
+    out_lines: list[str] = []
+    err_lines: list[str] = []
+    open_streams = 2
+    feed = _ActivityFeed()
+    deadline = time.monotonic() + timeout
+
+    def notify() -> None:
+        with suppress(Exception):
+            on_activity(feed.render())
+
+    try:
+        while open_streams:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                _kill_process_tree(proc)
+                raise _timeout_error(timeout)
+            try:
+                tag, line = events.get(timeout=min(remaining, _ACTIVITY_HEARTBEAT))
+            except queue.Empty:
+                notify()
+                continue
+            if line is None:
+                open_streams -= 1
+                continue
+            if tag == "err":
+                err_lines.append(line)
+                continue
+            stripped = line.strip()
+            parsed: Any = None
+            if stripped.startswith("{"):
+                with suppress(json.JSONDecodeError):
+                    parsed = json.loads(stripped)
+            if not (isinstance(parsed, dict) and parsed.get("type") == "stream_event"):
+                out_lines.append(line)
+            _feed_stream_event(parsed, feed)
+            notify()
+        try:
+            proc.wait(timeout=max(deadline - time.monotonic(), 1.0))
+        except subprocess.TimeoutExpired:
+            _kill_process_tree(proc)
+            raise _timeout_error(timeout) from None
+    except BaseException:
+        _kill_process_tree(proc)
+        raise
+    finally:
+        for reader in readers:
+            reader.join(timeout=2.0)
+    return "".join(out_lines), "".join(err_lines)
+
+
+#: Environment variables a scrubbed agent process may inherit: what a CLI
+#: needs to run, reach the network through the user's proxy/CA setup, and —
+#: because ``credentials.source == "environment"`` relies on inheritance —
+#: the model-provider variables Qwen Code itself reads.
+_CLEAN_ENV_EXACT: frozenset[str] = frozenset(
+    {
+        "PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TERM", "TMPDIR",
+        "TEMP", "TMP", "TZ", "COLORTERM", "NO_COLOR", "CI",
+        "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+        "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+        "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS",
+        "SYSTEMROOT", "COMSPEC", "PATHEXT", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
+        "OPENAI_API_KEY", "OPENAI_BASE_URL", "OPENAI_MODEL",
+        "DASHSCOPE_API_KEY", "BAILIAN_CODING_PLAN_API_KEY",
+    }
+)  # fmt: skip
+_CLEAN_ENV_PREFIXES: tuple[str, ...] = ("LC_", "XDG_")
+
+
+def scrubbed_environ(environ: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Return *environ* (default: the process environment) reduced to an allow-list.
+
+    Cloud, registry and VCS credentials (``ALICLOUD_*``, ``E2B_*``, ``ACR_*``,
+    ``AWS_*``, ``GITHUB_TOKEN`` …) are dropped: an agent that reads untrusted
+    repository text must not hold them.
+    """
+    source = os.environ if environ is None else environ
+    return {
+        key: value
+        for key, value in source.items()
+        if key in _CLEAN_ENV_EXACT or key.startswith(_CLEAN_ENV_PREFIXES)
+    }
+
+
 def run_qwen_code_headless(
     prompt: str,
     *,
@@ -791,6 +1144,8 @@ def run_qwen_code_headless(
     session_id: str | None = None,
     resume: str | None = None,
     json_schema: Mapping[str, Any] | str | None = None,
+    on_activity: Callable[[str], None] | None = None,
+    clean_env: bool = False,
 ) -> QwenCodeRunResult:
     """Run ``qwen`` in headless JSON mode and return its raw result.
 
@@ -806,9 +1161,26 @@ def run_qwen_code_headless(
     the structured ``structured_output`` result — see
     :func:`_build_headless_command`.
 
+    ``clean_env`` starts the child from :func:`scrubbed_environ` instead of
+    the full process environment (``env`` is still merged on top).  Used when
+    the agent reads untrusted content, e.g. ``ebx template init --adopt``.
+
+    ``on_activity`` (optional) receives a newline-separated, sanitised feed
+    of what the agent is doing (its recent text lines and the names of the
+    tools it used, oldest first) on every event and once per second while
+    it is silent, so a renderer can scroll by line; passing
+    it switches the run to ``stream-json``.  Without it the run stays a
+    plain ``json`` run.  Either way the whole process tree is terminated
+    on a timeout or ``KeyboardInterrupt``.
+
     Raises:
         QwenCodeNotInstalledError: When no executable can be located.
-        AICodegenError: On timeout, spawn failure, or a missing cwd.
+        QwenCodeTimeoutError: When the run exceeds *timeout* (E2007 — a
+            subclass so callers can classify the failure without parsing
+            the message).
+        QwenCodeStartupError: When the process cannot be spawned (E2007
+            subclass, e.g. the binary vanished or is not executable).
+        AICodegenError: On a missing cwd or any other run failure.
     """
     binary_path = Path(binary) if binary is not None else find_qwen_code_binary()
     if binary_path is None:
@@ -822,47 +1194,49 @@ def run_qwen_code_headless(
     if cwd is not None and not Path(cwd).is_dir():
         raise AICodegenError(f"Working directory does not exist: {cwd}")
 
-    argv = _build_headless_command(
-        binary_path,
-        prompt,
-        max_session_turns=max_session_turns,
-        session_id=session_id,
-        resume=resume,
-        json_schema=json_schema,
-    )
-    run_env = {**os.environ, **env} if env else None
-    logger.debug("Running Qwen Code headless via %s", argv[0])
+    if clean_env:
+        run_env: dict[str, str] | None = {**scrubbed_environ(), **(env or {})}
+    else:
+        run_env = {**os.environ, **env} if env else None
 
-    try:
-        completed = subprocess.run(
-            argv,
-            cwd=str(cwd) if cwd is not None else None,
-            env=run_env,
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="replace",
-            timeout=timeout,
-            check=False,
+    def attempt(*, stream: bool) -> tuple[int, str, str]:
+        argv = _build_headless_command(
+            binary_path,
+            prompt,
+            max_session_turns=max_session_turns,
+            session_id=session_id,
+            resume=resume,
+            json_schema=json_schema,
+            stream=stream,
         )
-    except subprocess.TimeoutExpired:
-        raise AICodegenError(
-            f"Qwen Code did not finish within {timeout:.0f}s and was terminated.",
-            suggestion=(
-                "Retry with a shorter description or raise the limit with "
-                "EBX_QWEN_CODEGEN_TIMEOUT (seconds)."
-            ),
-        ) from None
-    except OSError as exc:
-        raise AICodegenError(f"Failed to start Qwen Code: {exc}") from exc
+        logger.debug("Running Qwen Code headless via %s (stream=%s)", argv[0], stream)
+        try:
+            proc = _spawn_headless(argv, cwd=cwd, env=run_env)
+        except OSError as exc:
+            raise QwenCodeStartupError(f"Failed to start Qwen Code: {exc}") from exc
+        if stream and on_activity is not None:
+            stdout, stderr = _run_streaming(proc, timeout, on_activity)
+        else:
+            stdout, stderr = _run_blocking(proc, timeout)
+        return proc.returncode, stdout, stderr
 
-    text, is_error, structured, reported_session_id = _parse_headless_output(completed.stdout or "")
+    streaming = on_activity is not None
+    exit_code, stdout, stderr = attempt(stream=streaming)
+    parsed = _parse_headless_output(stdout)
+    if streaming and exit_code != 0 and parsed[1] and _STREAM_FALLBACK_RE.search(stderr):
+        # An older qwen that rejects the stream flags: run once more in
+        # plain json mode (the caller only loses the live text).
+        logger.debug("qwen rejected stream-json; retrying with --output-format json")
+        exit_code, stdout, stderr = attempt(stream=False)
+        parsed = _parse_headless_output(stdout)
+
+    text, is_error, structured, reported_session_id = parsed
     return QwenCodeRunResult(
         text=text,
         is_error=is_error,
-        exit_code=completed.returncode,
-        raw_stdout=completed.stdout or "",
-        raw_stderr=completed.stderr or "",
+        exit_code=exit_code,
+        raw_stdout=stdout,
+        raw_stderr=stderr,
         structured=structured,
         session_id=reported_session_id,
     )

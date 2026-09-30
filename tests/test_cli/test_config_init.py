@@ -58,9 +58,13 @@ class TestConfigInitNonInteractive:
 
         assert result.exit_code == 0
         assert "Non-interactive setup" in result.output
-        assert "ebx config set api_key" in result.output
+        assert "ebx config set sandbox_api_key" in result.output
         assert "ebx config set region" in result.output
-        assert "ebx config set qwen_code_api_key" in result.output
+        assert "ebx config set llm_api_key" in result.output
+        assert "ebx config set acr_namespace" in result.output
+        assert "ebx config set access_key_id" in result.output
+        assert "ebx config set access_key_secret" in result.output
+        assert "qwen_code_" not in result.output
         # Nothing may be written without explicit user input.
         assert not (tmp_path / ".env").exists()
 
@@ -91,17 +95,25 @@ class TestConfigInitWizard:
             result = runner.invoke(
                 cli,
                 ["config", "init"],
-                input="sk-platform\ncn-shanghai\nsk-qwen\n",
+                input="sk-platform\ncn-shanghai\nsk-qwen\nmy-ns\nLTAIexampleAk\nSecretValue123456\n",
             )
 
         assert result.exit_code == 0, result.output
         env_content = env_file.read_text(encoding="utf-8")
         assert "E2B_API_KEY=sk-platform" in env_content
-        assert "EBX_QWEN_CODE_API_KEY=sk-qwen" in env_content
+        assert "EBX_LLM_API_KEY=sk-qwen" in env_content
+        assert "ACR_NAMESPACE=my-ns" in env_content
+        assert "ALICLOUD_ACCESS_KEY_ID=LTAIexampleAk" in env_content
+        assert "ALICLOUD_ACCESS_KEY_SECRET=SecretValue123456" in env_content
+        assert "Set acr_namespace = my-ns" in result.output
+        assert "Stored access_key_id" in result.output
+        assert "Stored access_key_secret" in result.output
+        assert "SecretValue123456" not in result.output
+        assert "EBX_QWEN_CODE_API_KEY" not in env_content
         config_content = config_file.read_text(encoding="utf-8")
         assert 'region = "cn-shanghai"' in config_content
-        assert "Stored api_key" in result.output
-        assert "Stored qwen_code_api_key" in result.output
+        assert "Stored sandbox_api_key" in result.output
+        assert "Stored llm_api_key" in result.output
         assert "Configuration complete" in result.output
 
     def test_sensitive_values_are_not_echoed(self, runner: CliRunner, tmp_path: Path) -> None:
@@ -114,12 +126,13 @@ class TestConfigInitWizard:
             result = runner.invoke(
                 cli,
                 ["config", "init"],
-                input="sk-platform-secret\n\nsk-qwen-secret\n",
+                input="sk-platform-secret\n\nsk-qwen-secret\n\n\nsk-cloud-secret\n",
             )
 
         assert result.exit_code == 0, result.output
         assert "sk-platform-secret" not in result.output
         assert "sk-qwen-secret" not in result.output
+        assert "sk-cloud-secret" not in result.output
 
     def test_empty_inputs_skip_secrets_and_keep_default_region(
         self, runner: CliRunner, tmp_path: Path
@@ -133,7 +146,7 @@ class TestConfigInitWizard:
             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
             patch("easy_sandbox.cli.commands.config_cmd.sys", _FakeSys()),
         ):
-            result = runner.invoke(cli, ["config", "init"], input="\n\n\n")
+            result = runner.invoke(cli, ["config", "init"], input="\n\n\n\n\n\n")
 
         assert result.exit_code == 0, result.output
         # No secrets were typed → the .env file must not be created.
@@ -151,7 +164,7 @@ class TestConfigInitWizard:
             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
             patch("easy_sandbox.cli.commands.config_cmd.sys", _FakeSys()),
         ):
-            result = runner.invoke(cli, ["config", "init"], input="\n\n\n")
+            result = runner.invoke(cli, ["config", "init"], input="\n\n\n\n\n\n")
 
         assert result.exit_code == 0, result.output
         assert 'region = "cn-shanghai"' in config_file.read_text(encoding="utf-8")
@@ -170,7 +183,7 @@ class TestConfigInitMaskedInput:
             patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
             patch("easy_sandbox.cli.commands.config_cmd.sys", _FakeSys()),
         ):
-            result = runner.invoke(cli, ["config", "init"], input="sk-a\n\nsk-b\n")
+            result = runner.invoke(cli, ["config", "init"], input="sk-a\n\nsk-b\n\n\n\n")
 
         assert result.exit_code == 0, result.output
         assert "asterisk masking is not supported" in _stderr(result)
@@ -178,7 +191,7 @@ class TestConfigInitMaskedInput:
     def test_init_uses_masked_prompt_when_supported(
         self, runner: CliRunner, tmp_path: Path
     ) -> None:
-        """The wizard must route both secrets through _prompt_secret."""
+        """The wizard must route the three secrets through _prompt_secret."""
         env_file = tmp_path / ".env"
 
         with (
@@ -188,20 +201,27 @@ class TestConfigInitMaskedInput:
             patch("easy_sandbox.cli.commands.config_cmd.sys", _FakeSys()),
             patch(
                 "easy_sandbox.cli.commands.config_cmd._prompt_secret",
-                side_effect=["sk-platform", "sk-qwen"],
+                side_effect=["sk-platform", "sk-qwen", "sk-cloud"],
             ) as mock_prompt,
         ):
-            result = runner.invoke(cli, ["config", "init"], input="\n")
+            result = runner.invoke(cli, ["config", "init"], input="\nmy-ns\nLTAIexample\n")
 
         assert result.exit_code == 0, result.output
-        assert mock_prompt.call_count == 2
+        assert mock_prompt.call_count == 3
         env_content = env_file.read_text(encoding="utf-8")
         assert "E2B_API_KEY=sk-platform" in env_content
-        assert "EBX_QWEN_CODE_API_KEY=sk-qwen" in env_content
+        assert "EBX_LLM_API_KEY=sk-qwen" in env_content
+        assert "ACR_NAMESPACE=my-ns" in env_content
+        assert "ALICLOUD_ACCESS_KEY_ID=LTAIexample" in env_content
+        assert "ALICLOUD_ACCESS_KEY_SECRET=sk-cloud" in env_content
 
 
-class TestConfigListMasksQwenKey:
-    def test_qwen_key_is_masked_in_list(self, runner: CliRunner, tmp_path: Path) -> None:
+class TestLegacyQwenConfig:
+    """Older qwen_code_* storage is read as the unified llm_* profile."""
+
+    def test_legacy_qwen_key_is_listed_as_llm_api_key(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
         env_file = tmp_path / ".env"
         env_file.write_text("EBX_QWEN_CODE_API_KEY=abcdef123456\n", encoding="utf-8")
 
@@ -214,4 +234,65 @@ class TestConfigListMasksQwenKey:
 
         assert result.exit_code == 0, result.output
         assert "abcdef123456" not in result.output
-        assert "abc***456" in result.output
+        assert "qwen_code_" not in result.output
+        line = next(ln for ln in result.output.splitlines() if ln.startswith("llm_api_key"))
+        assert "abc***456" in line
+        assert "(user)" in line
+
+    def test_llm_api_key_wins_over_legacy_qwen_key(self, runner: CliRunner, tmp_path: Path) -> None:
+        env_file = tmp_path / ".env"
+        env_file.write_text(
+            "EBX_LLM_API_KEY=sk-newkey123456\nEBX_QWEN_CODE_API_KEY=abcdef123456\n",
+            encoding="utf-8",
+        )
+
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", tmp_path / "config.toml"),
+            patch("easy_sandbox.cli.commands.config_cmd._ENV_FILE", env_file),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+        ):
+            result = runner.invoke(cli, ["config", "get", "llm_api_key"])
+
+        assert result.exit_code == 0, result.output
+        assert "abcdef123456" not in result.output
+        assert "sk-***456" in result.output or "***" in result.output
+        assert "sk-newkey123456" not in result.output
+
+    def test_legacy_endpoint_is_listed_as_llm_base_url(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        config_file = tmp_path / "config.toml"
+        config_file.write_text(
+            '[transport]\nqwen_code_base_url = "https://example.test/v1"\n'
+            'qwen_code_model = "qwen3.8-plus"\n',
+            encoding="utf-8",
+        )
+
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", config_file),
+            patch("easy_sandbox.cli.commands.config_cmd._ENV_FILE", tmp_path / ".env"),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+        ):
+            result = runner.invoke(cli, ["config", "list"])
+
+        assert result.exit_code == 0, result.output
+        assert "qwen_code_" not in result.output
+        base = next(ln for ln in result.output.splitlines() if ln.startswith("llm_base_url"))
+        model = next(ln for ln in result.output.splitlines() if ln.startswith("llm_model"))
+        assert "https://example.test/v1 (user)" in base
+        assert "qwen3.8-plus (user)" in model
+
+    def test_removed_qwen_key_points_at_llm_api_key(
+        self, runner: CliRunner, tmp_path: Path
+    ) -> None:
+        with (
+            patch("easy_sandbox.cli.commands.config_cmd._CONFIG_FILE", tmp_path / "config.toml"),
+            patch("easy_sandbox.cli.commands.config_cmd._ENV_FILE", tmp_path / ".env"),
+            patch("easy_sandbox.cli.commands.config_cmd._EBX_DIR", tmp_path),
+        ):
+            result = runner.invoke(cli, ["config", "set", "qwen_code_api_key", "sk-old"])
+
+        assert result.exit_code == 2
+        assert "was removed" in result.output
+        assert "llm_api_key" in result.output
+        assert not (tmp_path / ".env").exists()

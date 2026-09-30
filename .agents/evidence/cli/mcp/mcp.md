@@ -6,7 +6,7 @@
 
 ```
 $ ebx mcp install --target cursor
-MCP Server config written to /var/folders/cb/925wcj8128gf6p6bn1hp1cgc0000gn/T/tmp7ux_49t0/.cursor/mcp.json
+MCP Server config written to /var/folders/cb/925wcj8128gf6p6bn1hp1cgc0000gn/T/tmpb4e5gk1w/.cursor/mcp.json
 
 Registered tools:
   • create_sandbox     — Create a cloud sandbox
@@ -30,6 +30,7 @@ transport         stdio
 tools_count       7
 tools             ['create_sandbox', 'run_code', 'run_command', 'read_file', 'write_file', 'list_files', 'kill_sandbox']
 auth_configured   False
+mcp_running       False
 installed_cursor  True
 installed_claude  True
 installed_vscode  True
@@ -54,6 +55,7 @@ $ ebx --json mcp status
     "kill_sandbox"
   ],
   "auth_configured": false,
+  "mcp_running": false,
   "installed_cursor": true,
   "installed_claude": true,
   "installed_vscode": true

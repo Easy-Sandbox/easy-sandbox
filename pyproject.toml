@@ -8,7 +8,7 @@ dynamic = ["version"]
 description = "Easy Sandbox SDK — Create, manage, and interact with cloud sandboxes for AI agents"
 readme = "README.md"
 license = "Apache-2.0"
-requires-python = ">=3.10"
+requires-python = ">=3.9"
 authors = [
     { name = "Anycodes" },
 ]
@@ -18,6 +18,7 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -55,6 +56,10 @@ session = [
 ]
 alicloud = [
     "alibabacloud-fcsandbox20260509>=1.6.0",
+]
+binary = [
+    "easy-sandbox[cli]",
+    "pyinstaller>=6.0",
 ]
 all = [
     "easy-sandbox[cli,fast,session,mcp,declarative,alicloud]",
@@ -107,7 +112,7 @@ markers = [
 ]
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py39"
 line-length = 100
 src = ["src", "tests"]
 
@@ -119,7 +124,7 @@ exclude_dirs = ["tests"]
 skips = ["B101"]  # assert 语句在测试中是正常的
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.9"
 strict = true
 warn_return_any = true
 warn_unused_configs = true
@@ -133,5 +138,6 @@ module = [
     "alibabacloud_fcsandbox20260509.*",
     "alibabacloud_tea_openapi.*",
     "tomli",
+    "questionary",
 ]
 ignore_missing_imports = true

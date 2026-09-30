@@ -223,6 +223,32 @@ class TestWaitForBuild:
         )
         assert result["status"] == "ready"
 
+    async def test_on_poll_sees_each_status(self, protocol, httpx_mock, monkeypatch):
+        async def _no_sleep(_seconds: float) -> None:
+            return None
+
+        monkeypatch.setattr("easy_sandbox.protocol.template.asyncio.sleep", _no_sleep)
+        httpx_mock.add_response(
+            url=f"{BASE}/templates/tpl-abc123/builds/bld-xyz789/status",
+            method="GET",
+            json=_BUILD_STATUS_BUILDING,
+        )
+        httpx_mock.add_response(
+            url=f"{BASE}/templates/tpl-abc123/builds/bld-xyz789/status",
+            method="GET",
+            json=_BUILD_STATUS_READY,
+        )
+        seen: list[tuple[str, int]] = []
+        result = await protocol.wait_for_build(
+            "tpl-abc123",
+            "bld-xyz789",
+            timeout=10,
+            poll_interval=1,
+            on_poll=lambda status, elapsed: seen.append((status, elapsed)),
+        )
+        assert result["status"] == "ready"
+        assert seen == [("building", 0), ("ready", 1)]
+
     async def test_wait_build_error(self, protocol, httpx_mock):
         httpx_mock.add_response(
             url=f"{BASE}/templates/tpl-abc123/builds/bld-xyz789/status",

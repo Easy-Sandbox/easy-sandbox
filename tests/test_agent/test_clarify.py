@@ -16,7 +16,7 @@ the thin Easy Sandbox adapter around it:
 * the structured payload parsing and the threshold verdict (our gate);
 * the ``evaluate`` / ``run_research`` call contracts (native session
   flags, turn budgets, structured output) and their degrade-to-``None`` /
-  ``False`` failure modes.
+  classified-``ResearchOutcome`` failure modes.
 
 No test performs real network access or executes the real CLI.
 """
@@ -24,6 +24,7 @@ No test performs real network access or executes the real CLI.
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from pathlib import Path
 from typing import Any
@@ -38,8 +39,13 @@ from easy_sandbox.agent.clarify import (
     DEFAULT_CLARIFY_TIMEOUT,
     DEFAULT_RESEARCH_TIMEOUT,
     MAX_CLARIFY_ROUNDS,
+    RESEARCH_REASON_AGENT_UNAVAILABLE,
+    RESEARCH_REASON_COMMAND_FAILED,
+    RESEARCH_REASON_TIMEOUT,
+    RESEARCH_REASON_TURN_LIMIT,
     RESEARCH_SESSION_TURNS,
     ClarifyAssessment,
+    ResearchOutcome,
     answer_prompt,
     assessment_prompt,
     is_delegation_answer,
@@ -48,7 +54,12 @@ from easy_sandbox.agent.clarify import (
     research_prompt,
 )
 from easy_sandbox.agent.qwen_code import QwenCodeRunResult
-from easy_sandbox.models.errors import AICodegenError
+from easy_sandbox.models.errors import (
+    AICodegenError,
+    QwenCodeNotInstalledError,
+    QwenCodeStartupError,
+    QwenCodeTimeoutError,
+)
 
 _SESSION = "6f0f8e9a-1b2c-4d5e-8f90-123456789abc"
 
@@ -77,6 +88,30 @@ class TestConstants:
         assert RESEARCH_SESSION_TURNS > ASSESS_SESSION_TURNS
         assert DEFAULT_RESEARCH_TIMEOUT > DEFAULT_CLARIFY_TIMEOUT
         assert RESEARCH_SESSION_TURNS >= 20
+
+    def test_research_is_bounded_well_below_the_old_hang(self) -> None:
+        """Regression: research used to run 40 turns / 300s and looked hung."""
+        assert RESEARCH_SESSION_TURNS <= 20
+        assert DEFAULT_RESEARCH_TIMEOUT <= 300.0
+
+    def test_research_prompt_caps_slow_web_fetches(self) -> None:
+        prompt = clarify.research_prompt("run serverless devs in a sandbox")
+        assert "最多 3 次网络检索" in prompt
+
+
+class TestDefaultResearchTimeout:
+    def test_default_without_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("EBX_QWEN_RESEARCH_TIMEOUT", raising=False)
+        assert clarify.default_research_timeout() == DEFAULT_RESEARCH_TIMEOUT
+
+    def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("EBX_QWEN_RESEARCH_TIMEOUT", "45")
+        assert clarify.default_research_timeout() == 45.0
+
+    @pytest.mark.parametrize("raw", ["", "abc", "0", "-5"])
+    def test_invalid_override_falls_back(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
+        monkeypatch.setenv("EBX_QWEN_RESEARCH_TIMEOUT", raw)
+        assert clarify.default_research_timeout() == DEFAULT_RESEARCH_TIMEOUT
 
 
 class TestSchema:
@@ -295,7 +330,7 @@ class TestRunResearch:
         """Research pins the native session and runs WITHOUT --json-schema."""
         captured = self._capture(monkeypatch)
 
-        ok = clarify.run_research(
+        outcome = clarify.run_research(
             "research this",
             binary=Path("/fake/qwen"),
             env={"OPENAI_API_KEY": "sk-test"},
@@ -303,7 +338,11 @@ class TestRunResearch:
             session_id=_SESSION,
         )
 
-        assert ok is True
+        assert isinstance(outcome, ResearchOutcome)
+        assert outcome.ok is True
+        assert bool(outcome) is True
+        assert outcome.reason == ""
+        assert outcome.detail == ""
         assert captured["prompt"] == "research this"
         assert captured["session_id"] == _SESSION
         assert captured.get("resume") is None
@@ -311,24 +350,157 @@ class TestRunResearch:
         assert captured["max_session_turns"] == RESEARCH_SESSION_TURNS
         assert captured["timeout"] == DEFAULT_RESEARCH_TIMEOUT
 
-    def test_failed_run_degrades_to_false(
+    def test_error_result_is_classified_as_command_failed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        result = QwenCodeRunResult(text="boom", is_error=True, exit_code=1)
+        """A non-zero agent exit degrades to a classified, non-blocking outcome."""
+        result = QwenCodeRunResult(text="boom", is_error=True, exit_code=7)
         self._capture(monkeypatch, result=result)
 
-        assert not clarify.run_research(
+        outcome = clarify.run_research(
             "p", binary=Path("/fake/qwen"), env=None, cwd=tmp_path, session_id=_SESSION
         )
 
-    def test_codegen_error_degrades_to_false(
+        assert not outcome
+        assert outcome.reason == RESEARCH_REASON_COMMAND_FAILED
+        assert outcome.detail == "exit code 7"
+
+    def test_unclassified_codegen_error_degrades_to_command_failed(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         self._capture(monkeypatch, raises=AICodegenError("timed out"))
 
-        assert not clarify.run_research(
+        outcome = clarify.run_research(
             "p", binary=Path("/fake/qwen"), env=None, cwd=tmp_path, session_id=_SESSION
         )
+
+        assert not outcome
+        assert outcome.reason == RESEARCH_REASON_COMMAND_FAILED
+
+    def test_timeout_is_classified_as_timeout(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._capture(monkeypatch, raises=QwenCodeTimeoutError("did not finish"))
+
+        outcome = clarify.run_research(
+            "p",
+            binary=Path("/fake/qwen"),
+            env=None,
+            cwd=tmp_path,
+            session_id=_SESSION,
+            timeout=123.0,
+        )
+
+        assert not outcome
+        assert outcome.reason == RESEARCH_REASON_TIMEOUT
+        assert outcome.detail == "no result within 123s"
+
+    @pytest.mark.parametrize(
+        "exc",
+        [
+            QwenCodeNotInstalledError("not installed"),
+            QwenCodeStartupError("spawn failed"),
+        ],
+    )
+    def test_unavailable_agent_is_classified_as_agent_unavailable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, exc: Exception
+    ) -> None:
+        """Missing binary and failed spawn both mean “agent unavailable”."""
+        self._capture(monkeypatch, raises=exc)
+
+        outcome = clarify.run_research(
+            "p", binary=Path("/fake/qwen"), env=None, cwd=tmp_path, session_id=_SESSION
+        )
+
+        assert not outcome
+        assert outcome.reason == RESEARCH_REASON_AGENT_UNAVAILABLE
+        assert outcome.detail == ""
+
+    def test_turn_limit_exit_is_classified_as_turn_limit(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """qwen exits 53 when it runs out of turns: not a generic failure."""
+        result = QwenCodeRunResult(text="", is_error=True, exit_code=53)
+        self._capture(monkeypatch, result=result)
+
+        outcome = clarify.run_research(
+            "p", binary=Path("/fake/qwen"), env=None, cwd=tmp_path, session_id=_SESSION
+        )
+
+        assert not outcome
+        assert outcome.reason == RESEARCH_REASON_TURN_LIMIT
+        assert str(RESEARCH_SESSION_TURNS) in outcome.detail
+
+    def test_timeout_comes_from_the_environment_override(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("EBX_QWEN_RESEARCH_TIMEOUT", "77")
+        captured = self._capture(monkeypatch)
+
+        clarify.run_research(
+            "p", binary=Path("/fake/qwen"), env=None, cwd=tmp_path, session_id=_SESSION
+        )
+
+        assert captured["timeout"] == 77.0
+
+    def test_on_activity_is_forwarded_only_when_given(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured = self._capture(monkeypatch)
+        clarify.run_research(
+            "p", binary=Path("/fake/qwen"), env=None, cwd=tmp_path, session_id=_SESSION
+        )
+        assert "on_activity" not in captured  # legacy runners keep working
+
+        def callback(summary: str) -> None:
+            pass
+
+        captured = self._capture(monkeypatch)
+        clarify.run_research(
+            "p",
+            binary=Path("/fake/qwen"),
+            env=None,
+            cwd=tmp_path,
+            session_id=_SESSION,
+            on_activity=callback,
+        )
+        assert captured["on_activity"] is callback
+
+    def test_raw_stderr_only_reaches_the_debug_log(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Raw stderr stays in the debug log; only the stable fields travel."""
+        secret = "SECRET-RAW-STDERR"
+        result = QwenCodeRunResult(text="boom", is_error=True, exit_code=1, raw_stderr=secret)
+        self._capture(monkeypatch, result=result)
+
+        with caplog.at_level(logging.DEBUG, logger="easy_sandbox.agent.clarify"):
+            outcome = clarify.run_research(
+                "p", binary=Path("/fake/qwen"), env=None, cwd=tmp_path, session_id=_SESSION
+            )
+
+        assert secret in caplog.text  # debug keeps the raw stderr
+        assert outcome.reason == RESEARCH_REASON_COMMAND_FAILED
+        assert secret not in outcome.detail
+
+
+class TestResearchReasons:
+    """The stable, machine-readable research failure codes."""
+
+    def test_reason_codes_are_stable_literals(self) -> None:
+        assert RESEARCH_REASON_TIMEOUT == "timeout"
+        assert RESEARCH_REASON_AGENT_UNAVAILABLE == "agent-unavailable"
+        assert RESEARCH_REASON_COMMAND_FAILED == "command-failed"
+        assert RESEARCH_REASON_TURN_LIMIT == "turn-limit"
+
+    def test_codes_are_distinct(self) -> None:
+        codes = {
+            RESEARCH_REASON_TIMEOUT,
+            RESEARCH_REASON_AGENT_UNAVAILABLE,
+            RESEARCH_REASON_COMMAND_FAILED,
+            RESEARCH_REASON_TURN_LIMIT,
+        }
+        assert len(codes) == 4
 
 
 class TestEvaluate:
@@ -371,6 +543,22 @@ class TestEvaluate:
         assert captured["resume"] is None
         assert captured["json_schema"] is CLARIFY_SCHEMA
         assert captured["max_session_turns"] == ASSESS_SESSION_TURNS
+
+    def test_on_activity_is_forwarded_only_when_given(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        captured = self._capture(monkeypatch)
+        clarify.evaluate("p", binary=Path("/fake/qwen"), env=None, cwd=tmp_path)
+        assert "on_activity" not in captured
+
+        def callback(summary: str) -> None:
+            pass
+
+        captured = self._capture(monkeypatch)
+        clarify.evaluate(
+            "p", binary=Path("/fake/qwen"), env=None, cwd=tmp_path, on_activity=callback
+        )
+        assert captured["on_activity"] is callback
 
     def test_resume_round_continues_the_same_session(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
@@ -422,3 +610,13 @@ class TestOutcomeDefaults:
         assert outcome.rounds == 0
         assert not outcome.degraded
         assert not outcome.skipped
+
+    def test_research_outcome_is_bool_compatible(self) -> None:
+        """Legacy callers keep working: truthiness mirrors ``ok``."""
+        ok = ResearchOutcome(ok=True)
+        assert ok
+        assert ok.reason == ""
+        assert ok.detail == ""
+        failed = ResearchOutcome(ok=False, reason=RESEARCH_REASON_TIMEOUT)
+        assert not failed
+        assert failed.detail == ""

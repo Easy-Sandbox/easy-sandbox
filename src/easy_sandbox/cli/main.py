@@ -13,6 +13,126 @@ from typing import Any, TypeVar
 import click
 
 # ---------------------------------------------------------------------------
+# Command registry & shortcuts
+# ---------------------------------------------------------------------------
+
+# Core command groups — always registered, cannot be overridden by shortcuts
+_CORE_COMMANDS: dict[str, str] = {
+    "sandbox": "easy_sandbox.cli.commands.sandbox:sandbox",
+    "config": "easy_sandbox.cli.commands.config_cmd:config",
+    "mcp": "easy_sandbox.cli.commands.mcp:mcp",
+    "template": "easy_sandbox.cli.commands.template:template",
+}
+
+# Reserved names that user shortcuts cannot override
+RESERVED_NAMES: frozenset[str] = frozenset(_CORE_COMMANDS)
+
+# Default shortcuts: alias → human-readable target string.
+# Used by ``config_cmd`` when generating the default ``~/.ebx/config.toml``
+# only. At runtime the config file is the single source of truth — these
+# values are never merged in implicitly.
+_DEFAULT_SHORTCUTS: dict[str, str] = {
+    "create": "sandbox create",
+    "list": "sandbox list",
+    "info": "sandbox info",
+    "kill": "sandbox kill",
+    "exec": "sandbox exec",
+    "connect": "sandbox connect",
+    "upload": "sandbox upload",
+    "download": "sandbox download",
+    "run": "sandbox run",
+    "install": "template install",
+    # Same click.Command object as 'ebx template init' (task 211); the option
+    # surface and scaffolding logic are shared, nothing is duplicated.
+    "init": "template init",
+    "deploy": "deploy",
+}
+
+# All valid shortcut targets: human-readable string → module:attr import path.
+# This includes both default-enabled and additional commands users can enable.
+_SHORTCUT_TARGET_MAP: dict[str, str] = {
+    "sandbox create": "easy_sandbox.cli.commands.sandbox:create",
+    "sandbox list": "easy_sandbox.cli.commands.sandbox:list_cmd",
+    "sandbox info": "easy_sandbox.cli.commands.sandbox:info",
+    "sandbox kill": "easy_sandbox.cli.commands.sandbox:kill",
+    "sandbox exec": "easy_sandbox.cli.commands.sandbox:exec_cmd",
+    "sandbox connect": "easy_sandbox.cli.commands.sandbox:connect",
+    "sandbox upload": "easy_sandbox.cli.commands.sandbox:upload",
+    "sandbox download": "easy_sandbox.cli.commands.sandbox:download",
+    "sandbox run": "easy_sandbox.cli.commands.sandbox:run_cmd",
+    "template install": "easy_sandbox.cli.commands.template:install_shortcut",
+    "template init": "easy_sandbox.cli.commands.template:init",
+    "deploy": "easy_sandbox.cli.commands.deploy:deploy_shortcut",
+    # Additional commands (not enabled by default, users can enable via config)
+    "sandbox files list": "easy_sandbox.cli.commands.sandbox_files:files_list",
+    "sandbox process list": "easy_sandbox.cli.commands.sandbox_process:process_list",
+    "sandbox system info": "easy_sandbox.cli.commands.sandbox_system:system_info",
+    "template build": "easy_sandbox.cli.commands.template:build",
+    "template search": "easy_sandbox.cli.commands.template:search",
+}
+
+
+def _describe_invalid_shortcut_target(target: str, *, alias: str | None = None) -> str:
+    """Explain an unrecognized shortcut target in plain language.
+
+    The stored value is the command path only (``template init``), never the
+    full invocation (``ebx template init``). A leading ``ebx`` is called out
+    on its own; when dropping it leaves a real target, the text includes the
+    command to retry. Any other value gets the same rule plus the target
+    list, grouped by command.
+    """
+    normalized = " ".join(target.split())
+    head, _, rest = normalized.partition(" ")
+    dropped_ebx = head.lower() == "ebx"
+    stripped = rest if dropped_ebx else None
+
+    if stripped and stripped in _SHORTCUT_TARGET_MAP:
+        lines = [
+            'Drop the leading "ebx". The target is the command path only, '
+            f'for example "{stripped}".'
+        ]
+        if alias:
+            lines.append(f'Try: ebx config set shortcuts.{alias} "{stripped}"')
+        return "\n".join(lines)
+
+    if dropped_ebx and stripped:
+        lead = (
+            'Drop the leading "ebx". '
+            f'"{stripped}" is not a command path. '
+            'Use a path such as "template init".'
+        )
+    elif dropped_ebx:
+        lead = (
+            'Drop the leading "ebx". The target is the command path only, '
+            'for example "template init".'
+        )
+    else:
+        lead = 'Use the command path without the "ebx" prefix, for example "template init".'
+    return lead + "\n" + _format_shortcut_targets()
+
+
+def _format_shortcut_targets() -> str:
+    """Render valid shortcut targets grouped by their first word."""
+    groups: dict[str, list[str]] = {}
+    order: list[str] = []
+    for name in sorted(_SHORTCUT_TARGET_MAP):
+        group, _, tail = name.partition(" ")
+        if group not in groups:
+            groups[group] = []
+            order.append(group)
+        if tail:
+            groups[group].append(tail)
+    lines = ["Available targets:"]
+    for group in order:
+        tails = groups[group]
+        if tails:
+            lines.append(f"  {group}: {', '.join(tails)}")
+        else:
+            lines.append(f"  {group}")
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Lazy Group
 # ---------------------------------------------------------------------------
 
@@ -22,16 +142,82 @@ class LazyGroup(click.Group):
 
     Subcommands are registered as import paths and only loaded
     when actually invoked, keeping ``--help`` fast.
+
+    When ``merge_shortcuts`` is enabled (root CLI group only), the user
+    shortcuts configured in ``~/.ebx/config.toml`` are merged in as well.
     """
 
     def __init__(
         self,
         *args: Any,
         lazy_subcommands: dict[str, str] | None = None,
+        merge_shortcuts: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._lazy_subcommands = lazy_subcommands or {}
+        if merge_shortcuts:
+            self._merge_user_shortcuts()
+
+    def _merge_user_shortcuts(self) -> None:
+        """Merge the user-configured shortcuts into lazy subcommands.
+
+        ``~/.ebx/config.toml`` is the single source of truth: on a fresh
+        install the default config file is created first, then the
+        ``[shortcuts]`` section is honoured as-is — remapped or deleted
+        defaults included, there is no implicit fallback to the built-in
+        defaults. A corrupted config only disables shortcuts (with a stderr
+        warning): the core command groups keep working, the CLI never breaks.
+        """
+        try:
+            from easy_sandbox.cli.commands.config_cmd import (
+                _config_file_exists,
+                _create_default_config,
+                load_shortcuts,
+            )
+
+            if not _config_file_exists():
+                # Fresh install: materialise the default config file so the
+                # shortcut list always has a single, inspectable source.
+                _create_default_config()
+
+            shortcuts = load_shortcuts()
+
+            for alias, target in shortcuts.items():
+                if alias in RESERVED_NAMES:
+                    click.echo(
+                        f"⚠ Warning: Shortcut '{alias} = \"{target}\"' conflicts with "
+                        f"built-in command '{alias}', ignored.",
+                        err=True,
+                    )
+                    continue
+                if alias in _CORE_COMMANDS:
+                    continue  # Already registered as core command
+                import_path = _SHORTCUT_TARGET_MAP.get(target)
+                if import_path is None:
+                    hint = _describe_invalid_shortcut_target(target, alias=alias)
+                    detail = "\n".join(f"  {line}" for line in hint.splitlines())
+                    click.echo(
+                        f"⚠ Warning: Invalid shortcut ignored: '{alias} = \"{target}\"' "
+                        f"in ~/.ebx/config.toml\n"
+                        f"{detail}",
+                        err=True,
+                    )
+                    continue
+                self._lazy_subcommands[alias] = import_path
+        except Exception as exc:
+            # Corrupted config (or missing config helpers): warn and keep
+            # going without shortcuts — the CLI must never break.
+            click.echo(
+                f"⚠ Warning: Failed to load shortcuts from config: {exc}\n"
+                "  Shortcuts are unavailable for this session; the built-in "
+                "commands (sandbox/config/mcp/template) still work.\n"
+                "  Options:\n"
+                "    • Fix manually: edit ~/.ebx/config.toml\n"
+                "    • Reset config: ebx config init (re-run guided setup)\n"
+                "    • Reset shortcuts only: ebx config init --reset-shortcuts",
+                err=True,
+            )
 
     def list_commands(self, ctx: click.Context) -> list[str]:
         base = super().list_commands(ctx)
@@ -61,7 +247,9 @@ class LazyGroup(click.Group):
           only a "Did you mean" correction suggestion.
         * With no plausible candidate, the user is pointed to template
           ``custom_commands`` (declared in template.yaml and invoked via
-          ``ebx run COMMAND``).
+          ``ebx run COMMAND``) and to a shortcut example whose target is the
+          command path without the ``ebx`` prefix
+          (``ebx config set shortcuts.NAME "template init"``).
 
         Contract preserved: Click ``UsageError`` semantics — exit code 2,
         message on stderr. Only the root group is affected.
@@ -83,9 +271,13 @@ class LazyGroup(click.Group):
                 hint = "Did you mean " + ", ".join(f"'{c}'" for c in candidates) + "?"
             else:
                 hint = (
-                    "No similar ebx command found. If this is a custom command, "
-                    "declare it in the template's template.yaml (custom_commands) "
-                    "and run it with 'ebx run COMMAND'."
+                    "No similar command. "
+                    'To add a shortcut, use the command path without the "ebx" '
+                    "prefix, for example: "
+                    'ebx config set shortcuts.NAME "template init". '
+                    "A custom command inside a sandbox is declared in "
+                    "template.yaml (custom_commands) and run with "
+                    "'ebx run COMMAND'."
                 )
             raise click.UsageError(f"No such command '{cmd_name}'. {hint}", ctx) from None
         assert cmd is not None and cmd_name is not None
@@ -213,7 +405,7 @@ def _handle_remote_exception(
                 f"Authentication failed (HTTP {status}).",
                 code="E1000",
                 suggestion="Check your API key or AK/SK credentials "
-                "(ebx config set api_key <KEY>).",
+                "(ebx config set sandbox_api_key <KEY>).",
             )
             _sys.exit(EXIT_AUTH)
         elif status == 404:
@@ -348,27 +540,10 @@ def _handle_remote_exception(
     # Click's built-in conflict guard (the alias is dropped for that command,
     # ``--help`` keeps working) — user parameters are never shadowed.
     context_settings={"help_option_names": ["-h", "--help"]},
-    lazy_subcommands={
-        "create": "easy_sandbox.cli.commands.sandbox:create",
-        "list": "easy_sandbox.cli.commands.sandbox:list_cmd",
-        "info": "easy_sandbox.cli.commands.sandbox:info",
-        "kill": "easy_sandbox.cli.commands.sandbox:kill",
-        "exec": "easy_sandbox.cli.commands.sandbox:exec_cmd",
-        "connect": "easy_sandbox.cli.commands.sandbox:connect",
-        "sandbox": "easy_sandbox.cli.commands.sandbox:sandbox",
-        "config": "easy_sandbox.cli.commands.config_cmd:config",
-        "mcp": "easy_sandbox.cli.commands.mcp:mcp",
-        "template": "easy_sandbox.cli.commands.template:template",
-        "install": "easy_sandbox.cli.commands.template:install_shortcut",
-        # Top-level scaffold shortcut (task 211): the exact same click.Command
-        # object as ``ebx template init`` — the option surface and scaffolding
-        # logic are shared, nothing is duplicated.
-        "init": "easy_sandbox.cli.commands.template:init",
-        "upload": "easy_sandbox.cli.commands.sandbox:upload",
-        "download": "easy_sandbox.cli.commands.sandbox:download",
-        "run": "easy_sandbox.cli.commands.sandbox:run_cmd",
-        "deploy": "easy_sandbox.cli.commands.deploy:deploy_shortcut",
-    },
+    # Core command groups are always registered; the top-level shortcuts are
+    # merged dynamically from ``~/.ebx/config.toml`` by ``LazyGroup``.
+    lazy_subcommands=dict(_CORE_COMMANDS),
+    merge_shortcuts=True,
 )
 @click.option("--json", "-j", "output_json", is_flag=True, help="Output as JSON")
 @click.option("--quiet", "-q", is_flag=True, help="Minimal output")

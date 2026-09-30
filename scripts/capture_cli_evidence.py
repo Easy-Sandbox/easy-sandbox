@@ -113,6 +113,16 @@ def main() -> None:
     live_available = bool(os.environ.get("E2B_API_KEY"))
     runner = CliRunner()
 
+    # Evidence must not depend on the operator's ~/.ebx/config.toml shortcuts.
+    import easy_sandbox.cli.commands.config_cmd as config_cmd  # noqa: E402
+    from easy_sandbox.cli.main import _CORE_COMMANDS, _DEFAULT_SHORTCUTS  # noqa: E402
+
+    config_cmd.load_shortcuts = lambda: dict(_DEFAULT_SHORTCUTS)  # type: ignore[assignment]
+    config_cmd._config_file_exists = lambda: True  # type: ignore[assignment]
+    config_cmd._create_default_config = lambda: None  # type: ignore[assignment]
+    cli._lazy_subcommands = dict(_CORE_COMMANDS)
+    cli._merge_user_shortcuts()
+
     groups: dict[str, list[str]] = defaultdict(list)
     total, skipped = 0, 0
 

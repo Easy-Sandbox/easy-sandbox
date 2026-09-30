@@ -53,6 +53,29 @@ def _case_ids() -> list[str]:
 
 
 @pytest.fixture(autouse=True)
+def _default_shortcuts_only(monkeypatch: pytest.MonkeyPatch):
+    """Pin the root CLI to the built-in default shortcuts.
+
+    The merged shortcuts come from ``~/.ebx/config.toml``.  Without this, a
+    developer's own ``[shortcuts]`` entry leaks into ``help-ebx`` (the golden
+    then only passes on machines with a pristine config, e.g. CI), and a
+    fresh-install bootstrap could touch the real home directory.  The merge
+    is re-run against the defaults and restored afterwards.
+    """
+    import easy_sandbox.cli.commands.config_cmd as config_cmd
+    from easy_sandbox.cli.main import _CORE_COMMANDS, _DEFAULT_SHORTCUTS
+
+    original = dict(cli._lazy_subcommands)
+    monkeypatch.setattr(config_cmd, "load_shortcuts", lambda: dict(_DEFAULT_SHORTCUTS))
+    monkeypatch.setattr(config_cmd, "_config_file_exists", lambda: True)
+    monkeypatch.setattr(config_cmd, "_create_default_config", lambda: None)
+    cli._lazy_subcommands = dict(_CORE_COMMANDS)
+    cli._merge_user_shortcuts()
+    yield
+    cli._lazy_subcommands = original
+
+
+@pytest.fixture(autouse=True)
 def _reset_cfg():
     # Remove any test-injected commands from the global CLI group
     # (e.g. _test_ctx added by test_main.py::test_context_options_stored)

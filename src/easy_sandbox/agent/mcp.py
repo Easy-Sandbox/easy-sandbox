@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import signal
 import sys
 from typing import TYPE_CHECKING, Any
 
@@ -38,6 +39,10 @@ logger = get_logger("agent.mcp")
 # declare their own version via the ``supported_protocol_versions`` argument.
 MCP_PROTOCOL_VERSION = "2024-11-05"
 
+# A single tools/call (for example write_file of a source file) is one JSON
+# line. The asyncio default of 64 KiB kills the process on a longer line.
+_STDIO_READ_LIMIT = 8 * 1024 * 1024
+
 SERVER_NAME = "easy-sandbox"
 SERVER_VERSION = "0.1.0"
 
@@ -50,10 +55,16 @@ SERVER_VERSION = "0.1.0"
 class SandboxManager:
     """Manage sandbox instances for an MCP session.
 
-    Implements the "default sandbox" concept:
-    - First tool call without sandbox_id → auto-create default sandbox
-    - Subsequent calls without sandbox_id → reuse default sandbox
-    - Explicit sandbox_id → use/store that specific sandbox
+    The default sandbox is the one omitted ``sandbox_id`` arguments use:
+
+    - The first such call lazily creates it with this manager's template.
+    - ``create_sandbox`` makes the new sandbox the default, so the usual
+      agent sequence (create, then write / run / kill without an id) stays
+      on that sandbox. Earlier sandboxes stay alive until killed or the
+      session ends.
+    - An explicit ``sandbox_id`` addresses that sandbox and does not change
+      the default.
+    - Concurrent callers share one lazy create.
     """
 
     def __init__(
@@ -69,6 +80,44 @@ class SandboxManager:
         self._default_template = template
         self._default_sandbox: Any = None  # Sandbox instance
         self._sandboxes: dict[str, Any] = {}  # sandbox_id -> Sandbox
+        self._lifetimes: dict[str, int] = {}  # sandbox_id -> timeout seconds
+        self._state_lock = asyncio.Lock()
+        self._default_lock = asyncio.Lock()
+
+    def _connect_kwargs(self, **extra: Any) -> dict[str, Any]:
+        """Build SDK kwargs shared by create, connect, and kill."""
+        kwargs = dict(extra)
+        if self._api_key:
+            kwargs["api_key"] = self._api_key
+        if self._api_url:
+            kwargs["api_url"] = self._api_url
+        if self._domain:
+            kwargs["domain"] = self._domain
+        return kwargs
+
+    async def _refresh_lifetime(self, sandbox: Any) -> None:
+        """Best-effort extend of the sandbox TTL before a tool uses it.
+
+        ``Sandbox.set_timeout`` posts the platform timeout endpoint that has
+        been verified against the service. A refresh failure is logged and
+        the tool call continues; the tool's own error is what the agent sees
+        if the sandbox is already gone.
+        """
+        setter = getattr(sandbox, "set_timeout", None)
+        if setter is None:
+            return
+        sandbox_id = getattr(sandbox, "id", "")
+        timeout = self._lifetimes.get(sandbox_id, 300)
+        try:
+            result = setter(int(timeout))
+            if asyncio.iscoroutine(result) or asyncio.isfuture(result):
+                await result
+        except Exception:
+            logger.warning(
+                "Could not extend sandbox %s lifetime",
+                sandbox_id or "?",
+                exc_info=True,
+            )
 
     async def create_sandbox(
         self,
@@ -76,63 +125,67 @@ class SandboxManager:
         timeout: int = 300,
         envs: dict[str, str] | None = None,
     ) -> Any:
-        """Create a new sandbox."""
+        """Create a sandbox and make it the session default."""
         from easy_sandbox.api.sandbox import Sandbox
 
-        kwargs: dict[str, Any] = {
-            "template": template or self._default_template,
-            "timeout": timeout,
-            "envs": envs or {},
-        }
-        if self._api_key:
-            kwargs["api_key"] = self._api_key
-        if self._api_url:
-            kwargs["api_url"] = self._api_url
-        if self._domain:
-            kwargs["domain"] = self._domain
-
+        kwargs = self._connect_kwargs(
+            template=template or self._default_template,
+            timeout=timeout,
+            envs=envs or {},
+        )
         sandbox = await Sandbox.create(**kwargs)
-        self._sandboxes[sandbox.id] = sandbox
+        async with self._state_lock:
+            self._sandboxes[sandbox.id] = sandbox
+            self._lifetimes[sandbox.id] = timeout
+            self._default_sandbox = sandbox
         logger.info("Created sandbox: %s", sandbox.id)
         return sandbox
 
     async def get_sandbox(self, sandbox_id: str | None = None) -> Any:
-        """Get a sandbox by ID, or create/return default sandbox."""
+        """Get a sandbox by ID, or create/return the default sandbox."""
         if sandbox_id:
-            sb = self._sandboxes.get(sandbox_id)
-            if sb is not None:
-                return sb
-            # Try to connect to existing sandbox
+            async with self._state_lock:
+                cached = self._sandboxes.get(sandbox_id)
+            if cached is not None:
+                await self._refresh_lifetime(cached)
+                return cached
             from easy_sandbox.api.sandbox import Sandbox
 
-            kwargs: dict[str, Any] = {"sandbox_id": sandbox_id}
-            if self._api_key:
-                kwargs["api_key"] = self._api_key
-            if self._api_url:
-                kwargs["api_url"] = self._api_url
-            if self._domain:
-                kwargs["domain"] = self._domain
-            sb = await Sandbox.connect(**kwargs)
-            self._sandboxes[sb.id] = sb
+            sb = await Sandbox.connect(**self._connect_kwargs(sandbox_id=sandbox_id))
+            async with self._state_lock:
+                self._sandboxes[sb.id] = sb
+                self._lifetimes.setdefault(sb.id, 300)
+            await self._refresh_lifetime(sb)
             return sb
 
-        # Default sandbox — lazy create
-        if self._default_sandbox is None:
-            self._default_sandbox = await self.create_sandbox()
-            logger.info("Auto-created default sandbox: %s", self._default_sandbox.id)
-        return self._default_sandbox
+        # One lazy create even when two tool calls arrive together.
+        async with self._default_lock:
+            if self._default_sandbox is None:
+                created = await self.create_sandbox()
+                if self._default_sandbox is None:
+                    self._default_sandbox = created
+                logger.info("Auto-created default sandbox: %s", self._default_sandbox.id)
+            sandbox = self._default_sandbox
+        await self._refresh_lifetime(sandbox)
+        return sandbox
 
-    async def kill_sandbox(self, sandbox_id: str | None = None) -> None:
-        """Kill a sandbox by ID, or kill default sandbox."""
+    async def kill_sandbox(self, sandbox_id: str | None = None) -> str | None:
+        """Kill a sandbox by ID, or the default sandbox.
+
+        Returns:
+            The killed sandbox id, or ``None`` when there was no default
+            sandbox to kill.
+        """
         if sandbox_id:
-            sb = self._sandboxes.pop(sandbox_id, None)
-            if sb:
-                await sb.kill()
-                if self._default_sandbox and self._default_sandbox.id == sandbox_id:
+            async with self._state_lock:
+                sb = self._sandboxes.pop(sandbox_id, None)
+                self._lifetimes.pop(sandbox_id, None)
+                if self._default_sandbox is not None and self._default_sandbox.id == sandbox_id:
                     self._default_sandbox = None
+            if sb is not None:
+                await sb.kill()
                 logger.info("Killed sandbox: %s", sandbox_id)
-                return
-            # Kill by ID without having a local reference
+                return sandbox_id
             from easy_sandbox.api.sandbox import Sandbox
 
             kwargs: dict[str, Any] = {"sandbox_id": sandbox_id}
@@ -141,26 +194,34 @@ class SandboxManager:
             if self._api_url:
                 kwargs["api_url"] = self._api_url
             await Sandbox.kill_by_id(**kwargs)
-            return
+            return sandbox_id
 
-        # Kill default
-        if self._default_sandbox:
-            sid = self._default_sandbox.id
-            await self._default_sandbox.kill()
-            self._sandboxes.pop(sid, None)
+        async with self._state_lock:
+            sb = self._default_sandbox
             self._default_sandbox = None
-            logger.info("Killed default sandbox: %s", sid)
+            if sb is not None:
+                self._sandboxes.pop(sb.id, None)
+                self._lifetimes.pop(sb.id, None)
+        if sb is None:
+            return None
+        sid = sb.id
+        await sb.kill()
+        logger.info("Killed default sandbox: %s", sid)
+        return str(sid)
 
     async def shutdown(self) -> None:
         """Kill all sandboxes."""
-        for sid in list(self._sandboxes.keys()):
+        async with self._state_lock:
+            items = list(self._sandboxes.items())
+            self._sandboxes.clear()
+            self._lifetimes.clear()
+            self._default_sandbox = None
+        for sid, sb in items:
             try:
-                sb = self._sandboxes.pop(sid)
                 await sb.kill()
                 logger.info("Shutdown: killed sandbox %s", sid)
             except Exception:
                 logger.warning("Failed to kill sandbox %s during shutdown", sid, exc_info=True)
-        self._default_sandbox = None
 
 
 # ---------------------------------------------------------------------------
@@ -187,6 +248,56 @@ INVALID_REQUEST = -32600
 METHOD_NOT_FOUND = -32601
 INVALID_PARAMS = -32602
 INTERNAL_ERROR = -32603
+
+
+def _install_stop_signals(loop: asyncio.AbstractEventLoop) -> None:
+    """Turn SIGINT and SIGTERM into cancellation so shutdown still runs.
+
+    ``ebx mcp stop`` sends SIGTERM. Cancelling the read loop lets ``run``
+    reach its ``finally`` block and kill the session's sandboxes.
+    """
+    if sys.platform == "win32":
+        return
+
+    def _request_stop() -> None:
+        for task in asyncio.all_tasks(loop):
+            task.cancel()
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        try:
+            loop.add_signal_handler(sig, _request_stop)
+        except (NotImplementedError, RuntimeError):
+            return
+
+
+def _line_exceeds_limit(exc: BaseException) -> bool:
+    """True when ``StreamReader.readline`` rejected an overlong line."""
+    return type(exc).__name__ in {"LimitOverrunError", "ValueError"} and "limit" in str(exc).lower()
+
+
+async def _discard_overlong_line(reader: asyncio.StreamReader) -> None:
+    """Drop the line that exceeded the read limit and keep any following bytes.
+
+    ``readline`` leaves the oversized line in the internal buffer. The buffer
+    is not part of the public stream API; clearing through the newline is what
+    lets the server keep reading the next message instead of exiting.
+    """
+    buffer = reader._buffer  # type: ignore[attr-defined]
+    newline = buffer.find(b"\n")
+    if newline >= 0:
+        del buffer[: newline + 1]
+        return
+    buffer.clear()
+    while True:
+        chunk = await reader.read(64 * 1024)
+        if not chunk:
+            return
+        newline = chunk.find(b"\n")
+        if newline >= 0:
+            rest = chunk[newline + 1 :]
+            if rest:
+                buffer.extend(rest)
+            return
 
 
 # ---------------------------------------------------------------------------
@@ -285,7 +396,17 @@ class SandboxMCPServer:
     async def _handle_tools_call(self, params: dict[str, Any]) -> dict[str, Any]:
         """Handle tools/call request — dispatch to tool handler."""
         tool_name = params.get("name", "")
-        arguments = params.get("arguments", {})
+        arguments = params.get("arguments") or {}
+        if not isinstance(arguments, dict):
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": json.dumps({"error": "Tool arguments must be an object"}),
+                    }
+                ],
+                "isError": True,
+            }
 
         if tool_name not in TOOL_SCHEMA_MAP:
             return {
@@ -300,7 +421,8 @@ class SandboxMCPServer:
 
         result = await dispatch_tool(tool_name, arguments, self._manager)
 
-        is_error = "error" in result
+        exit_code = result.get("exit_code")
+        is_error = "error" in result or (isinstance(exit_code, int) and exit_code != 0)
         return {
             "content": [
                 {
@@ -337,6 +459,12 @@ class SandboxMCPServer:
         method = request.get("method", "")
         params = request.get("params", {})
         req_id = request.get("id")  # None for notifications
+        if params is None:
+            params = {}
+        if not isinstance(params, dict):
+            if req_id is not None:
+                return _jsonrpc_error(req_id, INVALID_PARAMS, "params must be a JSON object")
+            return None
 
         handler_name = self._METHOD_MAP.get(method)
         if handler_name is None:
@@ -363,25 +491,66 @@ class SandboxMCPServer:
     async def run(self) -> None:
         """Run MCP Server over STDIO transport.
 
-        Reads JSON-RPC messages from stdin (newline-delimited),
-        writes responses to stdout.
+        Reads newline-delimited JSON-RPC from stdin and writes responses to
+        stdout. ``ping`` and other methods are answered while a ``tools/call``
+        is still running; tool calls themselves stay serialized so two tools
+        do not share one sandbox at the same time. A line over the read limit
+        is rejected and the process keeps serving the next message.
         """
         logger.info("Starting MCP Server (STDIO mode)")
-
-        reader = asyncio.StreamReader()
-        protocol = asyncio.StreamReaderProtocol(reader)
         loop = asyncio.get_running_loop()
+        _install_stop_signals(loop)
+
+        reader = asyncio.StreamReader(limit=_STDIO_READ_LIMIT)
+        protocol = asyncio.StreamReaderProtocol(reader)
         await loop.connect_read_pipe(lambda: protocol, sys.stdin)
 
-        # Use stdout for writing
         transport, _ = await loop.connect_write_pipe(
             asyncio.BaseProtocol,
             sys.stdout,
         )
+        write_lock = asyncio.Lock()
+        tool_lock = asyncio.Lock()
+        pending: set[asyncio.Task[None]] = set()
+
+        async def _write(payload: dict[str, Any]) -> None:
+            encoded = (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
+            async with write_lock:
+                transport.write(encoded)
+
+        async def _serve(request: Any) -> None:
+            method = request.get("method") if isinstance(request, dict) else None
+            try:
+                if method == "tools/call":
+                    async with tool_lock:
+                        response = await self.handle_request(request)
+                else:
+                    response = await self.handle_request(request)
+            except Exception as exc:
+                req_id = request.get("id") if isinstance(request, dict) else None
+                logger.error("STDIO dispatch failed: %s", exc, exc_info=True)
+                response = _jsonrpc_error(req_id, INTERNAL_ERROR, str(exc))
+            if response is not None:
+                await _write(response)
 
         try:
             while True:
-                line = await reader.readline()
+                try:
+                    line = await reader.readline()
+                except (asyncio.CancelledError, KeyboardInterrupt):
+                    raise
+                except Exception as exc:
+                    if not _line_exceeds_limit(exc):
+                        raise
+                    await _discard_overlong_line(reader)
+                    await _write(
+                        _jsonrpc_error(
+                            None,
+                            INVALID_REQUEST,
+                            "Message exceeds the STDIO size limit",
+                        )
+                    )
+                    continue
                 if not line:
                     break  # EOF
 
@@ -392,17 +561,19 @@ class SandboxMCPServer:
                 try:
                     request = json.loads(line_str)
                 except json.JSONDecodeError as exc:
-                    resp = _jsonrpc_error(None, PARSE_ERROR, f"Parse error: {exc}")
-                    transport.write((json.dumps(resp) + "\n").encode("utf-8"))
+                    await _write(_jsonrpc_error(None, PARSE_ERROR, f"Parse error: {exc}"))
                     continue
 
-                response = await self.handle_request(request)
-                if response is not None:
-                    encoded = (json.dumps(response, ensure_ascii=False) + "\n").encode("utf-8")
-                    transport.write(encoded)
+                task = asyncio.create_task(_serve(request))
+                pending.add(task)
+                task.add_done_callback(pending.discard)
         except (asyncio.CancelledError, KeyboardInterrupt):
             pass
         finally:
+            for task in list(pending):
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
             await self.shutdown()
 
     async def shutdown(self) -> None:
@@ -423,7 +594,7 @@ def main() -> None:
     api_key = os.environ.get("E2B_API_KEY") or os.environ.get("SANDBOX_API_KEY")
     api_url = os.environ.get("E2B_API_URL") or os.environ.get("SANDBOX_API_BASE_URL")
     domain = os.environ.get("E2B_DOMAIN")
-    template = os.environ.get("SANDBOX_TEMPLATE", "base")
+    template = os.environ.get("SANDBOX_TEMPLATE") or os.environ.get("EBX_TEMPLATE") or "base"
 
     server = SandboxMCPServer(
         api_key=api_key,

@@ -26,21 +26,49 @@ class TestGetLogger:
     def test_respects_env_var(self):
         # Reset the configured flag to allow reconfiguration
         log_module._CONFIGURED = False
-        with mock.patch.dict(os.environ, {"SANDBOX_LOG_LEVEL": "DEBUG"}):
-            get_logger("envtest")
-            root = logging.getLogger("easy_sandbox")
-            assert root.level == logging.DEBUG
-        # Reset for other tests
-        log_module._CONFIGURED = False
-        root = logging.getLogger("easy_sandbox")
-        root.setLevel(logging.WARNING)
+        root_logger = logging.getLogger()
+        saved_handlers = list(root_logger.handlers)
+        for handler in saved_handlers:
+            root_logger.removeHandler(handler)
+        try:
+            with mock.patch.dict(os.environ, {"SANDBOX_LOG_LEVEL": "DEBUG"}):
+                get_logger("envtest")
+                package = logging.getLogger("easy_sandbox")
+                assert package.level == logging.DEBUG
+        finally:
+            for handler in saved_handlers:
+                root_logger.addHandler(handler)
+            log_module._CONFIGURED = False
+            logging.getLogger("easy_sandbox").setLevel(logging.WARNING)
 
     def test_default_level_is_warning(self):
         log_module._CONFIGURED = False
-        # Make sure env var is not set
-        with mock.patch.dict(os.environ, {}, clear=False):
-            os.environ.pop("SANDBOX_LOG_LEVEL", None)
-            get_logger("default_test")
-            root = logging.getLogger("easy_sandbox")
-            assert root.level == logging.WARNING
+        root_logger = logging.getLogger()
+        saved_handlers = list(root_logger.handlers)
+        for handler in saved_handlers:
+            root_logger.removeHandler(handler)
+        try:
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop("SANDBOX_LOG_LEVEL", None)
+                get_logger("default_test")
+                package = logging.getLogger("easy_sandbox")
+                assert package.level == logging.WARNING
+        finally:
+            for handler in saved_handlers:
+                root_logger.addHandler(handler)
+            log_module._CONFIGURED = False
+
+    def test_host_handler_does_not_drop_info(self):
+        """A CLI root handler must see INFO; the package logger must not filter it."""
         log_module._CONFIGURED = False
+        root_logger = logging.getLogger()
+        handler = logging.NullHandler()
+        root_logger.addHandler(handler)
+        try:
+            with mock.patch.dict(os.environ, {"SANDBOX_LOG_LEVEL": "WARNING"}):
+                get_logger("hosted")
+                assert logging.getLogger("easy_sandbox").level == logging.NOTSET
+        finally:
+            root_logger.removeHandler(handler)
+            log_module._CONFIGURED = False
+            logging.getLogger("easy_sandbox").setLevel(logging.WARNING)

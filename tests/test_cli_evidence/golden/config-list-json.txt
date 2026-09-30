@@ -1,19 +1,31 @@
 {
-  "api_key": null,
+  "sandbox_api_key": null,
   "access_key_id": null,
   "access_key_secret": null,
-  "qwen_code_api_key": null,
-  "github_token": null,
+  "acr_namespace": null,
   "api_url": "https://api.cn-hangzhou.e2b.fc.aliyuncs.com",
+  "region": "cn-hangzhou",
   "domain": "cn-hangzhou.e2b.fc.aliyuncs.com",
-  "http2": true,
   "http_timeout": 30.0,
-  "llm_api_key": null,
-  "llm_base_url": null,
-  "llm_model": null,
+  "http2": true,
   "max_retries": 3,
-  "qwen_code_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-  "qwen_code_model": "qwen3-coder-plus",
-  "region": "cn-hangzhou"
+  "llm_api_key": null,
+  "llm_model": "qwen3-coder-plus",
+  "llm_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "github_token": null,
+  "shortcuts": {
+    "create": "sandbox create",
+    "list": "sandbox list",
+    "info": "sandbox info",
+    "kill": "sandbox kill",
+    "exec": "sandbox exec",
+    "connect": "sandbox connect",
+    "upload": "sandbox upload",
+    "download": "sandbox download",
+    "run": "sandbox run",
+    "install": "template install",
+    "init": "template init",
+    "deploy": "deploy"
+  }
 }
 [exit_code:0]

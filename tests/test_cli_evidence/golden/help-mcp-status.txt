@@ -9,7 +9,7 @@ Usage: cli mcp status [OPTIONS]
   Related commands:
     ebx mcp install --target cursor
     ebx mcp start
-    ebx config get api_key
+    ebx config get sandbox_api_key
 
 Options:
   -h, --help  Show this message and exit.

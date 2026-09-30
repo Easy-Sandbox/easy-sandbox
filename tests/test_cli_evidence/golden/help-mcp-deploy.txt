@@ -13,18 +13,20 @@ Usage: cli mcp deploy [OPTIONS]
   region comes from ``ebx config set region`` / the ``SANDBOX_REGION``
   environment variable and defaults to ``cn-hangzhou``.
 
-  POST and DELETE /mcp are implemented. GET /mcp currently returns 501; SSE
-  server notifications are planned for Phase 2.
+  A non-empty Bearer token is required (--generate-token or --auth-token-file).
+  POST and DELETE /mcp are implemented. GET /mcp returns 405 until SSE server
+  notifications exist. The function environment sets SANDBOX_REGION to the
+  selected region.
 
   Examples:
     ebx mcp deploy --generate-token --api-key $E2B_API_KEY
     ebx mcp deploy --auth-token-file ./token.txt --region cn-shanghai
-    ebx mcp deploy --output-dir ./deploy-artifact
+    ebx mcp deploy --generate-token --output-dir ./deploy-artifact
 
   Related commands:
     ebx mcp start                 Run the local STDIO server
     ebx mcp status                Inspect MCP authentication state
-    ebx config set api_key VALUE  Configure sandbox authentication
+    ebx config set sandbox_api_key VALUE  Configure sandbox authentication
 
 Options:
   --name TEXT                     FC function name for the artifact.
@@ -34,8 +36,7 @@ Options:
   --template TEXT                 Default sandbox template for MCP sessions.
   --memory INTEGER                FC function memory (MB).
   --timeout INTEGER               FC function timeout (s).
-  --auth-token-file PATH          Path to a Bearer token file; an empty token
-                                  fails closed.
+  --auth-token-file PATH          Path to a non-empty Bearer token file.
   --generate-token                Auto-generate a random Bearer token.
   --enable-session-affinity / --no-session-affinity
                                   Enable Mcp-Session-Id affinity (requires FC

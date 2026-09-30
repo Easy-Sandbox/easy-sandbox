@@ -1,13 +1,24 @@
-"""Tests for deploy CLI commands — NL deploy + traditional modes."""
+"""Tests for the top-level ``ebx deploy`` command.
+
+``ebx deploy`` is the fixed *publish* step of the template lifecycle
+(docker build → push → register) and delegates to ``template build``.  It
+takes no description and no LLM: what a template is lives in
+``template.yaml``, authored earlier by ``ebx template init``.  The pipeline
+itself is covered by the ``template`` tests, so here ``build`` is replaced by
+a recorder that keeps its real option set.
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, MagicMock, patch
+from typing import TYPE_CHECKING, Any
+from unittest.mock import MagicMock
 
+import click
 import pytest
 from click.testing import CliRunner
 
+from easy_sandbox.cli.commands import deploy as deploy_mod
+from easy_sandbox.cli.commands.template import build as real_build
 from easy_sandbox.cli.main import cli
 
 if TYPE_CHECKING:
@@ -21,197 +32,184 @@ def runner() -> CliRunner:
 
 
 @pytest.fixture
-def temp_project(tmp_path: Path) -> Path:
-    """Create a temporary project directory with a requirements.txt."""
-    (tmp_path / "requirements.txt").write_text("flask\n")
-    (tmp_path / "app.py").write_text("from flask import Flask\napp = Flask(__name__)\n")
+def project(tmp_path: Path) -> Path:
+    """A template directory that already has a Dockerfile."""
+    (tmp_path / "Dockerfile").write_text("FROM python:3.11-slim\n", encoding="utf-8")
     return tmp_path
 
 
-def _make_mock_sandbox(
-    sandbox_id: str = "sbx-deploy-001",
-    status: str = "success",
-    url: str = "",
-    port: int = 0,
-) -> MagicMock:
-    """Create a mock Sandbox with a deploy result attached."""
-    mock_sandbox = MagicMock()
-    mock_sandbox.id = sandbox_id
+@pytest.fixture
+def build_calls(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
+    """Replace ``template build`` by a recorder; ACR namespace resolves offline."""
+    calls: list[dict[str, Any]] = []
 
-    mock_deploy_result = MagicMock()
-    mock_deploy_result.status = status
-    mock_deploy_result.url = url
-    mock_deploy_result.port = port
-    mock_deploy_result.logs = ""
-    mock_deploy_result.success = status == "success"
+    def _record(**kwargs: Any) -> None:
+        calls.append(kwargs)
 
-    mock_sandbox._deploy_result = mock_deploy_result
-    return mock_sandbox
+    stub = click.Command("build", params=list(real_build.params), callback=_record)
+    monkeypatch.setattr(deploy_mod, "build", stub)
+    monkeypatch.setattr(deploy_mod, "resolve_acr_namespace", MagicMock(return_value="test-ns"))
+    return calls
 
 
-class TestDeployShortcutNL:
-    """Test NL deploy mode (default)."""
+class TestFixedPipeline:
+    """No LLM, no key, no agent: just the deterministic pipeline."""
 
-    def test_deploy_nonexistent_path(self, runner: CliRunner) -> None:
-        """Test deploy with non-existent path."""
-        result = runner.invoke(cli, ["deploy", "/nonexistent/path/xyz"])
-        assert result.exit_code != 0
-
-    def test_deploy_traditional_mode(self, runner: CliRunner, temp_project: Path) -> None:
-        """Test deploy --traditional falls through to traditional mode."""
-        result = runner.invoke(
-            cli,
-            ["deploy", str(temp_project), "--traditional"],
-        )
-        assert result.exit_code == 0
-        # Should show project type detection
-        assert "python" in result.output.lower() or "Template" in result.output
-
-    def test_deploy_with_instruction(self, runner: CliRunner, temp_project: Path) -> None:
-        """Test deploy with NL instruction triggers Sandbox.deploy."""
-        mock_sandbox = _make_mock_sandbox(
-            url="http://localhost:8080",
-            port=8080,
-        )
-
-        # Patch at the actual import location used inside _run_nl_deploy
-        with patch(
-            "easy_sandbox.api.sandbox.Sandbox.deploy",
-            new_callable=AsyncMock,
-            return_value=mock_sandbox,
-        ):
-            result = runner.invoke(
-                cli,
-                ["deploy", str(temp_project), "部署这个 Flask 应用"],
-            )
-
-        assert result.exit_code == 0
-        assert "sbx-deploy-001" in result.output or "success" in result.output.lower()
-
-    def test_deploy_with_instruction_flag(self, runner: CliRunner, temp_project: Path) -> None:
-        """Test deploy with --instruction flag."""
-        mock_sandbox = _make_mock_sandbox(sandbox_id="sbx-deploy-002")
-
-        with patch(
-            "easy_sandbox.api.sandbox.Sandbox.deploy",
-            new_callable=AsyncMock,
-            return_value=mock_sandbox,
-        ):
-            result = runner.invoke(
-                cli,
-                ["deploy", str(temp_project), "-i", "Deploy to port 8080"],
-            )
-
-        assert result.exit_code == 0
-
-    def test_deploy_llm_key_missing(
-        self, runner: CliRunner, temp_project: Path, monkeypatch: pytest.MonkeyPatch
+    def test_delegates_to_build_with_project_dir(
+        self, runner: CliRunner, project: Path, build_calls: list[dict[str, Any]]
     ) -> None:
-        """Test deploy raises clear error when no LLM key is set."""
-        monkeypatch.delenv("BAILIAN_CODING_PLAN_API_KEY", raising=False)
-        monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
-        monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+        result = runner.invoke(cli, ["deploy", str(project), "--acr-namespace", "ns", "-y"])
 
-        from easy_sandbox.models.errors import DeployLLMKeyMissingError
+        assert result.exit_code == 0, result.output
+        assert len(build_calls) == 1
+        assert build_calls[0]["template_dir"] == str(project.resolve())
+        assert build_calls[0]["acr_namespace"] == "ns"
+        assert build_calls[0]["yes"] is True
 
-        with patch(
-            "easy_sandbox.api.sandbox.Sandbox.deploy",
-            new_callable=AsyncMock,
-            side_effect=DeployLLMKeyMissingError("No LLM API key found for qwen-code agent."),
-        ):
-            result = runner.invoke(
-                cli,
-                ["deploy", str(temp_project), "部署项目"],
-            )
-
-        # Should fail with error exit code (handle_errors maps SandboxError to exit 1)
-        assert result.exit_code != 0
-
-    def test_deploy_default_instruction_generated(
-        self, runner: CliRunner, temp_project: Path
+    def test_path_defaults_to_current_directory(
+        self,
+        runner: CliRunner,
+        project: Path,
+        build_calls: list[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Test that a default instruction is generated when none is provided."""
-        mock_sandbox = _make_mock_sandbox()
+        monkeypatch.chdir(project)
 
-        with patch(
-            "easy_sandbox.api.sandbox.Sandbox.deploy",
-            new_callable=AsyncMock,
-            return_value=mock_sandbox,
-        ) as mock_deploy:
-            result = runner.invoke(
-                cli,
-                ["deploy", str(temp_project)],
-            )
+        result = runner.invoke(cli, ["deploy"])
 
-        assert result.exit_code == 0
-        # Verify deploy was called with a generated instruction
-        mock_deploy.assert_called_once()
-        call_kwargs = mock_deploy.call_args
-        description = call_kwargs.kwargs.get("description") or call_kwargs[1].get("description", "")
-        assert "python" in description.lower() or "部署" in description
+        assert result.exit_code == 0, result.output
+        assert build_calls[0]["template_dir"] == str(project.resolve())
 
+    def test_never_touches_the_coding_agent_or_llm_keys(
+        self,
+        runner: CliRunner,
+        project: Path,
+        build_calls: list[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Publishing must not resolve, install or call any coding agent."""
+        boom = MagicMock(side_effect=AssertionError("agent must not be resolved"))
+        for name in (
+            "resolve_coding_agent_backend",
+            "ensure_coding_agent_binary",
+            "resolve_coding_agent_credentials",
+        ):
+            monkeypatch.setattr(f"easy_sandbox.cli.commands._coding_agent.{name}", boom)
+        monkeypatch.setattr("easy_sandbox.api.sandbox.Sandbox.deploy", boom)
+        for var in ("EBX_LLM_API_KEY", "DASHSCOPE_API_KEY", "OPENAI_API_KEY"):
+            monkeypatch.delenv(var, raising=False)
 
-class TestDeployBuild:
-    """Test deploy build subcommand."""
+        result = runner.invoke(cli, ["deploy", str(project)])
 
-    def test_build_nonexistent_path(self, runner: CliRunner) -> None:
-        result = runner.invoke(cli, ["deploy", "/nonexistent/path", "--traditional"])
-        assert result.exit_code != 0
+        assert result.exit_code == 0, result.output
+        boom.assert_not_called()
+        assert len(build_calls) == 1
 
+    @pytest.mark.parametrize("flag", ["-v", "--verbose"])
+    def test_verbose_is_accepted(
+        self, runner: CliRunner, project: Path, build_calls: list[dict[str, Any]], flag: str
+    ) -> None:
+        """Regression: ``ebx deploy --verbose`` used to fail with 'No such option'."""
+        result = runner.invoke(cli, ["deploy", str(project), flag])
 
-class TestDeployOptions:
-    """Test deploy command options parsing."""
+        assert result.exit_code == 0, result.output
+        assert "No such option" not in result.output
+        assert build_calls[0]["verbose_flag"] is True
 
-    def test_max_wall_time_option(self, runner: CliRunner, temp_project: Path) -> None:
-        """Test --max-wall-time option is accepted."""
-        mock_sandbox = _make_mock_sandbox()
+    def test_shares_every_template_build_option(self) -> None:
+        deploy_opts = {o for p in deploy_mod.deploy_shortcut.params for o in getattr(p, "opts", [])}
+        for param in real_build.params:
+            if isinstance(param, click.Option):
+                assert set(param.opts) <= deploy_opts, param.name
 
-        with patch(
-            "easy_sandbox.api.sandbox.Sandbox.deploy",
-            new_callable=AsyncMock,
-            return_value=mock_sandbox,
-        ) as mock_deploy:
-            result = runner.invoke(
-                cli,
-                ["deploy", str(temp_project), "deploy", "--max-wall-time", "20m"],
-            )
+    def test_help_has_no_ai_options_and_points_at_template_init(self, runner: CliRunner) -> None:
+        result = runner.invoke(cli, ["deploy", "--help"])
 
-        assert result.exit_code == 0
-        # Verify max_wall_time was passed
-        call_kwargs = mock_deploy.call_args
-        assert call_kwargs.kwargs.get("max_wall_time") == "20m"
+        assert result.exit_code == 0, result.output
+        assert "--verbose" in result.output
+        assert "--acr-namespace" in result.output
+        assert "ebx template init" in result.output
+        for gone in ("--agent", "--instruction", "--max-wall-time", "--max-session-turns"):
+            assert gone not in result.output
+        assert "--traditional" not in result.output  # deprecated, hidden
 
-    def test_max_session_turns_option(self, runner: CliRunner, temp_project: Path) -> None:
-        """Test --max-session-turns option is accepted."""
-        mock_sandbox = _make_mock_sandbox()
+    def test_a_description_is_not_accepted(
+        self, runner: CliRunner, project: Path, build_calls: list[dict[str, Any]]
+    ) -> None:
+        """Descriptions belong to template authoring, not to publishing."""
+        result = runner.invoke(cli, ["deploy", str(project), "deploy on port 8080"])
 
-        with patch(
-            "easy_sandbox.api.sandbox.Sandbox.deploy",
-            new_callable=AsyncMock,
-            return_value=mock_sandbox,
-        ) as mock_deploy:
-            result = runner.invoke(
-                cli,
-                ["deploy", str(temp_project), "deploy", "--max-session-turns", "50"],
-            )
+        assert result.exit_code == 2
+        assert "unexpected extra argument" in result.output.lower()
+        assert build_calls == []
 
-        assert result.exit_code == 0
-        call_kwargs = mock_deploy.call_args
-        assert call_kwargs.kwargs.get("max_session_turns") == 50
+    @pytest.mark.parametrize("flag", ["--agent", "--instruction", "-i"])
+    def test_ai_options_are_gone(
+        self, runner: CliRunner, project: Path, build_calls: list[dict[str, Any]], flag: str
+    ) -> None:
+        args = ["deploy", str(project), flag] + ([] if flag == "--agent" else ["x"])
 
-    def test_max_tool_calls_option_rejected(self, runner: CliRunner, temp_project: Path) -> None:
-        """The legacy ``--max-tool-calls`` flag must fail loudly, not silently.
+        result = runner.invoke(cli, args)
 
-        The option was renamed to ``--max-session-turns`` because the value
-        is forwarded to qwen-code's ``--max-session-turns`` flag; the real
-        upstream ``--max-tool-calls`` budget is a semantically different
-        parameter. Unknown options must produce a usage error.
-        """
-        result = runner.invoke(
-            cli,
-            ["deploy", str(temp_project), "deploy", "--max-tool-calls", "50"],
-        )
-
-        assert result.exit_code != 0
+        assert result.exit_code == 2
         assert "No such option" in result.output
-        assert "--max-tool-calls" in result.output
+        assert build_calls == []
+
+    def test_nonexistent_path_is_rejected(
+        self, runner: CliRunner, build_calls: list[dict[str, Any]]
+    ) -> None:
+        result = runner.invoke(cli, ["deploy", "/nonexistent/path/xyz"])
+
+        assert result.exit_code != 0
+        assert "not an existing directory" in result.output
+        assert build_calls == []
+
+    def test_missing_dockerfile_points_at_template_init(
+        self, runner: CliRunner, tmp_path: Path, build_calls: list[dict[str, Any]]
+    ) -> None:
+        result = runner.invoke(cli, ["deploy", str(tmp_path)])
+
+        assert result.exit_code != 0
+        assert "No Dockerfile found" in result.output
+        assert "ebx template init" in result.output
+        assert build_calls == []
+
+    def test_explicit_dockerfile_option_skips_the_check(
+        self, runner: CliRunner, tmp_path: Path, build_calls: list[dict[str, Any]]
+    ) -> None:
+        custom = tmp_path / "Dockerfile.prod"
+        custom.write_text("FROM python:3.11-slim\n", encoding="utf-8")
+
+        result = runner.invoke(cli, ["deploy", str(tmp_path), "--dockerfile", str(custom)])
+
+        assert result.exit_code == 0, result.output
+        assert len(build_calls) == 1
+
+    def test_acr_namespace_failure_happens_before_the_build(
+        self,
+        runner: CliRunner,
+        project: Path,
+        build_calls: list[dict[str, Any]],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Fail fast: no build when the ACR namespace is unknown."""
+        monkeypatch.setattr(
+            deploy_mod,
+            "resolve_acr_namespace",
+            MagicMock(side_effect=click.UsageError("ACR namespace is required")),
+        )
+
+        result = runner.invoke(cli, ["deploy", str(project)])
+
+        assert result.exit_code != 0
+        assert "ACR namespace is required" in result.output
+        assert build_calls == []
+
+    def test_traditional_flag_is_deprecated_but_harmless(
+        self, runner: CliRunner, project: Path, build_calls: list[dict[str, Any]]
+    ) -> None:
+        result = runner.invoke(cli, ["deploy", str(project), "--traditional"])
+
+        assert result.exit_code == 0, result.output
+        assert "--traditional is deprecated" in result.output
+        assert len(build_calls) == 1

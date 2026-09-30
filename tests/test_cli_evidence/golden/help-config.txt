@@ -11,20 +11,21 @@ Usage: cli config [OPTIONS] COMMAND [ARGS]...
     ebx config get region
     ebx config set http_timeout 120
     ebx config set github_token     Prompt for the token (masked input)
-    ebx config set region ""       Clear one stored value
+    ebx config delete region   Remove one stored value
 
   Related commands:
-    ebx config init           Guided setup (platform, region, Qwen Code)
+    ebx config init           Guided setup (credentials, region, ACR, LLM)
     ebx config get            Read one effective value
     ebx config set            Store or update one value
-    ebx config set KEY ""     Clear the stored value for KEY
+    ebx config delete KEY     Remove one stored value
 
 Options:
   -h, --help  Show this message and exit.
 
 Commands:
-  get   Get a configuration value by KEY.
-  init  Guided setup: platform credentials, region, and Qwen Code (AI).
-  list  List all effective configuration values and their sources.
-  set   Set a configuration value: KEY [VALUE].
+  delete  Remove one stored configuration value.
+  get     Get a configuration value by KEY.
+  init    Guided setup: credentials, region, ACR namespace, and the LLM API...
+  list    List all effective configuration values and their sources.
+  set     Set a configuration value: KEY [VALUE].
 [exit_code:0]

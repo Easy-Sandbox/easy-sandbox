@@ -4,6 +4,7 @@ Defines EvidenceCase dataclass, full registry (~70+ cases), mock builders
 (reusing the run_sync-patch pattern with realistic SandboxInfo), and a
 normalize() function that masks non-deterministic fragments.
 """
+
 from __future__ import annotations
 
 import json
@@ -21,6 +22,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 # Data types
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 @dataclass
 class EvidenceCase:
     """A single CLI evidence case."""
@@ -35,6 +37,7 @@ class EvidenceCase:
 # ═══════════════════════════════════════════════════════════════════════════
 # Output helpers
 # ═══════════════════════════════════════════════════════════════════════════
+
 
 def normalize(text: str) -> str:
     """Mask non-deterministic fragments for golden-file comparison."""
@@ -99,6 +102,7 @@ _TMPL_NS = "easy_sandbox.cli.commands.template.resolve_acr_namespace"
 # Sandbox mock builder
 # ═══════════════════════════════════════════════════════════════════════════
 
+
 def _make_sb(
     sid: str = "sbx-ev-001",
     tmpl: str = "base",
@@ -154,6 +158,13 @@ _CFG_ENV_VARS = (
     "GITHUB_TOKEN",
     "EBX_QWEN_CODE_API_KEY",
     "EBX_LLM_API_KEY",
+    "EBX_LLM_BASE_URL",
+    "EBX_LLM_MODEL",
+    "BAILIAN_CODING_PLAN_API_KEY",
+    "DASHSCOPE_API_KEY",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "OPENAI_MODEL",
 )
 
 
@@ -182,6 +193,10 @@ def _cfg(toml: str = "", env: str = "", extra_env: dict[str, str] | None = None)
                     patch(f"{_CFG_CMD}._CONFIG_FILE", cf),
                     patch(f"{_CFG_CMD}._EBX_DIR", tmp),
                     patch(f"{_CFG_CMD}._ENV_FILE", ef),
+                    patch(
+                        "easy_sandbox.transport.config._PROJECT_ENV_FILE",
+                        tmp / "no-project.env",
+                    ),
                 ):
                     yield {}
             finally:
@@ -237,7 +252,9 @@ def _proto_rs(*values: Any):
         with (
             patch(
                 _LOAD_CFG,
-                return_value=MagicMock(api_key="test-k", access_key_id=None, access_key_secret=None),
+                return_value=MagicMock(
+                    api_key="test-k", access_key_id=None, access_key_secret=None
+                ),
             ),
             patch(_CREATE_AUTH, return_value=MagicMock()),
             patch(_HTTP_CLIENT),
@@ -292,7 +309,7 @@ def _mcp_status():
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             # cursor/claude store servers under "mcpServers"; vscode under
-            # "mcp.servers" (see the ``status`` key-selection logic).
+            # "servers" in .vscode/mcp.json (see the status key-selection logic).
             (tmp / "cursor.json").write_text(
                 json.dumps({"mcpServers": {"easy-sandbox": {"command": "ebx"}}})
             )
@@ -300,7 +317,7 @@ def _mcp_status():
                 json.dumps({"mcpServers": {"easy-sandbox": {"command": "ebx"}}})
             )
             (tmp / "vscode.json").write_text(
-                json.dumps({"mcp.servers": {"easy-sandbox": {"command": "ebx"}}})
+                json.dumps({"servers": {"easy-sandbox": {"type": "stdio", "command": "ebx"}}})
             )
             # Key order fixes the ``installed_*`` field order (print_dict and
             # the JSON formatter both emit data in insertion order).
@@ -312,6 +329,8 @@ def _mcp_status():
             with (
                 patch(f"{_MCP_CMD}._IDE_CONFIG_MAP", fake_map),
                 patch(f"{_MCP_CMD}._read_api_key", return_value=None),
+                # A developer's own ``ebx mcp start`` must not change this golden.
+                patch(f"{_MCP_CMD}._running_server", return_value=None),
             ):
                 yield {}
 
@@ -542,8 +561,8 @@ def _run_cmd(custom_commands: dict[str, Any]):
         # ``custom`` delegates template execution to ``_run_template_command``,
         # which must also be the real bound method (otherwise the MagicMock
         # attribute is awaited and blows up).
-        sb._run_template_command = (
-            lambda name, kwargs: Sandbox._run_template_command(sb, name, kwargs)
+        sb._run_template_command = lambda name, kwargs: Sandbox._run_template_command(
+            sb, name, kwargs
         )
         sb.custom = lambda name, **kw: Sandbox.custom(sb, name, **kw)
 
@@ -767,7 +786,7 @@ def _build_registry() -> list[EvidenceCase]:
     E = EvidenceCase
     cases: list[EvidenceCase] = []
 
-    # ── Help (28) ──────────────────────────────────────────────────────
+    # ── Help (29) ──────────────────────────────────────────────────────
     _help = [
         ([], "ebx"),
         (["create"], "create"),
@@ -796,7 +815,9 @@ def _build_registry() -> list[EvidenceCase]:
         (["mcp", "deploy"], "mcp-deploy"),
         (["mcp", "install"], "mcp-install"),
         (["mcp", "start"], "mcp-start"),
+        (["mcp", "stop"], "mcp-stop"),
         (["mcp", "status"], "mcp-status"),
+        (["deploy"], "deploy"),
     ]
     for cmd, name in _help:
         cases.append(E(cmd + ["--help"], f"{name} --help", "A", None, f"help-{name}"))
@@ -807,38 +828,62 @@ def _build_registry() -> list[EvidenceCase]:
     # ── Config (20) ────────────────────────────────────────────────────
     cases.extend(
         [
-            E(["config", "get", "region"], "config get region（默认值）", "A", _cfg(), "config-get-region"),
-            E(["config", "get", "api_key"], "config get api_key（未设置）", "A", _cfg(), "config-get-apikey-unset"),
             E(
-                ["config", "get", "api_key"],
-                "config get api_key（已设置, masked）",
+                ["config", "get", "region"],
+                "config get region（默认值）",
+                "A",
+                _cfg(),
+                "config-get-region",
+            ),
+            E(
+                ["config", "get", "sandbox_api_key"],
+                "config get sandbox_api_key（未设置）",
+                "A",
+                _cfg(),
+                "config-get-apikey-unset",
+            ),
+            E(
+                ["config", "get", "sandbox_api_key"],
+                "config get sandbox_api_key（已设置, masked）",
                 "A",
                 _cfg(env="E2B_API_KEY=sk-test-abcdef123456\n"),
                 "config-get-apikey-set",
             ),
             E(
-                ["config", "get", "api_key"],
-                "config get api_key（进程环境变量, masked）",
+                ["config", "get", "sandbox_api_key"],
+                "config get sandbox_api_key（进程环境变量, masked）",
                 "A",
                 _cfg(extra_env={"E2B_API_KEY": "sk-env-abcdef123456"}),
                 "config-get-apikey-env",
             ),
-            E(["config", "get", "unknown_key"], "config get unknown_key（错误）", "A", _cfg(), "config-get-unknown"),
+            E(
+                ["config", "get", "unknown_key"],
+                "config get unknown_key（错误）",
+                "A",
+                _cfg(),
+                "config-get-unknown",
+            ),
             E(
                 ["config", "get", "qwen_code_model"],
-                "config get qwen_code_model（业务默认）",
+                "config get qwen_code_model（已移除）",
                 "A",
                 _cfg(),
                 "config-get-qwen-model",
             ),
             E(
                 ["config", "get", "llm_model"],
-                "config get llm_model（not set）",
+                "config get llm_model（业务默认）",
                 "A",
                 _cfg(),
                 "config-get-llm-model-unset",
             ),
-            E(["config", "set", "region", "cn-shanghai"], "config set region", "A", _cfg(), "config-set-region"),
+            E(
+                ["config", "set", "region", "cn-shanghai"],
+                "config set region",
+                "A",
+                _cfg(),
+                "config-set-region",
+            ),
             E(
                 ["config", "set", "llm_api_key", "sk-mykey12345678"],
                 "config set llm_api_key（masked）",
@@ -854,8 +899,8 @@ def _build_registry() -> list[EvidenceCase]:
                 "config-set-empty-default",
             ),
             E(
-                ["config", "set", "api_key", ""],
-                'config set api_key ""（清除凭证）',
+                ["config", "set", "sandbox_api_key", ""],
+                'config set sandbox_api_key ""（清除凭证）',
                 "A",
                 _cfg(env="E2B_API_KEY=sk-test-abcdef123456\n"),
                 "config-set-empty-credential",
@@ -928,7 +973,13 @@ def _build_registry() -> list[EvidenceCase]:
                 "mcp-install-cursor",
             ),
             E(["mcp", "status"], "mcp status", "A", _mcp_status(), "mcp-status"),
-            E(["--json", "mcp", "status"], "mcp status --json", "A", _mcp_status(), "mcp-status-json"),
+            E(
+                ["--json", "mcp", "status"],
+                "mcp status --json",
+                "A",
+                _mcp_status(),
+                "mcp-status-json",
+            ),
         ]
     )
 
@@ -994,9 +1045,7 @@ def _build_registry() -> list[EvidenceCase]:
                 ["create", "运行 python"],
                 "create NL 非交互描述不完整（E2008 + 缺失项 + 示例）",
                 "A",
-                _create_codegen(
-                    "运行 python", "ebx-nl-python-ev001", incomplete_assessment
-                ),
+                _create_codegen("运行 python", "ebx-nl-python-ev001", incomplete_assessment),
                 "create-nl-clarify-required",
             ),
             E(
@@ -1040,17 +1089,33 @@ def _build_registry() -> list[EvidenceCase]:
     # ── List (4) ───────────────────────────────────────────────────────
     sb_infos = [
         SandboxInfo.model_validate(
-            {"sandboxID": "sbx-list-001", "templateID": "python-base", "status": "running", "region": "cn-hangzhou"}
+            {
+                "sandboxID": "sbx-list-001",
+                "templateID": "python-base",
+                "status": "running",
+                "region": "cn-hangzhou",
+            }
         ),
         SandboxInfo.model_validate(
-            {"sandboxID": "sbx-list-002", "templateID": "node-web", "status": "stopped", "region": "cn-shanghai"}
+            {
+                "sandboxID": "sbx-list-002",
+                "templateID": "node-web",
+                "status": "stopped",
+                "region": "cn-shanghai",
+            }
         ),
     ]
     cases.extend(
         [
             E(["list"], "list（有数据）", "B", _proto_rs(sb_infos), "list"),
             E(["--json", "list"], "--json list", "B", _proto_rs(sb_infos), "list-json"),
-            E(["list", "--status", "running"], "list --status running", "B", _proto_rs([sb_infos[0]]), "list-running"),
+            E(
+                ["list", "--status", "running"],
+                "list --status running",
+                "B",
+                _proto_rs([sb_infos[0]]),
+                "list-running",
+            ),
             E(["list"], "list（空）", "B", _proto_rs([]), "list-empty"),
         ]
     )
@@ -1059,14 +1124,26 @@ def _build_registry() -> list[EvidenceCase]:
     cases.extend(
         [
             E(["info", "sbx-ev-001"], "info sbx-ev-001", "B", _rs(_make_sb()), "info"),
-            E(["--json", "info", "sbx-ev-001"], "--json info sbx-ev-001", "B", _rs(_make_sb()), "info-json"),
+            E(
+                ["--json", "info", "sbx-ev-001"],
+                "--json info sbx-ev-001",
+                "B",
+                _rs(_make_sb()),
+                "info-json",
+            ),
         ]
     )
 
     # ── Kill (3) ───────────────────────────────────────────────────────
     cases.extend(
         [
-            E(["kill", "sbx-ev-001", "--yes"], "kill sbx-ev-001 --yes", "B", _kill_single_mock(), "kill-single"),
+            E(
+                ["kill", "sbx-ev-001", "--yes"],
+                "kill sbx-ev-001 --yes",
+                "B",
+                _kill_single_mock(),
+                "kill-single",
+            ),
             E(["kill", "--all", "--yes"], "kill --all --yes", "B", _kill_all(), "kill-all"),
             E(["kill"], "kill（无 ID 错误）", "A", None, "kill-no-id"),
         ]
@@ -1076,7 +1153,13 @@ def _build_registry() -> list[EvidenceCase]:
     cases.extend(
         [
             E(["exec", "sbx-ev-001", "echo hello"], "exec 基本命令", "B", _exec(), "exec-basic"),
-            E(["--json", "exec", "sbx-ev-001", "echo hello"], "--json exec", "B", _exec(), "exec-json"),
+            E(
+                ["--json", "exec", "sbx-ev-001", "echo hello"],
+                "--json exec",
+                "B",
+                _exec(),
+                "exec-json",
+            ),
             E(
                 ["exec", "sbx-ev-001", "bad_cmd"],
                 "exec 非零退出码",
@@ -1192,7 +1275,13 @@ def _build_registry() -> list[EvidenceCase]:
     # ── Template backend (3) ───────────────────────────────────────────
     cases.extend(
         [
-            E(["template", "list"], "template list（后端）", "B", _tmpl_list_backend(), "template-list-backend"),
+            E(
+                ["template", "list"],
+                "template list（后端）",
+                "B",
+                _tmpl_list_backend(),
+                "template-list-backend",
+            ),
             E(
                 ["template", "info", "tmpl-001"],
                 "template info tmpl-001",

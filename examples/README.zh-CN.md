@@ -27,7 +27,7 @@ pip install -e .
 export E2B_API_KEY="your-api-key"
 
 # 方式二：CLI 配置（持久化到 ~/.ebx/config.toml）
-ebx config set api_key your-api-key
+ebx config set sandbox_api_key your-api-key
 
 # 如需运行 Codex Agent 示例，还需配置：
 export OPENAI_API_KEY="your-openai-key-here"

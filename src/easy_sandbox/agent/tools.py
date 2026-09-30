@@ -24,15 +24,17 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     {
         "name": "create_sandbox",
         "description": (
-            "创建一个云端沙箱环境。返回 sandbox_id 用于后续操作。"
-            "如果不指定 template，默认使用 code-interpreter-v1。"
+            "创建一个云端沙箱，并将其设为当前会话的默认沙箱。"
+            "之后省略 sandbox_id 的工具调用都作用在这只沙箱上。"
+            "省略 template 时使用 MCP server 配置的模板"
+            "（ebx mcp start 默认为 code-interpreter-v1）。"
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "template": {
                     "type": "string",
-                    "description": "沙箱模板名称，默认 code-interpreter-v1",
+                    "description": "沙箱模板名称，省略时使用 server 配置的模板",
                 },
                 "timeout": {
                     "type": "integer",
@@ -78,16 +80,20 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "run_command",
-        "description": "在沙箱中执行 Shell 命令。省略 sandbox_id 时使用默认沙箱。",
+        "description": (
+            "在沙箱中通过 sh -c 执行命令，因此支持管道、&&、$VAR 和 cd。"
+            "省略 sandbox_id 时使用默认沙箱。"
+            "省略 cwd 时使用镜像自己的工作目录。"
+            "timeout 是本次调用等待的秒数；非零退出码会标成工具错误。"
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "command": {"type": "string", "description": "Shell 命令"},
+                "command": {"type": "string", "description": "交给 sh -c 的命令"},
                 "sandbox_id": {"type": "string", "description": "沙箱 ID"},
                 "cwd": {
                     "type": "string",
-                    "description": "工作目录，默认 /app",
-                    "default": "/app",
+                    "description": "工作目录，省略时使用镜像工作目录",
                 },
                 "timeout": {
                     "type": "integer",
@@ -136,8 +142,8 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
             "properties": {
                 "path": {
                     "type": "string",
-                    "description": "目录路径，默认 /app",
-                    "default": "/app",
+                    "description": "目录路径，省略时列出 /",
+                    "default": "/",
                 },
                 "sandbox_id": {"type": "string", "description": "沙箱 ID"},
             },
@@ -145,7 +151,9 @@ TOOL_SCHEMAS: list[dict[str, Any]] = [
     },
     {
         "name": "kill_sandbox",
-        "description": "销毁指定沙箱。省略 sandbox_id 时销毁默认沙箱。",
+        "description": (
+            "销毁指定沙箱。省略 sandbox_id 时销毁默认沙箱；当前没有默认沙箱时返回错误，而不是成功。"
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -172,7 +180,8 @@ async def handle_create_sandbox(
     manager: SandboxManager,
 ) -> dict[str, Any]:
     """Handle create_sandbox tool call."""
-    template = params.get("template", "code-interpreter-v1")
+    raw_template = params.get("template")
+    template = raw_template if isinstance(raw_template, str) and raw_template else None
     timeout = params.get("timeout", 300)
     envs = params.get("envs") or {}
 
@@ -196,7 +205,7 @@ async def handle_run_code(
     code = params["code"]
     language = params.get("language", "python")
     timeout = params.get("timeout", 30)
-    sandbox_id = params.get("sandbox_id")
+    sandbox_id = params.get("sandbox_id") or None
 
     sandbox = await manager.get_sandbox(sandbox_id)
     result = await sandbox.run_code(code, language=language, timeout=timeout)
@@ -217,11 +226,11 @@ async def handle_run_command(
     """Handle run_command tool call."""
     command = params["command"]
     timeout = params.get("timeout", 60)
-    cwd = params.get("cwd", "/app")
-    sandbox_id = params.get("sandbox_id")
+    cwd = params.get("cwd") or ""
+    sandbox_id = params.get("sandbox_id") or None
 
     sandbox = await manager.get_sandbox(sandbox_id)
-    result = await sandbox.commands.run(command, timeout=timeout, cwd=cwd)
+    result = await sandbox.commands.run(command, timeout=timeout, cwd=cwd, shell=True)
     return {
         "stdout": result.stdout,
         "stderr": result.stderr,
@@ -236,7 +245,7 @@ async def handle_read_file(
     """Handle read_file tool call."""
     path = params["path"]
     encoding = params.get("encoding", "utf-8")
-    sandbox_id = params.get("sandbox_id")
+    sandbox_id = params.get("sandbox_id") or None
 
     sandbox = await manager.get_sandbox(sandbox_id)
     content = await sandbox.files.read(path, encoding=encoding)
@@ -250,7 +259,7 @@ async def handle_write_file(
     """Handle write_file tool call."""
     path = params["path"]
     content = params["content"]
-    sandbox_id = params.get("sandbox_id")
+    sandbox_id = params.get("sandbox_id") or None
 
     sandbox = await manager.get_sandbox(sandbox_id)
     await sandbox.files.write(path, content)
@@ -262,8 +271,8 @@ async def handle_list_files(
     manager: SandboxManager,
 ) -> dict[str, Any]:
     """Handle list_files tool call."""
-    path = params.get("path", "/app")
-    sandbox_id = params.get("sandbox_id")
+    path = params.get("path") or "/"
+    sandbox_id = params.get("sandbox_id") or None
 
     sandbox = await manager.get_sandbox(sandbox_id)
     files = await sandbox.files.list(path)
@@ -285,9 +294,18 @@ async def handle_kill_sandbox(
     manager: SandboxManager,
 ) -> dict[str, Any]:
     """Handle kill_sandbox tool call."""
-    sandbox_id = params.get("sandbox_id")
-    await manager.kill_sandbox(sandbox_id)
-    return {"success": True}
+    raw_id = params.get("sandbox_id")
+    sandbox_id = raw_id if isinstance(raw_id, str) and raw_id else None
+    killed = await manager.kill_sandbox(sandbox_id)
+    if not killed:
+        return {
+            "success": False,
+            "error": (
+                "No sandbox to destroy. Call create_sandbox or another tool "
+                "before kill_sandbox without sandbox_id."
+            ),
+        }
+    return {"success": True, "sandbox_id": killed}
 
 
 # Handler dispatch table
@@ -327,6 +345,25 @@ async def dispatch_tool(
         return await handler(params, manager)  # type: ignore[no-any-return]
     except Exception as exc:
         logger.error("Tool %s failed: %s", name, exc, exc_info=True)
-        return {
-            "error": str(exc),
-        }
+        return _format_tool_error(exc)
+
+
+def _format_tool_error(exc: BaseException) -> dict[str, Any]:
+    """Turn an exception into a short tool payload for the model.
+
+    SDK errors keep their code, message, and suggestion. Transport errors
+    drop the trailing HTTP documentation link that ``httpx`` appends.
+    """
+    code = getattr(exc, "code", None)
+    message = getattr(exc, "message", None)
+    suggestion = getattr(exc, "suggestion", None)
+    if isinstance(code, str) and isinstance(message, str) and message:
+        payload: dict[str, Any] = {"error": f"[{code}] {message}"}
+        if isinstance(suggestion, str) and suggestion:
+            payload["suggestion"] = suggestion
+        return payload
+    text = str(exc)
+    marker = "For more information check:"
+    if marker in text:
+        text = text.split(marker, 1)[0].strip()
+    return {"error": text or type(exc).__name__}

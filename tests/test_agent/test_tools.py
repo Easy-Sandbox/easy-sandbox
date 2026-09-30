@@ -152,7 +152,11 @@ def _make_mock_manager():
 
     manager.create_sandbox = AsyncMock(return_value=sandbox)
     manager.get_sandbox = AsyncMock(return_value=sandbox)
-    manager.kill_sandbox = AsyncMock(return_value=None)
+
+    async def _kill(sandbox_id: str | None = None) -> str:
+        return sandbox_id or "sbx-test-001"
+
+    manager.kill_sandbox = AsyncMock(side_effect=_kill)
 
     return manager
 
@@ -181,7 +185,7 @@ class TestToolHandlers:
         result = await handle_create_sandbox({}, manager)
         assert result["sandbox_id"] == "sbx-test-001"
         manager.create_sandbox.assert_awaited_once_with(
-            template="code-interpreter-v1",
+            template=None,
             timeout=300,
             envs={},
         )
@@ -216,7 +220,7 @@ class TestToolHandlers:
             manager,
         )
         sandbox = await manager.get_sandbox(None)
-        sandbox.commands.run.assert_awaited_with("ls", timeout=10, cwd="/tmp")
+        sandbox.commands.run.assert_awaited_with("ls", timeout=10, cwd="/tmp", shell=True)
 
     async def test_read_file(self, manager):
         result = await handle_read_file({"path": "/app/main.py"}, manager)
@@ -241,7 +245,7 @@ class TestToolHandlers:
     async def test_list_files_default_path(self, manager):
         await handle_list_files({}, manager)
         sandbox = await manager.get_sandbox(None)
-        sandbox.files.list.assert_awaited_with("/app")
+        sandbox.files.list.assert_awaited_with("/")
 
     async def test_kill_sandbox(self, manager):
         result = await handle_kill_sandbox({}, manager)

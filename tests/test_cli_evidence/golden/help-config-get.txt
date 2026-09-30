@@ -7,32 +7,40 @@ Usage: cli config get [OPTIONS] KEY
   these print ``(not set)``. Sensitive keys are masked.
 
   Available keys:
-    api_key            E2B API Key (stored in ~/.ebx/.env, shown masked)
+    sandbox_api_key    Sandbox service API key (E2B-compatible; env vars
+                       E2B_API_KEY > SANDBOX_API_KEY; stored in ~/.ebx/.env,
+                       shown masked). ``api_key`` is accepted as an alias.
     access_key_id      Alibaba Cloud AccessKey ID for AK/SK auth
                        (template deploy, ACR push; stored in ~/.ebx/.env)
     access_key_secret  Alibaba Cloud AccessKey Secret for AK/SK auth
                        (template deploy, ACR push; stored in ~/.ebx/.env,
                        shown masked)
+    acr_namespace      ACR namespace for template build, push, and install
+                       (stored in ~/.ebx/.env as ACR_NAMESPACE)
     api_url            Platform API URL
     domain             Envd data-plane domain
     region             Default region (e.g. cn-hangzhou)
     http_timeout       HTTP request timeout in seconds
     http2              Enable HTTP/2 (true/false)
     max_retries        Maximum retry attempts
-    llm_api_key        LLM API Key for NL inference (shown masked)
-    llm_model          LLM model name (e.g. qwen-plus)
-    llm_base_url       LLM API base URL (OpenAI-compatible)
-    qwen_code_api_key  Qwen Code API key for AI template generation
-                       (stored in ~/.ebx/.env, shown masked)
-    qwen_code_base_url Qwen Code OpenAI-compatible base URL
-    qwen_code_model    Qwen Code model name (e.g. qwen3-coder-plus)
+    llm_api_key        LLM API key for NL inference and the coding agent
+                       (stored in ~/.ebx/.env as EBX_LLM_API_KEY, shown
+                       masked; a legacy config.toml value is still readable)
+    llm_model          LLM model name (default: qwen3-coder-plus)
+    llm_base_url       LLM API base URL, OpenAI-compatible
+                       (default: DashScope compatible-mode)
     github_token       GitHub token for template downloads (stored in
                        ~/.ebx/.env, shown masked)
+    shortcuts          All top-level shortcuts configured in
+                       ~/.ebx/config.toml
+    shortcuts.<name>   Target command of one configured shortcut
 
   Examples:
-    ebx config get api_key
+    ebx config get sandbox_api_key
     ebx config get region
     ebx config list          # show all values at once
+    ebx config get shortcuts           # all configured aliases
+    ebx config get shortcuts.list      # target of one alias
 
   Related commands:
     ebx config list          Show every effective value and its source

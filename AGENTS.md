@@ -7,7 +7,7 @@
 
 **Easy Sandbox** (`easy-sandbox` on PyPI, CLI command `ebx`) is a Python SDK + CLI for the Alibaba Cloud FC Agent Sandbox service. It is **E2B-protocol compatible** with extensions for the Alibaba Cloud ecosystem (OSS, VPC, custom domains).
 
-- **Language:** Python 3.10+
+- **Language:** Python 3.9+
 - **Build system:** Hatchling
 - **Package:** `src/easy_sandbox/`
 - **Entry point:** `ebx` → `easy_sandbox.cli.main:cli`

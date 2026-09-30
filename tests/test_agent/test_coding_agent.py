@@ -20,7 +20,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from easy_sandbox.agent.clarify import ClarifyAssessment
+from easy_sandbox.agent.clarify import ClarifyAssessment, ResearchOutcome
 from easy_sandbox.agent.codegen import CodegenResult
 from easy_sandbox.agent.coding_agent import (
     DEFAULT_CODING_AGENT,
@@ -65,8 +65,10 @@ _REQUIRED_METHODS = (
     "install",
     "resolve_credentials",
     "prepare_workdir",
+    "research",
     "assess",
     "generate",
+    "run_in_workspace",
 )
 
 
@@ -140,8 +142,8 @@ class TestQuickSetupWording:
         lines = QwenCodeBackend().quick_setup_lines(reason="no-credentials")
         assert lines == [
             "Quick Setup - AI template generation (Qwen Code):",
-            "  1. Configure a DashScope/ModelStudio API key for Qwen Code:",
-            "       ebx config set qwen_code_api_key <KEY>   (stored in ~/.ebx/.env)",
+            "  1. Configure the LLM API key for Qwen Code (DashScope/ModelStudio):",
+            "       ebx config set llm_api_key <KEY>   (stored in ~/.ebx/.env)",
             "       or run the guided wizard:  ebx config init",
             "       (exported OPENAI_API_KEY / DASHSCOPE_API_KEY also work)",
             "  2. Docs: https://github.com/QwenLM/qwen-code",
@@ -228,6 +230,33 @@ class TestDelegation:
         assert QwenCodeBackend().prepare_workdir("a python env") == expected
         mock.assert_called_once_with("a python env")
 
+    def test_research_delegates_and_returns_the_outcome(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Research delegates lazily and forwards the sanitised outcome as-is."""
+        outcome = ResearchOutcome(ok=False, reason="timeout", detail="no result within 240s")
+        mock = MagicMock(return_value=outcome)
+        monkeypatch.setattr("easy_sandbox.agent.clarify.run_research", mock)
+        env = {"OPENAI_API_KEY": "sk-test"}
+        binary = tmp_path / "qwen"
+
+        result = QwenCodeBackend().research(
+            "research me",
+            workdir=tmp_path,
+            binary=binary,
+            env=env,
+            session_id="sess-1",
+        )
+
+        assert result is outcome
+        mock.assert_called_once_with(
+            "research me",
+            binary=binary,
+            env=env,
+            cwd=tmp_path,
+            session_id="sess-1",
+        )
+
     def test_assess_first_round_creates_the_session(
         self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
     ) -> None:
@@ -310,3 +339,70 @@ class TestDelegation:
             env=env,
             on_progress=progress,
         )
+
+    def test_prepare_workdir_forwards_the_base_dir(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        expected = (tmp_path / "ws", "ebx-nl-test-abc")
+        mock = MagicMock(return_value=expected)
+        monkeypatch.setattr("easy_sandbox.agent.codegen.prepare_workdir", mock)
+
+        result = QwenCodeBackend().prepare_workdir("a python env", base_dir=tmp_path)
+
+        assert result == expected
+        mock.assert_called_once_with("a python env", base_dir=tmp_path)
+
+    def test_on_activity_is_forwarded_to_every_agent_call(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        research = MagicMock(return_value=ResearchOutcome(ok=True))
+        evaluate = MagicMock(return_value=None)
+        generate = MagicMock()
+        monkeypatch.setattr("easy_sandbox.agent.clarify.run_research", research)
+        monkeypatch.setattr("easy_sandbox.agent.clarify.evaluate", evaluate)
+        monkeypatch.setattr("easy_sandbox.agent.codegen.generate_template_files", generate)
+        callback = MagicMock()
+        backend = QwenCodeBackend()
+
+        backend.research(
+            "p", workdir=tmp_path, binary="qwen", env=None, session_id="s", on_activity=callback
+        )
+        backend.assess(
+            "p", workdir=tmp_path, binary="qwen", env=None, resume="s", on_activity=callback
+        )
+        backend.generate(
+            "p",
+            workdir=tmp_path,
+            template_name="n",
+            resume_session=None,
+            binary="qwen",
+            env=None,
+            on_activity=callback,
+        )
+
+        assert research.call_args.kwargs["on_activity"] is callback
+        assert evaluate.call_args.kwargs["on_activity"] is callback
+        assert generate.call_args.kwargs["on_activity"] is callback
+
+    def test_run_in_workspace_scrubs_the_environment(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Adopt runs the agent with clean_env so cloud credentials are not inherited."""
+        captured: dict[str, object] = {}
+
+        def _fake(*_args: object, **kwargs: object) -> MagicMock:
+            captured.update(kwargs)
+            return MagicMock(text="ok", is_error=False, exit_code=0)
+
+        monkeypatch.setattr("easy_sandbox.agent.qwen_code.run_qwen_code_headless", _fake)
+        result = QwenCodeBackend().run_in_workspace(
+            "adapt",
+            workdir=tmp_path,
+            binary=tmp_path / "qwen",
+            env={"OPENAI_API_KEY": "sk-test"},
+            max_session_turns=4,
+        )
+        assert result == "ok"
+        assert captured["clean_env"] is True
+        assert captured["env"] == {"OPENAI_API_KEY": "sk-test"}
+        assert captured["max_session_turns"] == 4

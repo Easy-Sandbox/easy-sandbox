@@ -164,8 +164,8 @@ class QwenCodeCredentialError(SandboxCreationError):
 
     code = "E2006"
     suggestion = (
-        "Configure a DashScope/ModelStudio API key for Qwen Code: "
-        "'ebx config set qwen_code_api_key <KEY>' (interactive: 'ebx config init'), "
+        "Configure the unified LLM API key for Qwen Code: "
+        "'ebx config set llm_api_key <KEY>' (interactive: 'ebx config init'), "
         "or export DASHSCOPE_API_KEY / OPENAI_API_KEY."
     )
 
@@ -180,6 +180,29 @@ class AICodegenError(SandboxCreationError):
         "'ebx create \"<description>\"' or fall back to "
         "'ebx create --template <name>'."
     )
+
+
+class QwenCodeTimeoutError(AICodegenError):
+    """Qwen Code did not finish within the wall-clock budget.
+
+    Deliberately shares the E2007 code of :class:`AICodegenError`: to users
+    it remains one AI-generation error, while the research round can
+    classify the failure (``reason="timeout"``) without parsing messages
+    or leaking the raw stderr.
+    """
+
+    code = "E2007"
+
+
+class QwenCodeStartupError(AICodegenError):
+    """Qwen Code could not be started (spawn failure before any run).
+
+    Deliberately shares the E2007 code of :class:`AICodegenError`: to users
+    it remains one AI-generation error, while the research round can
+    classify the failure as an unavailable agent (``reason="agent-unavailable"``).
+    """
+
+    code = "E2007"
 
 
 class DescriptionClarificationError(SandboxCreationError):
@@ -406,8 +429,9 @@ class DeployLLMKeyMissingError(DeployError):
 
     code = "E7001"
     suggestion = (
-        "Set BAILIAN_CODING_PLAN_API_KEY, DASHSCOPE_API_KEY, or "
-        "OPENAI_API_KEY environment variable."
+        "Set EBX_LLM_API_KEY (or BAILIAN_CODING_PLAN_API_KEY, DASHSCOPE_API_KEY, "
+        "OPENAI_API_KEY), store one with 'ebx config set llm_api_key <KEY>', "
+        "or pass llm_api_key= to Sandbox.deploy."
     )
 
 
@@ -511,6 +535,8 @@ __all__ = [
     "QwenCodeNotInstalledError",
     "QwenCodeCredentialError",
     "AICodegenError",
+    "QwenCodeTimeoutError",
+    "QwenCodeStartupError",
     "DescriptionClarificationError",
     "ExecutionError",
     "CommandTimeoutError",

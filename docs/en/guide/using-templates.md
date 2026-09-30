@@ -48,7 +48,7 @@ ebx template install owner/private-repo
 ebx template install owner/private-repo --token ghp_xxx
 ```
 
-Anonymous GitHub downloads are limited to 60 requests/hour; a saved token raises the limit to 5000/hour. Prefer `ebx config set github_token` over `--token` — the latter is a one-off override that may leak into shell history or the process list. Resolution priority: `--token` > `GITHUB_TOKEN` environment variable > stored `github_token`. When no token is configured and the anonymous limit is hit, interactive terminals offer a guided one-shot setup (`--token` is never required).
+Anonymous GitHub downloads are limited to 60 requests/hour; a saved token raises the limit to 5000/hour. Prefer `ebx config set github_token` over `--token` — the latter is a one-off override that may leak into shell history or the process list. Resolution priority: `--token` > `GITHUB_TOKEN` > `./.env` > stored `github_token`. When no token is configured and the anonymous limit is hit, interactive terminals offer a guided one-shot setup (`--token` is never required).
 
 ### Install from a Local Directory
 
@@ -102,7 +102,7 @@ sandbox = await Sandbox.create(
 )
 ```
 
-The SDK records the `description` as a hint log entry; template selection does not happen inside `Sandbox.create()` itself. The CLI's `ebx create "<description>"` (without an explicit `--template`) takes the AI path: it calls Qwen Code to generate a Dockerfile + template.yaml, builds and deploys them, then creates the sandbox from the generated template.
+The SDK records the `description` as a hint log entry; template selection does not happen inside `Sandbox.create()` itself. The CLI's `ebx create "<description>"` (without an explicit `--template`) takes the AI path: it calls Qwen Code to generate a Dockerfile, a `commands.py` HTTP server entry point (`easy_sandbox.server`) and a template.yaml, builds and deploys them, then creates the sandbox from the generated template.
 
 ---
 
@@ -112,7 +112,7 @@ The SDK records the `description` as a hint log entry; template selection does n
 |----------|-------------|----------------------|
 | `base` | Basic Ubuntu environment | `shell`, `files`, `code` |
 
-> **Tip**: You can install more templates from the community via `ebx template install`, or create your own by following [Authoring Templates](authoring-templates.md).
+> **Tip**: You can install more templates from the community via `ebx template install`, or create your own by following [Authoring Templates](authoring-templates.md). A project that already has source code can be adapted in place with `ebx template init --adopt`.
 
 ---
 

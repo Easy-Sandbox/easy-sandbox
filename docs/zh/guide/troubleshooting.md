@@ -44,10 +44,10 @@
 **解决**：
 ```bash
 # 检查配置状态
-ebx config get api_key
+ebx config get sandbox_api_key
 
 # 重新设置 API Key
-ebx config set api_key your-api-key
+ebx config set sandbox_api_key your-api-key
 
 # 或设置环境变量
 export E2B_API_KEY="your-api-key"
@@ -187,6 +187,8 @@ ebx exec sbx-xxxx "long-command" --timeout 300
 
 ### E7001 — 缺少 LLM Key
 
+> 仅 SDK 的 `Sandbox.deploy()` 会抛出。`ebx deploy` 不需要 LLM Key；CLI 的 AI 步骤（`ebx create "..."`、`ebx template init "..."`、`ebx template init --adopt`）使用 `ebx config` 中的 Qwen Code 凭据。
+
 ```text
 [E7001] No LLM API key found for the qwen-code agent.
   Suggestion: Set BAILIAN_CODING_PLAN_API_KEY, DASHSCOPE_API_KEY, or OPENAI_API_KEY environment variable.
@@ -196,9 +198,19 @@ ebx exec sbx-xxxx "long-command" --timeout 300
 
 ```bash
 export DASHSCOPE_API_KEY="your-key"
-# 或
-ebx config set llm_api_key your-key
+# 或向 Sandbox.deploy(...) 传入 llm_api_key=
+# CLI（create / template init）：ebx config set llm_api_key your-key
 ```
+
+### 没有 Dockerfile
+
+目录里没有 `Dockerfile` 时，`ebx deploy` 会停下，并给出三条编写命令：已有源码用 `ebx template init --adopt .`，用一句话新建项目用 `ebx template init "描述"`，脚手架用 `ebx template init -t python`。文件写好之后再执行 `ebx deploy`。
+
+非交互的 `--adopt` 如果没带 `-y`，会停在 “Confirmation required before project files are sent to the model.”。加上 `-y` 即同时批准两次确认；`--dry-run` 只列出文件，不发送。
+
+### 长时间步骤看起来停住了
+
+终端上标题应持续走动（`Building Docker image locally... 12s`，然后 `13s`）。最近四行日志以灰色显示在标题下方。如果只看到一行、没有耗时，当前会话是 `--quiet`、`--json`、`--ci`、`TERM=dumb`，或者不是终端。去掉这些选项就能看到动态块。`--verbose` 改为打印完整的部署日志。`EBX_ACTIVITY_LINES`（1–10，默认 4）决定保留几行灰色文字。文件内容和凭证不会进入这个块。
 
 ### E7003 — 部署超时
 
@@ -223,6 +235,24 @@ entries = await sandbox.files.list("/home/user")
 ### E4002 — 权限被拒绝
 
 检查文件权限。沙箱默认用户为 `user`，可在命令中指定 `user` 参数。
+
+---
+
+## 快捷方式目标无效
+
+快捷方式的目标是命令路径，不是带 `ebx` 的完整调用。下面的写法会被拒绝，且不会保存：
+
+```bash
+ebx config set shortcuts.aaaaa "ebx template init"
+```
+
+```text
+Invalid shortcut target: 'ebx template init'
+  Suggestion: Drop the leading "ebx". The target is the command path only, for example "template init".
+              Try: ebx config set shortcuts.aaaaa "template init"
+```
+
+按提示里的命令重试即可。如果 `~/.ebx/config.toml` 里已经写了 `aaaaa = "ebx template init"`，下次启动 `ebx` 会警告 `Invalid shortcut ignored` 并跳过这一条，其他快捷方式仍然可用。不认识的路径（例如 `"not-a-command"`）同样会被拒绝，并按命令分组列出合法目标。
 
 ---
 

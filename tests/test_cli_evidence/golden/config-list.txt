@@ -1,17 +1,38 @@
-api_key             (not set)
-access_key_id       (not set)
-access_key_secret   (not set)
-qwen_code_api_key   (not set)
-github_token        (not set)
-api_url             https://api.cn-hangzhou.e2b.fc.aliyuncs.com (default)
-domain              cn-hangzhou.e2b.fc.aliyuncs.com (default)
-http2               True (default)
-http_timeout        30.0 (default)
-llm_api_key         (not set)
-llm_base_url        (not set)
-llm_model           (not set)
-max_retries         3 (default)
-qwen_code_base_url  https://dashscope.aliyuncs.com/compatible-mode/v1 (default)
-qwen_code_model     qwen3-coder-plus (default)
-region              cn-hangzhou (default)
+── Sandbox authentication ──────────────────────────────────────
+sandbox_api_key    (not set)
+
+── Alibaba Cloud credentials ───────────────────────────────────
+access_key_id      (not set)
+access_key_secret  (not set)
+acr_namespace      (not set)
+
+── Connection ──────────────────────────────────────────────────
+api_url            https://api.cn-hangzhou.e2b.fc.aliyuncs.com (default)
+region             cn-hangzhou (default)
+domain             cn-hangzhou.e2b.fc.aliyuncs.com (default)
+http_timeout       30.0 (default)
+http2              True (default)
+max_retries        3 (default)
+
+── LLM ─────────────────────────────────────────────────────────
+llm_api_key        (not set)
+llm_model          qwen3-coder-plus (default)
+llm_base_url       https://dashscope.aliyuncs.com/compatible-mode/v1 (default)
+
+── Integrations ────────────────────────────────────────────────
+github_token       (not set)
+
+── Shortcuts ───────────────────────────────────────────────────
+shortcuts.create    sandbox create (default)
+shortcuts.list      sandbox list (default)
+shortcuts.info      sandbox info (default)
+shortcuts.kill      sandbox kill (default)
+shortcuts.exec      sandbox exec (default)
+shortcuts.connect   sandbox connect (default)
+shortcuts.upload    sandbox upload (default)
+shortcuts.download  sandbox download (default)
+shortcuts.run       sandbox run (default)
+shortcuts.install   template install (default)
+shortcuts.init      template init (default)
+shortcuts.deploy    deploy (default)
 [exit_code:0]

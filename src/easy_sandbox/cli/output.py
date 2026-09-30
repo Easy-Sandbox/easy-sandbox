@@ -21,14 +21,18 @@ from __future__ import annotations
 import json as json_module
 import logging
 import os
+import re
+import shutil
 import sys
+import threading
+import time
 from contextlib import contextmanager, suppress
 from typing import TYPE_CHECKING, Any
 
 import click
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
 
 __all__ = [
     "OutputManager",
@@ -99,6 +103,157 @@ class _LogBridgeHandler(logging.Handler):
             self.handleError(record)
             return
         self._manager._emit_log(message)
+
+
+# ---------------------------------------------------------------------------
+# Live activity line
+# ---------------------------------------------------------------------------
+
+_ACTIVITY_STRIP_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|[\x00-\x1f\x7f]")
+
+#: Minimum seconds between two redraws of the activity line.
+_ACTIVITY_MIN_INTERVAL = 0.1
+
+#: How often a ticked activity block redraws so the elapsed time keeps moving
+#: while the step is silent.
+_ACTIVITY_TICK_SECONDS = 1.0
+
+
+#: Environment variable overriding how many grey activity lines are shown.
+_ACTIVITY_LINES_ENV = "EBX_ACTIVITY_LINES"
+
+#: Grey activity lines shown under the header by default.
+_ACTIVITY_LINES_DEFAULT = 4
+
+#: Upper bound for :data:`_ACTIVITY_LINES_ENV` (keeps the block small).
+_ACTIVITY_LINES_MAX = 10
+
+
+def _activity_line_count() -> int:
+    """How many activity lines to show: ``EBX_ACTIVITY_LINES`` (1-10), default 4."""
+    raw = os.environ.get(_ACTIVITY_LINES_ENV, "").strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        return _ACTIVITY_LINES_DEFAULT
+    return min(max(value, 1), _ACTIVITY_LINES_MAX)
+
+
+def _activity_head(message: str, elapsed: int) -> str:
+    """The header line: ``message... 12s``.
+
+    Phase strings that already end in an ellipsis (``Checking Docker
+    daemon...``) are not given a second one.
+    """
+    text = message.rstrip()
+    if text.endswith("..."):
+        return f"{text} {elapsed}s"
+    return f"{text}... {elapsed}s"
+
+
+def _activity_lines(summary: str, limit: int) -> list[str]:
+    """Split *summary* into its last *limit* non-empty lines, controls removed.
+
+    The agent side hands over a newline-separated feed (oldest first); each
+    line is sanitised on its own so an escape sequence can never survive or
+    span lines.
+    """
+    lines = [" ".join(_ACTIVITY_STRIP_RE.sub(" ", raw).split()) for raw in summary.splitlines()]
+    return [line for line in lines if line][-limit:]
+
+
+def _cell_len(text: str) -> int:
+    try:
+        from rich.cells import cell_len
+
+        return int(cell_len(text))
+    except ImportError:  # pragma: no cover - rich is a CLI dependency
+        return len(text)
+
+
+def _fit_cells(text: str, width: int) -> str:
+    """Truncate *text* to at most *width* terminal cells (CJK-aware)."""
+    if width <= 0:
+        return ""
+    if _cell_len(text) <= width:
+        return text
+    out: list[str] = []
+    used = 0
+    for char in text:
+        size = _cell_len(char)
+        if used + size > width - 1:
+            break
+        out.append(char)
+        used += size
+    return "".join(out) + "…"
+
+
+class _TransientLine:
+    """A self-erasing block on *stderr*: a header plus grey activity lines.
+
+    Used for ``--verbose`` / ``--no-color`` sessions where Rich's live
+    status is not (or cannot be) used.  Duck-types the two methods
+    :meth:`OutputManager._spinner_guard` calls on a live status (``stop`` /
+    ``start``), so every ordinary log, info or warning write first clears the
+    block and redraws it afterwards — log lines never interleave with it.
+
+    The block is redrawn in place: the cursor stays at the end of its last
+    row (no trailing newline), and each redraw moves up over the rows drawn
+    before (``ESC [ n A``), then clears to the end of the screen.
+    """
+
+    def __init__(self, *, color: bool) -> None:
+        self._color = color
+        self._head = ""
+        self._details: list[str] = []
+        self._active = False
+        self._rows = 0  # rows currently on screen
+
+    def _width(self) -> int:
+        return max(shutil.get_terminal_size(fallback=(80, 24)).columns - 1, 10)
+
+    def _rewind(self) -> None:
+        if self._rows > 1:
+            sys.stderr.write(f"\x1b[{self._rows - 1}A")
+        sys.stderr.write("\r")
+
+    def _draw(self) -> None:
+        width = self._width()
+        previous = self._rows
+        self._rewind()
+        rows = [(self._head, False), *[(d, True) for d in self._details]]
+        out: list[str] = []
+        for text, grey in rows:
+            fitted = _fit_cells(text, width)
+            padded = fitted + " " * max(width - _cell_len(fitted), 0)
+            out.append(click.style(padded, fg="bright_black") if grey and self._color else padded)
+        sys.stderr.write("\n".join(out))
+        if previous > len(rows):
+            sys.stderr.write("\x1b[J")  # leftover rows from a taller block
+        sys.stderr.flush()
+        self._rows = len(rows)
+
+    def _erase(self) -> None:
+        if self._rows:
+            self._rewind()
+            sys.stderr.write("\x1b[J")
+            sys.stderr.flush()
+            self._rows = 0
+
+    def start(self) -> None:
+        self._active = True
+        if self._head:
+            self._draw()
+
+    def stop(self) -> None:
+        self._active = False
+        self._erase()
+
+    def update(self, head: str, details: list[str]) -> None:
+        self._head = head
+        self._details = details
+        if self._active:
+            self._draw()
 
 
 # ---------------------------------------------------------------------------
@@ -367,62 +522,196 @@ class OutputManager:
 
     @contextmanager
     def spinner(self, message: str) -> Iterator[None]:
-        """Context manager showing an animated spinner for a blocking operation.
+        """Context manager for a long step that has no line-by-line log.
 
-        In interactive TTY mode a Rich spinner is rendered on *stderr* (so it
-        never mixes with JSON/text results on stdout).  In quiet, JSON, CI, or
-        non-TTY sessions the spinner is silent — callers already emit their own
-        progress messages where needed.
+        On an interactive terminal this is the activity header
+        (``message... 12s``), redrawn once a second so the elapsed time does
+        not freeze. Grey detail lines stay empty until a caller uses
+        :meth:`activity` and feeds them. Quiet, JSON, CI, and non-TTY
+        sessions stay silent — callers that need a machine-readable line
+        already emit :meth:`progress` themselves.
 
-        If the wrapped block raises, the spinner stops cleanly and the
-        exception propagates untouched so callers can still report errors.
+        If the wrapped block raises, the display stops and the exception
+        propagates untouched.
         """
-        if not self.use_rich_spinner:
-            yield
-            return
-        try:
-            from rich.console import Console
-        except ImportError:
-            yield
-            return
-        console = Console(stderr=True)
-        with console.status(f"[bold blue]{message}...", spinner="dots") as status:
-            self._spinner_stack.append(status)
-            try:
+        if self.use_activity_line:
+            with self.activity(message, tick=True):
                 yield
-            finally:
-                self._spinner_stack.pop()
+            return
+        yield
 
     @contextmanager
     def live_spinner(self, message: str) -> Iterator[Any]:
-        """Like :meth:`spinner`, but yields an updater callable.
+        """Like :meth:`spinner`, but yields ``update(text)`` for one detail line.
 
-        The yielded ``update(text)`` callable refreshes the spinner text (used
-        to show poll status / elapsed time).  In verbose mode the updater
-        prints each status change as a plain line on stderr so that poll
-        progress remains visible alongside DEBUG logs.  In other degraded
-        modes (quiet / JSON / non-TTY) the updater is a no-op.
+        On an interactive terminal *text* is the grey line under the
+        ``message... 12s`` header. ``--verbose`` without a live display
+        prints each change on stderr. Quiet, JSON, CI, and non-TTY yield a
+        no-op.
         """
-        if not self.use_rich_spinner:
-            if self.verbose:
-                # Print poll updates as plain lines so progress is visible
-                # alongside DEBUG logs without conflicting with a spinner.
-                yield lambda text: self._write_stderr(f"... {text}")
-            else:
-                yield lambda _text: None  # no-op in non-TTY / quiet / json
+        if self.use_activity_line:
+            with self.activity(message, tick=True) as update:
+                yield update or (lambda _text: None)
             return
-        try:
-            from rich.console import Console
-        except ImportError:
-            yield lambda _text: None
+        if self.verbose and not self.quiet and not self.json_mode:
+            yield lambda text: self._write_stderr(f"... {text}")
             return
-        console = Console(stderr=True)
-        with console.status(f"[bold blue]{message}...", spinner="dots") as status:
-            self._spinner_stack.append(status)
+        yield lambda _text: None
+
+    @property
+    def use_activity_line(self) -> bool:
+        """Whether a live (grey) activity line can be drawn on *stderr*.
+
+        Needs an interactive stderr, a real terminal type, and no
+        ``--json`` / ``--quiet`` / CI mode.  Unlike :attr:`use_rich_spinner`
+        it stays available under ``--verbose`` and ``--no-color``: there
+        the line is a self-erasing ``\\r`` line that the log writers
+        already pause around.
+        """
+        return not (
+            self.quiet
+            or self.json_mode
+            or self.ci
+            or os.environ.get("TERM", "").lower() == "dumb"
+            or not (hasattr(sys.stderr, "isatty") and sys.stderr.isatty())
+        )
+
+    @contextmanager
+    def activity(
+        self, message: str, *, tick: bool = False
+    ) -> Iterator[Callable[[str], None] | None]:
+        """Show *message* with elapsed time and a rolling activity feed.
+
+        Yields an ``update(summary)`` callable, or ``None`` when no live
+        display can be drawn (non-TTY, ``--json``, ``--quiet``, CI, dumb
+        terminal); callers then simply skip reporting.  *summary* is recent
+        activity, **one line per entry, oldest first**: the display keeps
+        the last ``EBX_ACTIVITY_LINES`` (default 4) of them in grey *below*
+        the ``message... 12s`` header, so the block scrolls by line.  An
+        update that arrives inside the throttle window is remembered and
+        drawn on the next update that is allowed through — a later call is
+        still required, so a throttled line never appears on its own.
+
+        When *tick* is true a daemon redraws the same summary once a second
+        so the elapsed time keeps moving during a silent step (create,
+        upload, install, fetch). Agent runs leave it off; they already
+        heartbeat. Everything is written to **stderr**, never stdout, and
+        each line is stripped of control characters and rendered literally
+        (never as Rich markup).
+
+        * normal TTY — a Rich status whose text is refreshed in place;
+        * ``--verbose`` / ``--no-color`` on a TTY — a transient block
+          redrawn in place and cleared around every log write.
+        """
+        if not self.use_activity_line:
+            yield None
+            return
+        started = time.monotonic()
+        last = [0.0]
+        pending = [""]
+        shown = _activity_line_count()
+        lock = threading.Lock()
+
+        def make_updater(render: Callable[[str, list[str]], None]) -> Callable[[str], None]:
+            def update(summary: str = "") -> None:
+                with lock:
+                    pending[0] = summary
+                    now = time.monotonic()
+                    # ``last[0] == 0`` is the first draw; it always paints.
+                    if last[0] and now - last[0] < _ACTIVITY_MIN_INTERVAL:
+                        return
+                    last[0] = now
+                    text = pending[0]
+                render(_activity_head(message, int(now - started)), _activity_lines(text, shown))
+
+            return update
+
+        def _arm(redraw: Callable[[], None]) -> tuple[threading.Event, threading.Thread] | None:
+            if not tick:
+                return None
+            stop = threading.Event()
+
+            def _run() -> None:
+                while not stop.wait(_ACTIVITY_TICK_SECONDS):
+                    with suppress(Exception):
+                        redraw()
+
+            thread = threading.Thread(target=_run, name="ebx-activity-tick", daemon=True)
+            thread.start()
+            return stop, thread
+
+        def _disarm(armed: tuple[threading.Event, threading.Thread] | None) -> None:
+            if armed is None:
+                return
+            stop, thread = armed
+            stop.set()
+            thread.join(timeout=1.0)
+
+        if self.use_rich_spinner:
             try:
-                yield lambda text: status.update(f"[bold blue]{text}...")
-            finally:
-                self._spinner_stack.pop()
+                from rich.console import Console
+                from rich.text import Text
+            except ImportError:
+                yield None
+                return
+
+            console = Console(stderr=True)
+
+            def styled(head: str, details: list[str]) -> Any:
+                # Rich would wrap an over-long row inside the spinner table
+                # (growing the block); cut each row to the room left after
+                # the spinner glyph instead.
+                room = max(console.width - 3, 10)
+                parts: list[tuple[str, str]] = [(_fit_cells(head, room), "bold blue")]
+                for detail in details:
+                    parts.extend([("\n", ""), (_fit_cells(detail, room), "grey50")])
+                return Text.assemble(*parts, no_wrap=True, overflow="ellipsis")
+
+            with console.status(styled(_activity_head(message, 0), []), spinner="dots") as status:
+                self._spinner_stack.append(status)
+                updater = make_updater(lambda head, det: status.update(styled(head, det)))
+
+                def _redraw() -> None:
+                    with lock:
+                        text = pending[0]
+                        now = time.monotonic()
+                        if last[0] and now - last[0] < _ACTIVITY_MIN_INTERVAL:
+                            return
+                        last[0] = now
+                    render_head = _activity_head(message, int(now - started))
+                    status.update(styled(render_head, _activity_lines(text, shown)))
+
+                armed = _arm(_redraw)
+                try:
+                    yield updater
+                finally:
+                    _disarm(armed)
+                    self._spinner_stack.pop()
+            return
+
+        line = _TransientLine(color=not self.no_color)
+        self._spinner_stack.append(line)
+        line.update(_activity_head(message, 0), [])
+        line.start()
+        updater = make_updater(line.update)
+
+        def _redraw_plain() -> None:
+            with lock:
+                text = pending[0]
+                now = time.monotonic()
+                if last[0] and now - last[0] < _ACTIVITY_MIN_INTERVAL:
+                    return
+                last[0] = now
+            line.update(_activity_head(message, int(now - started)), _activity_lines(text, shown))
+
+        armed = _arm(_redraw_plain)
+        try:
+            yield updater
+        finally:
+            _disarm(armed)
+            with suppress(ValueError):
+                self._spinner_stack.remove(line)
+            line.stop()
 
     # -- private helpers ----------------------------------------------------
 

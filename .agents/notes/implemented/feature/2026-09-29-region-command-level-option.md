@@ -3,6 +3,7 @@
 Status: implemented
 Implemented: 2026-09-29
 Supersedes: the `--region` global option in [2026-09-02-cli-tool.md](2026-09-02-cli-tool.md)
+Clarified: [2026-09-30-credential-resolution-priority.md](2026-09-30-credential-resolution-priority.md) — `SANDBOX_REGION` beats `ebx config set region`. The slash in item 3 names the two sources; it does not make them the same tier.
 
 ## Problem
 `--region`/`-r` was defined as a root-level global option (see

@@ -1,218 +1,109 @@
-"""Project deployment commands.
+"""Top-level ``ebx deploy`` — publish a template project.
 
-Supports two modes:
-1. NL deploy (qwen-code): ``ebx deploy ./my-project "deploy this FastAPI project"``
-2. Traditional deploy: ``ebx deploy ./my-project --traditional``
+``ebx deploy [PATH]`` is the fixed, deterministic *publish* step of the
+template lifecycle: docker build → ACR push → CreateTemplate → poll.  It is
+exactly ``ebx template deploy`` with ``PATH`` defaulting to ``.`` and shares
+**every** option of it (``--acr-namespace``, ``--alias``, ``--yes``,
+``-v/--verbose``, ...).
+
+It takes no description and needs no LLM: everything about *what* the
+template is (name, resources, ports, capabilities, commands) is authored
+earlier — by hand, from ``ebx template init``, or by
+``ebx template init "DESCRIPTION"`` (AI) — and lives in ``template.yaml``,
+which ``deploy`` only reads.
+
+The in-sandbox agent deployment (``Sandbox.deploy``, which starts a
+``qwen-code`` cloud sandbox) remains available as an SDK API only.
 """
 
 from __future__ import annotations
 
-import sys
 from pathlib import Path
 from typing import Any
 
 import click
 
-from easy_sandbox.cli.formatters import get_formatter
+from easy_sandbox.cli.commands.template import build, resolve_acr_namespace
 from easy_sandbox.cli.main import handle_errors
+from easy_sandbox.cli.output import get_output
 
-# ---------------------------------------------------------------------------
-# Project type detection (retained for traditional deploy)
-# ---------------------------------------------------------------------------
-
-_PROJECT_DETECTORS: list[tuple[str, str, str]] = [
-    # (marker file, project type, default template)
-    ("sandbox.yaml", "sandbox-config", "base"),
-    ("Dockerfile", "docker", "base"),
-    ("requirements.txt", "python", "python-base"),
-    ("pyproject.toml", "python", "python-base"),
-    ("package.json", "nodejs", "node-web"),
-    ("go.mod", "go", "go-dev"),
-    ("pom.xml", "java", "java-dev"),
-    ("build.gradle", "java", "java-dev"),
-]
+#: Every option of ``template build`` (without its TEMPLATE_DIR argument),
+#: reused verbatim so ``deploy`` and ``template deploy`` cannot drift.
+_BUILD_OPTIONS: list[click.Parameter] = [p for p in build.params if isinstance(p, click.Option)]
 
 
-def _detect_project(path: Path) -> tuple[str, str]:
-    """Detect project type and return (project_type, template).
-
-    Returns:
-        Tuple of (project_type, template_name).
-    """
-    for marker, proj_type, template in _PROJECT_DETECTORS:
-        if (path / marker).exists():
-            return proj_type, template
-    return "unknown", "base"
-
-
-# ---------------------------------------------------------------------------
-# Top-level deploy shortcut: ebx deploy <path> [instruction]
-# ---------------------------------------------------------------------------
-
-
-@click.command("deploy")
-@click.argument("path", default=".")
-@click.argument("instruction", default="", required=False)
-@click.option(
-    "--instruction",
-    "-i",
-    "instruction_opt",
-    default=None,
-    help="NL deploy instruction (alternative to positional arg)",
-)
-@click.option("--max-wall-time", default="10m", help="qwen-code max wall time (e.g. '10m', '600s')")
-@click.option(
-    "--max-session-turns",
-    default=100,
-    type=int,
-    help="qwen-code session turn limit (positive integer; default: 100)",
-)
-@click.option("--alias", "-a", default=None, help="Template alias (traditional mode)")
-@click.option(
-    "--watch",
-    is_flag=True,
-    help="Watch for file changes and auto-redeploy (traditional mode)",
-)
-@click.option(
-    "--traditional",
-    is_flag=True,
-    help="Use traditional build+run mode instead of AI deploy",
+@click.command(
+    "deploy",
+    params=[
+        click.Argument(["path"], default=".", required=False),
+        click.Option(["--traditional"], is_flag=True, hidden=True),
+        *_BUILD_OPTIONS,
+    ],
 )
 @click.pass_context
 @handle_errors
-def deploy_shortcut(
-    ctx: click.Context,
-    path: str,
-    instruction: str,
-    instruction_opt: str | None,
-    max_wall_time: str,
-    max_session_turns: int,
-    alias: str | None,
-    watch: bool,
-    traditional: bool,
-) -> None:
-    """Deploy a local project to a sandbox.
+def deploy_shortcut(ctx: click.Context, /, **kwargs: Any) -> None:
+    """Publish a template project: build, push to ACR, register the template.
 
-    AI mode (default) analyzes the project and follows an optional natural-
-    language instruction. Use --traditional for marker-based project detection
-    without the AI agent.
+    Runs the fixed pipeline: docker build, push the image to ACR, register
+    the template, and wait until it is ready. No LLM is involved.
+    PATH is the template directory (default: .). It must contain a
+    Dockerfile; template.yaml supplies the template name and resources.
+
+    To author the files first, use 'ebx template init': --adopt for an existing
+    project, a natural-language description to let the AI write the files, or
+    -t for a scaffold.
+
+    Accepts every option of 'ebx template deploy' (--acr-namespace,
+    --alias, --yes, -v/--verbose, ...).
 
     \b
     Examples:
-      ebx deploy ./my-project "deploy this FastAPI app on port 8080"
-      ebx deploy ./my-project --max-wall-time 15m --max-session-turns 150
-      ebx deploy ./my-project --traditional --alias my-app
+      ebx deploy --acr-namespace my-ns           # publish ./ as a template
+      ebx deploy ./my-template --yes             # non-interactive
+      ebx deploy ./my-template -v                # with debug logs
+
+    \b
+    Typical flow:
+      ebx template init --adopt .                      # 1a. author from a project
+      ebx template init "a python data science env"   # 1b. author from a description
+      ebx deploy ./<name> --acr-namespace my-ns       # 2. publish
+      ebx create --template <TEMPLATE_ID>             # 3. launch a sandbox
 
     \b
     Related commands:
-      ebx create             Create an empty sandbox
-      ebx exec --help        Run a command in a sandbox
-      ebx template deploy    Build and register a reusable template
+      ebx template init          Author Dockerfile / template.yaml (AI optional)
+      ebx template deploy DIR    The same pipeline with a required DIRECTORY
+      ebx create "DESCRIPTION"   Author + publish + launch in one go
     """
-    fmt = get_formatter(ctx)
-    project_path = Path(path).resolve()
+    path: str = kwargs.pop("path")
+    traditional: bool = kwargs.pop("traditional")
 
-    if not project_path.exists():
-        fmt.print_error(f"Path '{path}' does not exist.")
-        sys.exit(1)
+    if kwargs.get("verbose_flag"):
+        from easy_sandbox.cli.output import enable_verbose
 
-    # Resolve instruction: positional arg > --instruction flag
-    effective_instruction = instruction_opt or instruction
+        enable_verbose(ctx)
+    out = get_output(ctx)
 
-    # If no instruction and not traditional mode, detect project and generate
-    # a default instruction
-    if not effective_instruction and not traditional:
-        project_type, _ = _detect_project(project_path)
-        if project_type != "unknown":
-            effective_instruction = f"Auto-detect and deploy this {project_type} project"
-        else:
-            effective_instruction = (
-                "Analyze project structure, install dependencies, build and start the service"
-            )
+    project_path = Path(path).expanduser().resolve()
+    if not project_path.is_dir():
+        raise click.UsageError(f"Path '{path}' is not an existing directory.")
 
-    # Traditional mode (no AI agent)
     if traditional:
-        _run_traditional_deploy(ctx, fmt, project_path, alias, watch)
-        return
-
-    # NL deploy mode via qwen-code
-    _run_nl_deploy(ctx, fmt, project_path, effective_instruction, max_wall_time, max_session_turns)
-
-
-def _run_nl_deploy(
-    ctx: click.Context,
-    fmt: Any,
-    project_path: Path,
-    instruction: str,
-    max_wall_time: str,
-    max_session_turns: int,
-) -> None:
-    """Execute NL-driven deployment via qwen-code agent."""
-    from easy_sandbox.api.sandbox import Sandbox
-    from easy_sandbox.utils.async_bridge import run_sync
-
-    fmt.print_success(f"Starting NL deploy: {project_path}")
-    fmt.print_success(f"Instruction: {instruction}")
-
-    def on_progress(msg: str) -> None:
-        if not (ctx.obj or {}).get("quiet"):
-            fmt.print_success(msg)
-
-    sandbox = run_sync(
-        Sandbox.deploy(
-            project_path=str(project_path),
-            description=instruction,
-            max_wall_time=max_wall_time,
-            max_session_turns=max_session_turns,
-            on_progress=on_progress,
+        out.warning(
+            "--traditional is deprecated and ignored: 'ebx deploy' always runs the "
+            "build/push/register pipeline."
         )
-    )
 
-    deploy_result = getattr(sandbox, "_deploy_result", None)
-    data: dict[str, Any] = {
-        "SandboxID": sandbox.id,
-        "Status": deploy_result.status if deploy_result else "unknown",
-        "URL": deploy_result.url if deploy_result else "",
-        "Port": deploy_result.port if deploy_result else 0,
-    }
-    if deploy_result and deploy_result.logs:
-        data["Logs"] = deploy_result.logs
+    # Fail fast, before any docker or cloud call.
+    resolve_acr_namespace(kwargs.get("acr_namespace"))
 
-    if fmt.use_json:
-        fmt.print_data(data)
-    else:
-        fmt.print_dict(data)
-        if deploy_result and deploy_result.success:
-            fmt.print_success("Deployment completed successfully!")
-        elif deploy_result:
-            fmt.print_error(
-                f"Deployment finished with status: {deploy_result.status}",
-                suggestion="Check logs above or use 'ebx exec' to inspect the sandbox.",
-            )
+    if not (project_path / "Dockerfile").is_file() and not kwargs.get("dockerfile"):
+        raise click.UsageError(
+            f"No Dockerfile found in {project_path}. Pass --dockerfile, or author the "
+            "template first: 'ebx template init --adopt .' (adapt this project), "
+            "'ebx template init \"DESCRIPTION\"' (AI) or "
+            "'ebx template init -t python' (scaffold)."
+        )
 
-
-def _run_traditional_deploy(
-    ctx: click.Context,
-    fmt: Any,
-    project_path: Path,
-    alias: str | None,
-    watch: bool,
-) -> None:
-    """Execute traditional build+run deployment (no AI agent)."""
-    project_type, template = _detect_project(project_path)
-
-    fmt.print_success(f"Detected project type: {project_type or 'unknown'}")
-    fmt.print_success(f"Template: {template}")
-
-    data = {
-        "Path": str(project_path),
-        "ProjectType": project_type,
-        "Template": template,
-        "Alias": alias or project_path.name,
-        "Watch": "enabled" if watch else "disabled",
-    }
-    if fmt.use_json:
-        fmt.print_data(data)
-    else:
-        fmt.print_dict(data)
-        fmt.print_success("Deploy completed. Use 'ebx template deploy' for custom image builds.")
+    ctx.invoke(build, template_dir=str(project_path), **kwargs)

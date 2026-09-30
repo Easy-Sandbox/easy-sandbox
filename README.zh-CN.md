@@ -5,7 +5,7 @@
 <!-- badges -->
 [![CI](https://github.com/Easy-Sandbox/easy-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/Easy-Sandbox/easy-sandbox/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/easy-sandbox)](https://pypi.org/project/easy-sandbox/)
-[![Python 3.10+](https://img.shields.io/pypi/pyversions/easy-sandbox)](https://pypi.org/project/easy-sandbox/)
+[![Python 3.9+](https://img.shields.io/pypi/pyversions/easy-sandbox)](https://pypi.org/project/easy-sandbox/)
 [![License](https://img.shields.io/github/license/Easy-Sandbox/easy-sandbox)](LICENSE)
 
 > 为 AI Agent 打造的云沙箱 —— 秒级创建、执行、管理隔离环境。
@@ -44,6 +44,47 @@ pip install "easy-sandbox[all]"
 # 开发环境（含测试与 lint 工具）
 pip install -e ".[dev]"
 ```
+
+### 独立二进制（无需 Python）
+
+`ebx` 同时以**预编译独立二进制**形式发布，覆盖 macOS（Apple Silicon / Intel）、
+Linux（x64）与 Windows（x64）—— **无需安装 Python 环境**。二进制文件随每个
+版本发布在 [GitHub Releases](https://github.com/Easy-Sandbox/easy-sandbox/releases)。
+
+macOS / Linux（把 `0.1.0` 换成目标版本，`OS` 与 `ARCH` 自动检测）：
+
+```bash
+VERSION=0.1.0
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')   # darwin 或 linux
+ARCH=$(uname -m); case "$ARCH" in
+  x86_64) ARCH=x64 ;;
+  arm64|aarch64) ARCH=arm64 ;;
+esac
+
+# 需要对 /usr/local/bin 的写权限（必要时加 sudo）
+curl -fsSL -o /usr/local/bin/ebx \
+  "https://github.com/Easy-Sandbox/easy-sandbox/releases/download/v${VERSION}/ebx-${VERSION}-${OS}-${ARCH}"
+chmod +x /usr/local/bin/ebx
+```
+
+Windows（PowerShell）：
+
+```powershell
+$VERSION = "0.1.0"
+$asset = "ebx-$VERSION-windows-x64.exe"
+
+# 下载 Release 资产
+Invoke-WebRequest `
+  -Uri "https://github.com/Easy-Sandbox/easy-sandbox/releases/download/v$VERSION/$asset" `
+  -OutFile $asset
+
+# 移动到 PATH 中的目录（不存在则先创建）
+$installDir = "$env:LOCALAPPDATA\Programs\ebx"
+New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+Move-Item $asset "$installDir\ebx.exe"
+```
+
+校验和、完整平台矩阵与二进制/pip 对比详见 [二进制安装](docs/zh/guide/binary-installation.md)（[English](docs/en/guide/binary-installation.md)）。
 
 ## 配合 AI 编码工具使用
 
@@ -126,7 +167,7 @@ print(result.source)    # "server"
 
 ```bash
 # 配置凭证
-ebx config set api_key <YOUR_API_KEY>
+ebx config set sandbox_api_key <YOUR_API_KEY>
 
 # 沙箱生命周期
 ebx create --template python-base       # 创建沙箱
@@ -149,8 +190,11 @@ ebx template create registry.cn-hangzhou.aliyuncs.com/ns/repo:tag --name my-tpl
 ebx template deploy ./examples/templates/python-hello \
     --acr-namespace my-ns --acr-repo python-hello
 
-# 一键项目部署（AI Agent 自动构建并启动项目）
-ebx deploy ./my-project --description "启动 Web 服务"
+# 模板生命周期：编写 -> 发布 -> 启动
+ebx template init --adopt ./app --hint "端口 8080"     # 1a. 适配已有项目
+ebx template init "一个 Python Web 服务"               # 1b. AI 生成 ./<name>/（可选）
+ebx deploy ./app --acr-namespace my-ns                 # 2. 构建、推送 ACR、注册（无需 LLM）
+ebx create --template <TEMPLATE_ID>                    # 3. 启动沙箱
 
 # MCP 服务
 ebx mcp start                            # 启动 MCP 工具服务
@@ -205,6 +249,7 @@ graph TB
 | 指南 | 链接 |
 |------|------|
 | 快速入门 | [快速入门](docs/zh/guide/getting-started.md) |
+| 二进制安装 | [二进制安装](docs/zh/guide/binary-installation.md) |
 | CLI 教程 | [CLI 教程](docs/zh/guide/cli-tutorial.md) |
 | SDK 使用 | [SDK 使用](docs/zh/guide/sdk-usage.md) |
 | 认证配置 | [认证配置](docs/zh/guide/authentication.md) |

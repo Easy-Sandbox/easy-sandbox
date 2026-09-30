@@ -9,7 +9,10 @@ Usage: cli create [OPTIONS] [DESCRIPTION]
     ebx create "DESCRIPTION"    →  Qwen Code generates a template, builds
                                   and deploys it, then launches a sandbox;
                                   the agent researches public facts first
-                                  and asks only for details it cannot infer
+                                  and asks only for details it cannot infer.
+                                  An interactive terminal is first asked
+                                  whether to switch to template init
+                                  (local files only)
 
   DESCRIPTION and --template are mutually exclusive: passing both is rejected
   instead of silently ignoring one of them.
@@ -20,7 +23,8 @@ Usage: cli create [OPTIONS] [DESCRIPTION]
     ebx create -e API_KEY=xxx -e DEBUG=1    # inject env vars
     ebx create --upload ./app --timeout 600 # upload dir, 10-min lifetime
     ebx create "a python data science env"  # AI-generate, build, deploy, create
-    ebx create -y "a node.js api server"    # non-interactive AI generation
+    ebx create -y "a node.js api server"    # non-interactive full pipeline
+    ebx template init "a python data science env"  # template files only
 
   Notes:
     AI generation needs the Qwen Code CLI and a DashScope/ModelStudio key
@@ -28,12 +32,17 @@ Usage: cli create [OPTIONS] [DESCRIPTION]
     itself (tool stack, official install method, common dependencies) and
     only asks for private preferences or business decisions it cannot
     infer — one question at a time in interactive sessions. Non-interactive
-    shells must pass --yes to generate without asking.
+    shells must pass --yes to generate without asking. Interactive
+    sessions are asked up front whether to switch to template init,
+    which writes Dockerfile, commands.py, and template.yaml and stops
+    before build, push, deploy, and sandbox create. --yes skips that
+    question and runs the full pipeline.
 
   Related commands:
     ebx list                 List existing sandboxes
     ebx info SANDBOX_ID      Inspect a created sandbox
     ebx template init DIR    Scaffold a new template project (local)
+    ebx template init "DESC" AI-scaffold a template only (no build)
     ebx template search KEY  Find reusable templates
     ebx config init          Configure platform and Qwen Code credentials
 
@@ -52,12 +61,18 @@ Options:
                            KEY=VALUE (repeatable)
   -m, --metadata TEXT      Metadata key-value pair, format KEY=VALUE
                            (repeatable)
-  -y, --yes                Skip interactive prompts (Qwen Code install,
-                           credentials, description clarification, build/deploy
-                           confirmation). Required for AI generation in non-
-                           interactive shells.
+  -y, --yes                Skip interactive prompts (the template-only switch,
+                           Qwen Code install, credentials, description
+                           clarification, build/deploy confirmation) and run the
+                           full create pipeline. Required for AI generation in
+                           non-interactive shells.
   --acr-namespace TEXT     ACR namespace for building the AI-generated template
                            (env: ACR_NAMESPACE, or set in .env file)
+  --dir DIRECTORY          Parent directory for the AI-generated template files
+                           (Dockerfile, commands.py, template.yaml); a new
+                           <name>-<timestamp>-<id> subfolder is created inside
+                           it. Default: ~/.ebx/generated (an interactive
+                           terminal is asked when omitted).
   -v, --verbose            Verbose output (DEBUG level)
   -h, --help               Show this message and exit.
 [exit_code:0]

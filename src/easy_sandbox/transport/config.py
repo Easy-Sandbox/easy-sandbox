@@ -1,8 +1,12 @@
 """Layered configuration loading.
 
-Priority (4 layers): code params > environment variables (E2B_* first, SANDBOX_* fallback)
-> .env file > defaults.
-~/.ebx/config.toml is an optional SDK-extension source loaded between .env and defaults.
+Priority: code params > process environment (E2B_* first, SANDBOX_* fallback)
+> .env files > ~/.ebx/config.toml > defaults. A blank or whitespace-only
+value does not count and does not hide the next layer.
+
+``.env`` files are merged per key. ``./.env`` overrides ``~/.ebx/.env`` when
+both set the same key; a key missing from the project file still comes from
+the system file.
 """
 
 from __future__ import annotations
@@ -22,7 +26,11 @@ ENVD_PORT: int = 49983
 
 _EBX_DIR = Path.home() / ".ebx"  # SDK extension
 _CONFIG_FILE = _EBX_DIR / "config.toml"  # SDK extension
+# Earlier entries win per key. A missing key falls through to the next file.
 _ENV_FILE_CANDIDATES = [Path(".env"), _EBX_DIR / ".env"]
+# Project dotenv only. The CLI reads this between the process environment
+# and ~/.ebx. Tests point it at a missing file so a repo .env cannot leak.
+_PROJECT_ENV_FILE = Path(".env")
 
 # Module-level cache
 _cached_config: TransportConfig | None = None
@@ -32,7 +40,7 @@ class TransportConfig(BaseModel):
     """Transport-layer configuration.
 
     Loaded lazily from multiple sources with priority:
-    code params > env vars (E2B_* > SANDBOX_*) > .env > config.toml > defaults
+    code params > env vars (E2B_* > SANDBOX_*) > .env files > config.toml > defaults
     """
 
     # API endpoints
@@ -109,14 +117,21 @@ _NUMERIC_FIELDS: set[str] = {"http_timeout"}
 
 
 def _coerce_value(field_name: str, raw: str) -> Any:
-    """Convert a raw string value to the appropriate type for *field_name*."""
+    """Convert a raw string value to the appropriate type for *field_name*.
+
+    A blank or whitespace-only value is unset, so it does not hide the next
+    configuration layer.
+    """
+    text = raw.strip()
+    if not text:
+        return None
     if field_name in _NUMERIC_FIELDS:
         try:
-            return float(raw)
+            return float(text)
         except ValueError:
-            logger.warning("Invalid numeric value for %s: %s", field_name, raw)
+            logger.warning("Invalid numeric value for %s: %s", field_name, text)
             return None
-    return raw
+    return text
 
 
 def _load_toml_file(path: Path) -> dict[str, Any]:
@@ -139,18 +154,48 @@ def _load_toml_file(path: Path) -> dict[str, Any]:
 
 
 def _load_dotenv_file() -> dict[str, str]:
-    """Load the first found .env file, returning env-like dict."""
+    """Merge every existing ``.env`` candidate into one env-like dict.
+
+    Candidates are listed highest priority first. A key set in an earlier
+    file wins; a key that file does not set still comes from a later file.
+    Empty values are ignored so they do not hide a real key.
+    """
     try:
         from dotenv import dotenv_values
     except ImportError:
         return {}
 
-    for candidate in _ENV_FILE_CANDIDATES:
-        if candidate.is_file():
-            values = dotenv_values(candidate)
-            logger.debug("Loaded .env from %s", candidate)
-            return {k: v for k, v in values.items() if v is not None}
-    return {}
+    merged: dict[str, str] = {}
+    for candidate in reversed(_ENV_FILE_CANDIDATES):
+        if not candidate.is_file():
+            continue
+        values = dotenv_values(candidate)
+        logger.debug("Loaded .env from %s", candidate)
+        for key, value in values.items():
+            if value and value.strip():
+                merged[key] = value.strip()
+    return merged
+
+
+def project_dotenv_value(names: tuple[str, ...]) -> str | None:
+    """Return the first non-empty *names* entry in the project ``.env``.
+
+    This is the layer between the process environment and ``~/.ebx``.
+    It does not read ``~/.ebx/.env``; callers add that fallback themselves.
+    """
+    if not _PROJECT_ENV_FILE.is_file():
+        return None
+    try:
+        from dotenv import dotenv_values
+
+        values = dotenv_values(_PROJECT_ENV_FILE)
+    except (OSError, ValueError):
+        return None
+    for name in names:
+        value = values.get(name)
+        if value and value.strip():
+            return value.strip()
+    return None
 
 
 def _read_env_vars() -> dict[str, Any]:
@@ -200,9 +245,11 @@ def load_config(**overrides: Any) -> TransportConfig:
     Priority (highest to lowest):
     1. Code-level *overrides*
     2. Environment variables (E2B_* > SANDBOX_*)
-    3. .env file values
+    3. .env files, merged per key (``./.env`` overrides ``~/.ebx/.env``)
     4. ~/.ebx/config.toml (optional SDK extension)
     5. TransportConfig defaults
+
+    A blank or whitespace-only override or environment value is ignored.
 
     Args:
         **overrides: Code-level parameter overrides (highest priority).
@@ -236,15 +283,28 @@ def load_config(**overrides: Any) -> TransportConfig:
     # Layer 2: environment variables
     merged.update(_read_env_vars())
 
-    # Layer 1 (highest): code-level overrides
-    merged.update({k: v for k, v in overrides.items() if v is not None})
+    # Layer 1 (highest): code-level overrides. Blank strings are unset.
+    applied_overrides: dict[str, Any] = {}
+    for key, value in overrides.items():
+        if value is None:
+            continue
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                continue
+        applied_overrides[key] = value
+    merged.update(applied_overrides)
+
+    def _env_present(name: str) -> bool:
+        raw = os.environ.get(name)
+        return bool(raw and raw.strip())
 
     # Auto-derive api_url and domain from region when not explicitly set
     _explicit_url = (
-        "api_url" in overrides
-        or "api_base_url" in overrides
-        or "SANDBOX_API_BASE_URL" in os.environ
-        or "E2B_API_URL" in os.environ
+        "api_url" in applied_overrides
+        or "api_base_url" in applied_overrides
+        or _env_present("SANDBOX_API_BASE_URL")
+        or _env_present("E2B_API_URL")
     )
     if not _explicit_url and "region" in merged:
         merged.setdefault("api_url", f"https://api.{merged['region']}.e2b.fc.aliyuncs.com")
@@ -271,7 +331,8 @@ def http_timeout_configured() -> bool:
     to decide whether a slow operation (e.g. sandbox create) should get a
     longer built-in HTTP timeout instead of the 30s default.
     """
-    if os.environ.get("SANDBOX_HTTP_TIMEOUT"):
+    timeout = os.environ.get("SANDBOX_HTTP_TIMEOUT")
+    if timeout and timeout.strip():
         return True
     # .env files use env-var-style keys (see _ENV_VAR_MAP), not field names.
     if "SANDBOX_HTTP_TIMEOUT" in _load_dotenv_file():

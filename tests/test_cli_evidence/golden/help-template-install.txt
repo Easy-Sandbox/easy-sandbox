@@ -16,9 +16,9 @@ Usage: cli template install [OPTIONS] TEMPLATE_REF
   ref is honoured.
 
   A GitHub token (private repos / higher rate limits) is taken from --token,
-  then the GITHUB_TOKEN environment variable, then the stored github_token;
-  prefer 'ebx config set github_token' - --token may leak into shell history and
-  process listings.
+  then the GITHUB_TOKEN environment variable, then ./.env, then the stored
+  github_token; prefer 'ebx config set github_token' - --token may leak into
+  shell history and process listings.
 
   Examples:
     ebx template install python-hello --download-only   # install by index name

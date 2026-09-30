@@ -10,26 +10,26 @@ cn-hangzhou
 Exit code: 0
 ```
 
-### config get api_key（未设置）
+### config get sandbox_api_key（未设置）
 
 ```
-$ ebx config get api_key
+$ ebx config get sandbox_api_key
 (not set)
 Exit code: 0
 ```
 
-### config get api_key（已设置, masked）
+### config get sandbox_api_key（已设置, masked）
 
 ```
-$ ebx config get api_key
+$ ebx config get sandbox_api_key
 sk-***456
 Exit code: 0
 ```
 
-### config get api_key（进程环境变量, masked）
+### config get sandbox_api_key（进程环境变量, masked）
 
 ```
-$ ebx config get api_key
+$ ebx config get sandbox_api_key
 sk-***456
 Exit code: 0
 ```
@@ -45,22 +45,28 @@ Exit code: 2
 
 ```
 Unknown config key: 'unknown_key'
-  Suggestion: Available keys: access_key_id, access_key_secret, api_key, api_url, domain, github_token, http2, http_timeout, llm_api_key, llm_base_url, llm_model, max_retries, qwen_code_api_key, qwen_code_base_url, qwen_code_model, region
+  Suggestion: Available keys: access_key_id, access_key_secret, acr_namespace, api_url, domain, github_token, http2, http_timeout, llm_api_key, llm_base_url, llm_model, max_retries, region, sandbox_api_key
 ```
 
-### config get qwen_code_model（业务默认）
+### config get qwen_code_model（已移除）
 
 ```
 $ ebx config get qwen_code_model
-qwen3-coder-plus
-Exit code: 0
+Exit code: 2
 ```
 
-### config get llm_model（not set）
+**stderr:**
+
+```
+Config key 'qwen_code_model' was removed.
+  Suggestion: Use 'llm_model'. NL inference and the coding agent share one LLM profile: llm_api_key, llm_base_url, llm_model.
+```
+
+### config get llm_model（业务默认）
 
 ```
 $ ebx config get llm_model
-(not set)
+qwen3-coder-plus
 Exit code: 0
 ```
 
@@ -88,11 +94,11 @@ Cleared region (falls back to default: cn-hangzhou).
 Exit code: 0
 ```
 
-### config set api_key ""（清除凭证）
+### config set sandbox_api_key ""（清除凭证）
 
 ```
-$ ebx config set api_key ""
-Cleared api_key (now not set).
+$ ebx config set sandbox_api_key ""
+Cleared sandbox_api_key (now not set).
 Exit code: 0
 ```
 
@@ -108,22 +114,43 @@ Exit code: 0
 
 ```
 $ ebx config list
-api_key             (not set)
-access_key_id       (not set)
-access_key_secret   (not set)
-qwen_code_api_key   (not set)
-github_token        (not set)
-api_url             https://api.cn-hangzhou.e2b.fc.aliyuncs.com (default)
-domain              cn-hangzhou.e2b.fc.aliyuncs.com (default)
-http2               True (default)
-http_timeout        30.0 (default)
-llm_api_key         (not set)
-llm_base_url        (not set)
-llm_model           (not set)
-max_retries         3 (default)
-qwen_code_base_url  https://dashscope.aliyuncs.com/compatible-mode/v1 (default)
-qwen_code_model     qwen3-coder-plus (default)
-region              cn-hangzhou (default)
+── Sandbox authentication ──────────────────────────────────────
+sandbox_api_key    (not set)
+
+── Alibaba Cloud credentials ───────────────────────────────────
+access_key_id      (not set)
+access_key_secret  (not set)
+acr_namespace      (not set)
+
+── Connection ──────────────────────────────────────────────────
+api_url            https://api.cn-hangzhou.e2b.fc.aliyuncs.com (default)
+region             cn-hangzhou (default)
+domain             cn-hangzhou.e2b.fc.aliyuncs.com (default)
+http_timeout       30.0 (default)
+http2              True (default)
+max_retries        3 (default)
+
+── LLM ─────────────────────────────────────────────────────────
+llm_api_key        (not set)
+llm_model          qwen3-coder-plus (default)
+llm_base_url       https://dashscope.aliyuncs.com/compatible-mode/v1 (default)
+
+── Integrations ────────────────────────────────────────────────
+github_token       (not set)
+
+── Shortcuts ───────────────────────────────────────────────────
+shortcuts.create    sandbox create (default)
+shortcuts.list      sandbox list (default)
+shortcuts.info      sandbox info (default)
+shortcuts.kill      sandbox kill (default)
+shortcuts.exec      sandbox exec (default)
+shortcuts.connect   sandbox connect (default)
+shortcuts.upload    sandbox upload (default)
+shortcuts.download  sandbox download (default)
+shortcuts.run       sandbox run (default)
+shortcuts.install   template install (default)
+shortcuts.init      template init (default)
+shortcuts.deploy    deploy (default)
 Exit code: 0
 ```
 
@@ -132,22 +159,34 @@ Exit code: 0
 ```
 $ ebx --json config list
 {
-  "api_key": null,
+  "sandbox_api_key": null,
   "access_key_id": null,
   "access_key_secret": null,
-  "qwen_code_api_key": null,
-  "github_token": null,
+  "acr_namespace": null,
   "api_url": "https://api.cn-hangzhou.e2b.fc.aliyuncs.com",
+  "region": "cn-hangzhou",
   "domain": "cn-hangzhou.e2b.fc.aliyuncs.com",
-  "http2": true,
   "http_timeout": 30.0,
-  "llm_api_key": null,
-  "llm_base_url": null,
-  "llm_model": null,
+  "http2": true,
   "max_retries": 3,
-  "qwen_code_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
-  "qwen_code_model": "qwen3-coder-plus",
-  "region": "cn-hangzhou"
+  "llm_api_key": null,
+  "llm_model": "qwen3-coder-plus",
+  "llm_base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",
+  "github_token": null,
+  "shortcuts": {
+    "create": "sandbox create",
+    "list": "sandbox list",
+    "info": "sandbox info",
+    "kill": "sandbox kill",
+    "exec": "sandbox exec",
+    "connect": "sandbox connect",
+    "upload": "sandbox upload",
+    "download": "sandbox download",
+    "run": "sandbox run",
+    "install": "template install",
+    "init": "template init",
+    "deploy": "deploy"
+  }
 }
 Exit code: 0
 ```
@@ -158,17 +197,20 @@ Exit code: 0
 $ ebx config init
 Non-interactive setup. Run these commands to configure ebx:
 
-  ebx config set api_key <E2B_API_KEY>
+  ebx config set sandbox_api_key <E2B_API_KEY>
   ebx config set region cn-hangzhou
-  ebx config set qwen_code_api_key <DASHSCOPE_OR_MODELSTUDIO_KEY>
+  ebx config set llm_api_key <DASHSCOPE_OR_MODELSTUDIO_KEY>
 
-  # Optional overrides and AK/SK for template deploy:
-  ebx config set qwen_code_base_url <OPENAI_COMPATIBLE_BASE_URL>
-  ebx config set qwen_code_model qwen3-coder-plus
+  # Required to build, push, and install templates:
+  ebx config set acr_namespace <ACR_NAMESPACE>
   ebx config set access_key_id <ALICLOUD_ACCESS_KEY_ID>
   ebx config set access_key_secret <ALICLOUD_ACCESS_KEY_SECRET>
 
-Environment variables (E2B_API_KEY, EBX_QWEN_CODE_API_KEY,
+  # Optional overrides:
+  ebx config set llm_base_url <OPENAI_COMPATIBLE_BASE_URL>
+  ebx config set llm_model qwen3-coder-plus
+
+Environment variables (E2B_API_KEY, EBX_LLM_API_KEY, ACR_NAMESPACE,
 ALICLOUD_ACCESS_KEY_ID, ALICLOUD_ACCESS_KEY_SECRET) override stored values.
 Exit code: 0
 ```

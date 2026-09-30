@@ -2,7 +2,7 @@
 
 Easy Sandbox supports two authentication modes: **API Key** and **AK/SK (Alibaba Cloud AccessKey)**.
 
-> **Historical note**: the `ebx auth` CLI command group (`login`/`logout`/`status`/`switch`) was removed before the first stable release (`0.1.0`). Credentials are configured with the environment variables and `ebx config set api_key` shown below; check the effective state with `ebx config list`.
+> **Historical note**: the `ebx auth` CLI command group (`login`/`logout`/`status`/`switch`) was removed before the first stable release (`0.1.0`). Credentials are configured with the environment variables and `ebx config set sandbox_api_key` shown below; check the effective state with `ebx config list`.
 
 ---
 
@@ -22,7 +22,7 @@ API Key is the most common authentication method, sent to the platform API via t
 
 ### Configuration Methods
 
-#### 1. Environment variable (highest priority)
+#### 1. Environment variable (wins over `~/.ebx`)
 
 ```bash
 # Recommended variable name (E2B compatible)
@@ -37,22 +37,14 @@ When both `E2B_API_KEY` and `SANDBOX_API_KEY` are present, `E2B_API_KEY` takes p
 #### 2. ebx config set (persisted to local file)
 
 ```bash
-ebx config set api_key your-api-key
+ebx config set sandbox_api_key your-api-key
 # Writes to ~/.ebx/.env
 # File permissions: 600 (owner read/write only)
 ```
 
 Stored as `E2B_API_KEY=your-key` in `~/.ebx/.env`.
 
-#### 3. ebx config set
-
-```bash
-ebx config set api_key your-api-key
-```
-
-This command also writes to `~/.ebx/.env`.
-
-#### 4. .env file
+#### 3. .env file
 
 Create a `.env` file in the project root directory:
 
@@ -60,11 +52,12 @@ Create a `.env` file in the project root directory:
 E2B_API_KEY=your-api-key
 ```
 
-The SDK searches for `.env` files in the following order:
+The SDK merges `.env` files per key. `./.env` wins for a key it sets. A key it omits still comes from `~/.ebx/.env`.
+
 1. `.env` in the current directory
 2. `~/.ebx/.env`
 
-#### 5. config.toml file
+#### 4. config.toml file
 
 Set in `~/.ebx/config.toml`:
 
@@ -73,7 +66,7 @@ Set in `~/.ebx/config.toml`:
 api_key = "your-api-key"
 ```
 
-#### 6. Code parameter (highest priority override)
+#### 5. Code parameter (wins over the environment and over `~/.ebx`)
 
 ```python
 from easy_sandbox.api.sandbox import Sandbox
@@ -139,11 +132,13 @@ Credentials are resolved in the following priority order (highest to lowest):
 
 ```mermaid
 flowchart TD
-    A["1. Code parameters (api_key= / access_key_id=)"] --> B["2. Environment variables (E2B_API_KEY, SANDBOX_API_KEY, ALICLOUD_ACCESS_KEY_*)"]
-    B --> C["3. .env file (./.env or ~/.ebx/.env)"]
-    C --> D["4. ~/.ebx/config.toml"]
-    D --> E["5. Default (no credentials — raises InvalidAPIKeyError E1001)"]
+    A["1. Code parameters (api_key= / access_key_id= / llm_api_key=)"] --> B["2. Process environment"]
+    B --> C["3. ./.env (per key; missing keys fall through)"]
+    C --> D["4. ~/.ebx (.env, then config.toml)"]
+    D --> E["5. Built-in default, or InvalidAPIKeyError E1001 when a sandbox key is required"]
 ```
+
+LLM keys, the GitHub token, and the region use this same chain. A blank or whitespace-only value is skipped. The names and defaults are listed in [Credential resolution](../reference/configuration.md#credential-resolution).
 
 Within the same level, API Key takes precedence over AK/SK:
 - If both `api_key` and `access_key_id` are provided, API Key is used
@@ -155,18 +150,17 @@ Within the same level, API Key takes precedence over AK/SK:
 
 ```bash
 # Set API Key
-ebx config set api_key your-api-key
+ebx config set sandbox_api_key your-api-key
 
 # Set AK/SK (experimental)
 ebx config set access_key_id your-access-key-id
 ebx config set access_key_secret your-access-key-secret
 
-# View current configuration
+# View the effective configuration and where each value came from
 ebx config list
-# Output includes the source of api_key / access_key_id etc. (user/default)
+# (env) process environment, (user) ./.env or ~/.ebx, (default), (not set)
 
-# Or view api_key directly
-ebx config get api_key
+ebx config get sandbox_api_key
 ebx config get access_key_id
 ```
 
@@ -185,7 +179,7 @@ Manage secrets via environment variables or configuration:
 export E2B_API_KEY="your-api-key"
 
 # Or persist via ebx config
-ebx config set api_key your-api-key
+ebx config set sandbox_api_key your-api-key
 ```
 
 Inject secrets when creating a sandbox via `--env` parameters:

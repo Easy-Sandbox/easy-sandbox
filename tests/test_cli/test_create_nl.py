@@ -118,10 +118,13 @@ class _FakeTTYStdin:
 
 
 class _FakeSys:
-    """``sys`` shim for sandbox.py TTY tests.
+    """``sys`` shim for TTY-gated prompts.
 
     ``CliRunner`` replaces the real ``sys.stdin`` while a command runs, so
     TTY detection has to be faked at the module-reference level instead.
+    Install it on every command module whose prompts the test drives
+    (``sandbox`` for clarification/confirmation, ``_coding_agent`` for the
+    install/credential prompts).
     """
 
     def __init__(self) -> None:
@@ -129,6 +132,18 @@ class _FakeSys:
 
     def __getattr__(self, name: str) -> Any:
         return getattr(_sys, name)
+
+
+@pytest.fixture(autouse=True)
+def _isolated_cwd(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Run every test in its own working directory.
+
+    Interactive tests feed scripted answers; an answer that lands on the wrong
+    prompt (``--dir``, ``--name``) must never create directories such as
+    ``./pandas`` or ``./y`` inside the repository checkout.
+    """
+    monkeypatch.chdir(tmp_path)
+    return tmp_path
 
 
 @pytest.fixture
@@ -168,7 +183,9 @@ def qwen_env(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> dict[str, Any]:
     monkeypatch.setattr("easy_sandbox.agent.clarify.new_session_id", lambda: _SESSION)
     # The research round (phase R) runs before the first assessment; mock it
     # hermetically so no test ever shells out to the stub binary above.
-    # ``True`` means the public facts were researched on the native session.
+    # ``True`` (a plain bool — the legacy backend contract) means the public
+    # facts were researched on the native session; tests that need a
+    # classified failure swap in a ``ResearchOutcome``.
     research = MagicMock(return_value=True)
     monkeypatch.setattr("easy_sandbox.agent.clarify.run_research", research)
     return {"binary": binary, "workdir": generated, "research": research}
@@ -228,6 +245,11 @@ class _FakePhaseOut:
     def spinner(self, message: str) -> Iterator[None]:
         self.spinner_messages.append(message)
         yield
+
+    @contextmanager
+    def activity(self, message: str) -> Iterator[None]:
+        self.spinner_messages.append(message)
+        yield None
 
 
 # ---------------------------------------------------------------------------
@@ -420,7 +442,7 @@ class TestQwenCodeInstallGate:
         monkeypatch.setattr(
             "easy_sandbox.agent.qwen_code.download_and_install_standalone", install_mock
         )
-        monkeypatch.setattr("easy_sandbox.cli.commands.sandbox.sys", _FakeSys())
+        monkeypatch.setattr("easy_sandbox.cli.commands._coding_agent.sys", _FakeSys())
 
         result = runner.invoke(cli, ["create", "python env"], input="n\n")
 
@@ -443,6 +465,9 @@ class TestQwenCodeInstallGate:
         monkeypatch.setattr(
             "easy_sandbox.agent.qwen_code.download_and_install_standalone", install_mock
         )
+        # The install prompt lives in the shared coding-agent module; the
+        # build/deploy confirmation still lives in the sandbox command.
+        monkeypatch.setattr("easy_sandbox.cli.commands._coding_agent.sys", _FakeSys())
         monkeypatch.setattr("easy_sandbox.cli.commands.sandbox.sys", _FakeSys())
         _patch_success_pipeline(monkeypatch, tmp_path)
         _patch_clarify_evaluate(monkeypatch, [_clarify_assessment(1.0)])
@@ -452,7 +477,7 @@ class TestQwenCodeInstallGate:
             patch("easy_sandbox.api.sandbox.Sandbox.create", AsyncMock(return_value=mock_sb)),
             patch("easy_sandbox.utils.async_bridge.run_sync", side_effect=_run_coro),
         ):
-            result = runner.invoke(cli, ["create", _COMPLETE_DESCRIPTION], input="y\ny\n")
+            result = runner.invoke(cli, ["create", _COMPLETE_DESCRIPTION], input="n\ny\n\ny\n")
 
         assert result.exit_code == 0, result.output
         install_mock.assert_called_once()
@@ -480,7 +505,7 @@ class TestQwenCodeCredentialGate:
 
         assert result.exit_code == 1
         assert "E2006" in result.output
-        assert "qwen_code_api_key" in result.output
+        assert "llm_api_key" in result.output
 
     def test_missing_credentials_with_yes_fails_fast(
         self,
@@ -513,6 +538,9 @@ class TestQwenCodeCredentialGate:
         )
         write_mock = MagicMock()
         monkeypatch.setattr("easy_sandbox.cli.commands.config_cmd.write_env_var", write_mock)
+        # The credential prompt lives in the shared coding-agent module; the
+        # build/deploy confirmation still lives in the sandbox command.
+        monkeypatch.setattr("easy_sandbox.cli.commands._coding_agent.sys", _FakeSys())
         monkeypatch.setattr("easy_sandbox.cli.commands.sandbox.sys", _FakeSys())
         _patch_success_pipeline(monkeypatch, tmp_path)
         _patch_clarify_evaluate(monkeypatch, [_clarify_assessment(1.0)])
@@ -522,11 +550,13 @@ class TestQwenCodeCredentialGate:
             patch("easy_sandbox.api.sandbox.Sandbox.create", AsyncMock(return_value=mock_sb)),
             patch("easy_sandbox.utils.async_bridge.run_sync", side_effect=_run_coro),
         ):
-            result = runner.invoke(cli, ["create", _COMPLETE_DESCRIPTION], input="sk-user-key\ny\n")
+            result = runner.invoke(
+                cli, ["create", _COMPLETE_DESCRIPTION], input="n\nsk-user-key\n\ny\n"
+            )
 
         assert result.exit_code == 0, result.output
-        write_mock.assert_called_once_with("EBX_QWEN_CODE_API_KEY", "sk-user-key")
-        assert "Stored qwen_code_api_key" in result.output
+        write_mock.assert_called_once_with("EBX_LLM_API_KEY", "sk-user-key")
+        assert "Stored llm_api_key" in result.output
         assert resolve_mock.call_count == 2
         # The second resolve must reuse the freshly entered key.
         assert resolve_mock.call_args.kwargs["stored_api_key"] == "sk-user-key"
@@ -541,7 +571,7 @@ class TestQwenCodeCredentialGate:
             "easy_sandbox.agent.qwen_code.resolve_qwen_code_credentials",
             MagicMock(side_effect=QwenCodeCredentialError("no model credentials found")),
         )
-        monkeypatch.setattr("easy_sandbox.cli.commands.sandbox.sys", _FakeSys())
+        monkeypatch.setattr("easy_sandbox.cli.commands._coding_agent.sys", _FakeSys())
 
         result = runner.invoke(cli, ["create", "python env"], input="\n")
 
@@ -573,6 +603,7 @@ class TestConfirmationAndFailures:
 
         assert result.exit_code == 1
         assert "Confirmation required" in result.output
+        assert 'ebx template init "' in result.output + (result.stderr or "")
         deploy_mock.assert_not_called()
 
     def test_codegen_failure_surfaces_e2007(
@@ -770,7 +801,7 @@ class TestDescriptionClarification:
             patch("easy_sandbox.utils.async_bridge.run_sync", side_effect=_run_coro),
         ):
             result = runner.invoke(
-                cli, ["create", "运行 python"], input="pandas\njupyter notebook\ny\n"
+                cli, ["create", "运行 python"], input="n\n\npandas\njupyter notebook\ny\n"
             )
 
         assert result.exit_code == 0, result.output
@@ -819,7 +850,7 @@ class TestDescriptionClarification:
             [_clarify_assessment(0.4, question="Q?", missing=("dependencies",))],
         )
 
-        result = runner.invoke(cli, ["create", "运行 python"], input="\n")
+        result = runner.invoke(cli, ["create", "运行 python"], input="n\n\n\n")
 
         assert result.exit_code == 1
         assert "E2008" in result.output
@@ -840,7 +871,7 @@ class TestDescriptionClarification:
             [_clarify_assessment(0.4, question="Q?", missing=("dependencies",))],
         )
 
-        result = runner.invoke(cli, ["create", "运行 python"], input="")
+        result = runner.invoke(cli, ["create", "运行 python"], input="n\n\n")
 
         assert result.exit_code == 1
         assert "E2008" in result.output
@@ -871,7 +902,9 @@ class TestDescriptionClarification:
             patch("easy_sandbox.api.sandbox.Sandbox.create", AsyncMock(return_value=mock_sb)),
             patch("easy_sandbox.utils.async_bridge.run_sync", side_effect=_run_coro),
         ):
-            result = runner.invoke(cli, ["create", "运行 python"], input="unknown\n" * 5 + "y\n")
+            result = runner.invoke(
+                cli, ["create", "运行 python"], input="n\n\n" + "unknown\n" * 5 + "y\n"
+            )
 
         assert result.exit_code == 0, result.output
         assert "Question 5: Missing detail 5?" in result.output
@@ -900,7 +933,7 @@ class TestDescriptionClarification:
             patch("easy_sandbox.api.sandbox.Sandbox.create", AsyncMock(return_value=mock_sb)),
             patch("easy_sandbox.utils.async_bridge.run_sync", side_effect=_run_coro),
         ):
-            result = runner.invoke(cli, ["create", "运行 python"], input="y\n")
+            result = runner.invoke(cli, ["create", "运行 python"], input="n\n\ny\n")
 
         assert result.exit_code == 0, result.output
         assert "Could not assess the description completeness" in result.output
@@ -933,7 +966,7 @@ class TestDescriptionClarification:
             patch("easy_sandbox.api.sandbox.Sandbox.create", AsyncMock(return_value=mock_sb)),
             patch("easy_sandbox.utils.async_bridge.run_sync", side_effect=_run_coro),
         ):
-            result = runner.invoke(cli, ["create", "运行 python"], input="pandas\ny\n")
+            result = runner.invoke(cli, ["create", "运行 python"], input="n\n\npandas\ny\n")
 
         assert result.exit_code == 0, result.output
         assert "became unavailable" in result.output
@@ -999,6 +1032,74 @@ class TestResearchFirstFlow:
         assert evaluate_mock.call_args.kwargs["resume"] is None
         # Generation still continues the session the assessment created.
 
+    def test_failed_research_never_reuses_its_session_id(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        """Regression: qwen rejects ``--session-id`` of an existing session.
+
+        The failed research round may already have created its session, and
+        re-pinning that id made every assessment exit 1 ("Session Id ... is
+        already in use"), which surfaced as the bogus "assessment
+        unavailable" warning.  The assessment must start a FRESH session and
+        generation must continue that one.
+        """
+        second = "22222222-2222-4222-8222-222222222222"
+        ids = iter([_SESSION, second])
+        monkeypatch.setattr("easy_sandbox.agent.clarify.new_session_id", lambda: next(ids))
+        qwen_env["research"].return_value = clarify.ResearchOutcome(
+            ok=False, reason=clarify.RESEARCH_REASON_TIMEOUT
+        )
+        _, gen_mock, _ = _patch_success_pipeline(monkeypatch, tmp_path)
+        evaluate_mock = _patch_clarify_evaluate(monkeypatch, [_clarify_assessment(1.0)])
+
+        result = runner.invoke(cli, ["create", _COMPLETE_DESCRIPTION])
+
+        assert result.exit_code == 1, result.output
+        assert qwen_env["research"].call_args.kwargs["session_id"] == _SESSION
+        assert evaluate_mock.call_args.kwargs["session_id"] == second
+        assert evaluate_mock.call_args.kwargs["session_id"] != _SESSION
+        assert gen_mock.call_args.kwargs["resume_session"] == second
+        assert "assessment unavailable" not in result.output
+
+    @pytest.mark.parametrize(
+        ("reason", "hint_fragment"),
+        [
+            (clarify.RESEARCH_REASON_TIMEOUT, "timed out"),
+            (clarify.RESEARCH_REASON_AGENT_UNAVAILABLE, "could not be started"),
+            (clarify.RESEARCH_REASON_COMMAND_FAILED, "--verbose"),
+            (clarify.RESEARCH_REASON_TURN_LIMIT, "step budget"),
+        ],
+    )
+    def test_research_failure_reason_adds_a_safe_hint(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+        reason: str,
+        hint_fragment: str,
+    ) -> None:
+        """A classified failure adds a reason hint; the detail never leaks."""
+        qwen_env["research"].return_value = clarify.ResearchOutcome(
+            ok=False, reason=reason, detail="raw internal detail"
+        )
+        _patch_success_pipeline(monkeypatch, tmp_path)
+        evaluate_mock = _patch_clarify_evaluate(monkeypatch, [_clarify_assessment(1.0)])
+
+        result = runner.invoke(cli, ["create", _COMPLETE_DESCRIPTION])
+
+        assert result.exit_code == 1, result.output  # stopped at the confirm gate
+        assert "could not research the public facts" in result.output
+        assert hint_fragment in result.output
+        assert "raw internal detail" not in result.output
+        # The failed round did not create the session: the assessment pins it.
+        assert evaluate_mock.call_args.kwargs["session_id"] == _SESSION
+        assert evaluate_mock.call_args.kwargs["resume"] is None
+
     def test_serverless_devs_public_facts_are_researched_not_asked(
         self,
         runner: CliRunner,
@@ -1063,7 +1164,7 @@ class TestDelegationAnswers:
             patch("easy_sandbox.api.sandbox.Sandbox.create", AsyncMock(return_value=mock_sb)),
             patch("easy_sandbox.utils.async_bridge.run_sync", side_effect=_run_coro),
         ):
-            result = runner.invoke(cli, ["create", "运行 python"], input="你自己决定吧\ny\n")
+            result = runner.invoke(cli, ["create", "运行 python"], input="n\n\n你自己决定吧\ny\n")
 
         assert result.exit_code == 0, result.output
         assert "Description is now about 90%; generating." in result.output
@@ -1101,7 +1202,7 @@ class TestDelegationAnswers:
             patch("easy_sandbox.api.sandbox.Sandbox.create", AsyncMock(return_value=mock_sb)),
             patch("easy_sandbox.utils.async_bridge.run_sync", side_effect=_run_coro),
         ):
-            result = runner.invoke(cli, ["create", "运行 python"], input="2 CPU 4 GB\ny\n")
+            result = runner.invoke(cli, ["create", "运行 python"], input="n\n\n2 CPU 4 GB\ny\n")
 
         assert result.exit_code == 0, result.output
         followup = evaluate_mock.call_args_list[1].args[0]
@@ -1140,7 +1241,7 @@ class TestAntiRepetition:
             patch("easy_sandbox.api.sandbox.Sandbox.create", AsyncMock(return_value=mock_sb)),
             patch("easy_sandbox.utils.async_bridge.run_sync", side_effect=_run_coro),
         ):
-            result = runner.invoke(cli, ["create", "运行 python"], input="8888\ny\n")
+            result = runner.invoke(cli, ["create", "运行 python"], input="n\n\n8888\ny\n")
 
         assert result.exit_code == 0, result.output
         # The question was shown exactly once — the repeat was caught before
@@ -1178,7 +1279,7 @@ class TestAntiRepetition:
             patch("easy_sandbox.api.sandbox.Sandbox.create", AsyncMock(return_value=mock_sb)),
             patch("easy_sandbox.utils.async_bridge.run_sync", side_effect=_run_coro),
         ):
-            result = runner.invoke(cli, ["create", "运行 python"], input="8888\ny\n")
+            result = runner.invoke(cli, ["create", "运行 python"], input="n\n\n8888\ny\n")
 
         assert result.exit_code == 0, result.output
         followup = evaluate_mock.call_args_list[1].args[0]
@@ -1286,3 +1387,404 @@ class TestPhaseStatusChannels:
         assert "Assessing description" not in result.stderr
         assert "Generating template" not in result.stderr
         assert "Assessing description" not in result.stdout
+
+
+# ---------------------------------------------------------------------------
+# Template-only switch and natural-language init
+# ---------------------------------------------------------------------------
+
+
+class TestTemplateOnlySwitch:
+    """Interactive create can stop after the local template."""
+
+    def test_tty_yes_writes_template_and_skips_build(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("easy_sandbox.cli.commands.sandbox.sys", _FakeSys())
+        gen, gen_mock, deploy_mock = _patch_success_pipeline(monkeypatch, tmp_path)
+        _patch_clarify_evaluate(monkeypatch, [_clarify_assessment(1.0)])
+        mock_create = AsyncMock()
+
+        with patch("easy_sandbox.api.sandbox.Sandbox.create", mock_create):
+            result = runner.invoke(cli, ["create", _COMPLETE_DESCRIPTION], input="y\n")
+
+        assert result.exit_code == 0, result.output
+        shown = result.output + (result.stderr or "")
+        assert "Switch to template init" in shown
+        deploy_mock.assert_not_called()
+        mock_create.assert_not_called()
+        gen_mock.assert_called_once()
+        target = tmp_path / gen.template_name
+        assert (target / "Dockerfile").is_file()
+        assert (target / "template.yaml").is_file()
+        assert f"Template '{gen.template_name}' created" in shown
+
+    def test_yes_flag_skips_the_switch_and_deploys(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        """--yes is the full pipeline: no template-only question."""
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr("easy_sandbox.cli.commands.sandbox.sys", _FakeSys())
+        _gen, _gen_mock, deploy_mock = _patch_success_pipeline(monkeypatch, tmp_path)
+        mock_sb = _make_sandbox()
+
+        with (
+            patch("easy_sandbox.api.sandbox.Sandbox.create", AsyncMock(return_value=mock_sb)),
+            patch("easy_sandbox.utils.async_bridge.run_sync", side_effect=_run_coro),
+        ):
+            result = runner.invoke(cli, ["create", "-y", _COMPLETE_DESCRIPTION], input="y\n")
+
+        assert result.exit_code == 0, result.output
+        assert "Switch to template init" not in result.output
+        deploy_mock.assert_called_once()
+        assert not (tmp_path / _gen.template_name).exists()
+
+
+class TestTemplateInitNaturalLanguage:
+    """``ebx template init "DESCRIPTION"`` generates files and stops."""
+
+    def test_description_writes_local_files_without_deploy(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        gen, gen_mock, deploy_mock = _patch_success_pipeline(monkeypatch, tmp_path)
+
+        result = runner.invoke(cli, ["template", "init", "-y", "a python data science env"])
+
+        assert result.exit_code == 0, result.output
+        deploy_mock.assert_not_called()
+        gen_mock.assert_called_once()
+        assert gen_mock.call_args.args[0] == "a python data science env"
+        assert "Directory for the template project" not in result.output
+        target = tmp_path / gen.template_name
+        assert (target / "Dockerfile").read_text(encoding="utf-8").startswith("FROM")
+        assert "template deploy" in result.output
+        assert "created successfully" not in result.output
+
+    def test_name_overrides_directory_and_yaml(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        _patch_success_pipeline(monkeypatch, tmp_path)
+
+        result = runner.invoke(
+            cli,
+            ["template", "init", "-y", "--name", "myapp", "a python data science env"],
+        )
+
+        assert result.exit_code == 0, result.output
+        yaml_text = (tmp_path / "myapp" / "template.yaml").read_text(encoding="utf-8")
+        assert "name: myapp" in yaml_text
+        assert not (tmp_path / "ebx-nl-sandbox-abc123").exists()
+
+    def test_existing_files_need_force(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        gen, _gen_mock, deploy_mock = _patch_success_pipeline(monkeypatch, tmp_path)
+        target = tmp_path / gen.template_name
+        target.mkdir()
+        (target / "Dockerfile").write_text("kept\n", encoding="utf-8")
+
+        blocked = runner.invoke(cli, ["template", "init", "-y", "a python data science env"])
+        assert blocked.exit_code == 1
+        assert "already exist" in blocked.output
+        assert (target / "Dockerfile").read_text(encoding="utf-8") == "kept\n"
+        deploy_mock.assert_not_called()
+
+        forced = runner.invoke(
+            cli, ["template", "init", "-y", "--force", "a python data science env"]
+        )
+        assert forced.exit_code == 0, forced.output
+        assert (target / "Dockerfile").read_text(encoding="utf-8").startswith("FROM")
+
+    def test_description_rejects_scaffold_flags(self, runner: CliRunner) -> None:
+        for args in (
+            ["template", "init", "a python env", "-t", "python"],
+            ["template", "init", "a python env", "--from", "owner/repo"],
+        ):
+            result = runner.invoke(cli, args)
+            assert result.exit_code != 0
+            assert "cannot be combined" in result.output
+
+    def test_top_level_init_shortcut_accepts_a_description(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        monkeypatch.chdir(tmp_path)
+        gen, _gen_mock, deploy_mock = _patch_success_pipeline(monkeypatch, tmp_path)
+
+        result = runner.invoke(cli, ["init", "-y", "一个数据分析环境"])
+
+        assert result.exit_code == 0, result.output
+        deploy_mock.assert_not_called()
+        assert (tmp_path / gen.template_name / "template.yaml").is_file()
+
+    def test_tty_asks_for_a_directory_and_enter_keeps_the_default(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        monkeypatch.setattr("easy_sandbox.cli.commands.sandbox.sys", _FakeSys())
+        gen, _gen_mock, deploy_mock = _patch_success_pipeline(monkeypatch, tmp_path)
+        _patch_clarify_evaluate(monkeypatch, [_clarify_assessment(1.0)])
+
+        result = runner.invoke(cli, ["init", "a python data science env"], input="\n")
+
+        assert result.exit_code == 0, result.output
+        shown = result.output + (result.stderr or "")
+        assert "Directory for the template project" in shown
+        assert "./<name>" in shown
+        deploy_mock.assert_not_called()
+        assert (tmp_path / gen.template_name / "Dockerfile").is_file()
+
+    def test_tty_directory_answer_is_the_project_directory(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        monkeypatch.setattr("easy_sandbox.cli.commands.sandbox.sys", _FakeSys())
+        gen, _gen_mock, _deploy = _patch_success_pipeline(monkeypatch, tmp_path)
+        _patch_clarify_evaluate(monkeypatch, [_clarify_assessment(1.0)])
+        chosen = tmp_path / "serverless-devs"
+
+        result = runner.invoke(
+            cli, ["template", "init", "a python data science env"], input=f"{chosen}\n"
+        )
+
+        assert result.exit_code == 0, result.output
+        assert (chosen / "Dockerfile").read_text(encoding="utf-8").startswith("FROM")
+        assert (chosen / "template.yaml").is_file()
+        assert not (tmp_path / gen.template_name).exists()
+        assert not chosen.joinpath("serverless-devs").exists()
+
+    def test_tty_rejects_a_file_before_generation(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        monkeypatch.setattr("easy_sandbox.cli.commands.sandbox.sys", _FakeSys())
+        _gen, gen_mock, _deploy = _patch_success_pipeline(monkeypatch, tmp_path)
+        blocked = tmp_path / "not-a-dir"
+        blocked.write_text("x", encoding="utf-8")
+
+        result = runner.invoke(cli, ["init", "a python data science env"], input=f"{blocked}\n")
+
+        assert result.exit_code != 0
+        assert "not a directory" in result.output
+        gen_mock.assert_not_called()
+        assert blocked.read_text(encoding="utf-8") == "x"
+
+    def test_tty_existing_files_fail_before_generation(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        monkeypatch.setattr("easy_sandbox.cli.commands.sandbox.sys", _FakeSys())
+        _gen, gen_mock, _deploy = _patch_success_pipeline(monkeypatch, tmp_path)
+        chosen = tmp_path / "app"
+        chosen.mkdir()
+        (chosen / "Dockerfile").write_text("kept\n", encoding="utf-8")
+
+        result = runner.invoke(cli, ["init", "a python data science env"], input=f"{chosen}\n")
+
+        assert result.exit_code != 0
+        assert "already exist" in result.output
+        gen_mock.assert_not_called()
+        assert (chosen / "Dockerfile").read_text(encoding="utf-8") == "kept\n"
+
+
+class TestOutputDir:
+    """``--dir`` / interactive prompt: where the AI template workspace lives."""
+
+    def _invoke(
+        self,
+        runner: CliRunner,
+        args: list[str],
+        *,
+        input: str | None = None,
+    ) -> Any:
+        mock_sb = _make_sandbox()
+        with (
+            patch("easy_sandbox.api.sandbox.Sandbox.create", AsyncMock(return_value=mock_sb)),
+            patch("easy_sandbox.utils.async_bridge.run_sync", side_effect=_run_coro),
+        ):
+            return runner.invoke(cli, args, input=input)
+
+    def test_explicit_dir_is_used_as_parent_and_not_created_by_validation(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        from easy_sandbox.agent import codegen
+
+        _patch_success_pipeline(monkeypatch, tmp_path)
+        target = tmp_path / "my" / "templates"
+
+        result = self._invoke(runner, ["create", "-y", "--dir", str(target), "python env"])
+
+        assert result.exit_code == 0, result.output
+        # Generation (mocked here) creates the workspace; validation alone must not.
+        assert not target.exists()
+        assert codegen.prepare_workdir.call_args.kwargs["base_dir"] == target.resolve()  # type: ignore[attr-defined]
+
+    def test_default_location_when_dir_omitted_and_not_interactive(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        """No --dir and no TTY: never prompt, keep the standard location."""
+        from easy_sandbox.agent import codegen
+
+        _patch_success_pipeline(monkeypatch, tmp_path)
+
+        result = self._invoke(runner, ["create", "-y", "python env"])
+
+        assert result.exit_code == 0, result.output
+        assert "which directory" not in result.output
+        assert "base_dir" not in codegen.prepare_workdir.call_args.kwargs  # type: ignore[attr-defined]
+
+    def test_tty_prompts_and_enter_accepts_the_default(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        from easy_sandbox.agent import codegen
+
+        monkeypatch.setattr("easy_sandbox.cli.commands.sandbox.sys", _FakeSys())
+        _patch_success_pipeline(monkeypatch, tmp_path)
+        _patch_clarify_evaluate(monkeypatch, [_clarify_assessment(1.0)])
+
+        # switch=n, directory=<Enter>, confirm=y
+        result = self._invoke(runner, ["create", _COMPLETE_DESCRIPTION], input="n\n\ny\n")
+
+        assert result.exit_code == 0, result.output
+        assert "Save the generated template under which directory?" in result.output
+        assert "generated" in result.output  # the default is shown
+        assert "base_dir" not in codegen.prepare_workdir.call_args.kwargs  # type: ignore[attr-defined]
+
+    def test_tty_prompt_answer_is_used(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        from easy_sandbox.agent import codegen
+
+        monkeypatch.setattr("easy_sandbox.cli.commands.sandbox.sys", _FakeSys())
+        _patch_success_pipeline(monkeypatch, tmp_path)
+        _patch_clarify_evaluate(monkeypatch, [_clarify_assessment(1.0)])
+        chosen = tmp_path / "chosen"
+
+        result = self._invoke(runner, ["create", _COMPLETE_DESCRIPTION], input=f"n\n{chosen}\ny\n")
+
+        assert result.exit_code == 0, result.output
+        assert not chosen.exists()
+        assert codegen.prepare_workdir.call_args.kwargs["base_dir"] == chosen.resolve()  # type: ignore[attr-defined]
+
+    def test_answer_at_the_directory_prompt_creates_no_directory(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        """A clarification answer typed at the directory prompt must not leave ``./pandas``."""
+        monkeypatch.setattr("easy_sandbox.cli.commands.sandbox.sys", _FakeSys())
+        _patch_success_pipeline(monkeypatch, tmp_path)
+        _patch_clarify_evaluate(monkeypatch, [_clarify_assessment(1.0)])
+        before = {p.name for p in tmp_path.iterdir()}
+
+        # switch=n, directory="pandas" (meant as a clarification answer), confirm=y
+        result = self._invoke(runner, ["create", _COMPLETE_DESCRIPTION], input="n\npandas\ny\n")
+
+        assert result.exit_code == 0, result.output
+        assert not (tmp_path / "pandas").exists()
+        assert {p.name for p in tmp_path.iterdir()} - before <= {"generated-workspace"}
+
+    def test_unwritable_parent_is_rejected_without_creating_anything(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        _patch_success_pipeline(monkeypatch, tmp_path)
+        locked = tmp_path / "locked"
+        locked.mkdir()
+        monkeypatch.setattr(
+            "easy_sandbox.cli.commands.sandbox.os.access",
+            lambda path, mode: str(path) != str(locked.resolve()),
+        )
+
+        result = runner.invoke(cli, ["create", "-y", "--dir", str(locked / "sub"), "python env"])
+
+        assert result.exit_code == 1
+        assert "not writable" in result.output
+        assert not (locked / "sub").exists()
+
+    def test_dir_without_description_is_a_usage_error(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        result = runner.invoke(cli, ["create", "--template", "base", "--dir", str(tmp_path)])
+
+        assert result.exit_code == 1
+        assert "--dir only applies" in result.output
+
+    def test_dir_pointing_at_a_file_is_rejected(
+        self,
+        runner: CliRunner,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+        qwen_env: dict[str, Any],
+    ) -> None:
+        _patch_success_pipeline(monkeypatch, tmp_path)
+        a_file = tmp_path / "file.txt"
+        a_file.write_text("x", encoding="utf-8")
+
+        result = runner.invoke(cli, ["create", "-y", "--dir", str(a_file), "python env"])
+
+        assert result.exit_code == 1
+        assert "not a directory" in result.output

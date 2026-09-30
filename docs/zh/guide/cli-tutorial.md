@@ -23,7 +23,7 @@ ebx --version
 ### 通过 config 设置 API Key
 
 ```bash
-ebx config set api_key your-api-key
+ebx config set sandbox_api_key your-api-key
 ```
 
 ### 或通过环境变量
@@ -44,7 +44,8 @@ export E2B_API_KEY="your-api-key"
 |----------|------|
 | 存储凭证与端点（首次使用先执行） | `ebx config init` —— 交互式引导向导 |
 | 创建云端沙箱（默认模板、已有模板或 AI 生成） | `ebx create [DESCRIPTION]` |
-| 脚手架生成本地可编辑的模板工程 | `ebx template init [DIRECTORY]` —— 只写本地文件，不构建、不部署 |
+| 脚手架生成本地可编辑的模板工程 | `ebx template init [DIRECTORY]` 或 `ebx template init "描述"` —— 只写本地文件，不构建、不部署。描述会先询问项目目录（回车保持 `./<name>/`） |
+| 把已有项目变成模板 | `ebx template init --adopt [DIRECTORY]` —— 在原目录补上模板文件；不构建、不部署 |
 
 ### 使用默认模板
 
@@ -57,11 +58,15 @@ ebx create --template base
 ### 自然语言创建（AI 生成模板）
 
 ```bash
-# 首次使用：引导式配置平台凭证与 Qwen Code
+# 首次使用：引导式配置凭证、区域、ACR 命名空间与 LLM Key
 # ebx config init
 
-# Qwen Code 生成 Dockerfile 与 template.yaml → 构建部署 → 创建沙箱
+# Qwen Code 生成 Dockerfile、commands.py（HTTP 服务）与 template.yaml → 构建部署 → 创建沙箱。
+# 交互式终端会先询问是否改走 template init（只留本地文件）。--yes 保持完整流程。
 ebx create "一个 Python 数据分析环境"
+
+# 只生成模板文件 —— 不构建、不推送、不部署、不创建沙箱
+ebx template init "一个 Python 数据分析环境"
 ```
 
 生成之前，Agent 会先自行检索描述中**可公开查证的事实**——工具是否基于 Node.js、官方安装方式、常见运行时与依赖——再评估描述完整度（目标 80%）。只有用户偏好、私有约束和无法推断的业务决策才会成为问题，**每次只问一个**，以 `Question 1`、`Question 2` 逐次编号（不显示总数）；直接回车即可取消：
@@ -153,11 +158,15 @@ ebx upload sbx-xxxx ./script.py /app/script.py
 ebx upload sbx-xxxx ./data/ /app/data/
 ```
 
+终端上，目录上传显示 `Uploading ... 12s`，灰色行为相对路径。不会打印文件内容。
+
 ### 下载
 
 ```bash
 ebx download sbx-xxxx /app/result.csv ./result.csv
 ```
+
+终端上，传输显示 `Downloading /app/result.csv... 12s`。不会打印文件内容。
 
 ---
 
@@ -258,6 +267,21 @@ ebx template init -t python ./my-template
 
 顶层 `ebx init` 快捷方式与 `ebx template init` 委托到完全相同的命令（引导式凭证配置仍是 `ebx config init`）。
 
+#### 适配已有项目
+
+```bash
+# Qwen Code 给 ./my-app 补上 Dockerfile、commands.py 和 template.yaml
+ebx template init --adopt ./my-app --hint "监听 8080"
+
+# 列出将要发送的文件。不调用模型，也不写文件
+ebx template init --adopt ./my-app --dry-run
+
+# 然后发布（无需 LLM）
+ebx deploy ./my-app --acr-namespace my-ns
+```
+
+`--adopt` 会先把项目复制到临时目录。`.env`、密钥和内容看起来像密钥的文件不会进入这份副本，预览确认后才写回模板文件。非交互终端需要 `-y`。细节见 [编写模板](authoring-templates.md#适配已有项目)。
+
 #### 交互式案例选择
 
 - **TTY**：不带 `-t` 执行 `ebx init` / `ebx template init` 时，会出现内置案例的上下键（↑/↓）选择器；`Enter` 确认，`Ctrl+C` 中止且不写任何文件。
@@ -265,12 +289,41 @@ ebx template init -t python ./my-template
 
 #### 高级用法：顶层快捷方式与自定义命令的边界
 
-- 内置顶层快捷方式（`create`、`list`、`init`、`install`、`deploy`、`run` 等）由**项目维护者**注册在 `src/easy_sandbox/cli/main.py` 的 `lazy_subcommands` 映射中。这是内部注册点，不是面向用户的扩展机制。
-- 要添加自己的命令，请在模板的 `template.yaml` 中声明 `custom_commands`，或在 SandboxServer 上注册（`@registry.command`），然后通过 `ebx run <SANDBOX_ID> <COMMAND_NAME>` 调用。
-- 早期 CLI 设计草案中的 `config.toml [shortcuts]` 段**从未实现**——不要期望在 `~/.ebx/config.toml` 中声明别名会生效。
-- 未知顶层命令会得到针对性提示：`ebx crate` → `Did you mean 'create'?`；无相近候选时错误信息指向 `custom_commands` + `ebx run`。
+- 内置顶层快捷方式（`create`、`list`、`init`、`install`、`deploy`、`run` 等）是用户可配置的 `[shortcuts]` 段的**系统默认配置**——并非硬编码：维护者在 `src/easy_sandbox/cli/main.py` 的 `lazy_subcommands` 映射中预置它们，用户可以通过 `~/.ebx/config.toml` 自由修改、删除或扩展（见下文）。
+- CLI 别名（`[shortcuts]`）只是**重命名一条本地 CLI 路径**（`ebx <别名> [参数…]` → 已有命令）；不需要沙箱，也不需要模板。
+- 要添加在**沙箱内**运行的命令，请在模板的 `template.yaml` 中声明 `custom_commands`，或在 SandboxServer 上注册（`@registry.command`），然后通过 `ebx run <SANDBOX_ID> <COMMAND_NAME>` 调用——这与 CLI 别名是不同的层。
+- 未知顶层命令会得到针对性提示：`ebx crate` → `Did you mean 'create'?`；无相近候选时，错误信息给出不含 `ebx` 前缀的快捷方式示例（`ebx config set shortcuts.NAME "template init"`），并指向 `custom_commands` + `ebx run`。
 
-完整边界描述见 [CLI 设计文档](../design/cli-design.md)。
+#### 自定义顶层快捷方式
+
+每个默认快捷方式都是可修改的出厂预置。使用 `ebx config` 管理别名（也可直接编辑 `~/.ebx/config.toml` 的 `[shortcuts]` 段）：
+
+```bash
+# 添加 / 修改别名（此后 `ebx ps abc123` ≡ `ebx sandbox process list abc123`）
+ebx config set shortcuts.ps "sandbox process list"
+
+# 目标只写命令路径。下面这种写法会被拒绝，且不会保存：
+#   ebx config set shortcuts.init2 "ebx template init"
+# 去掉 ebx 前缀（此后 `ebx init2 --list` ≡ `ebx template init --list`）：
+ebx config set shortcuts.init2 "template init"
+
+# 删除别名（空值即删除）
+ebx config set shortcuts.ps ""
+
+# 查看所有已配置的别名
+ebx config get shortcuts
+
+# 重置为默认快捷方式集 / 生成完整可编辑模板
+ebx config init --reset-shortcuts
+```
+
+说明：
+
+- 别名目标必须是已有命令路径（如 `"sandbox process list"`、`"template install"`）。不要带 `ebx` 前缀：`"ebx template init"` 以退出码 2 拒绝且不会写入，错误信息会给出可重试的 `ebx config set shortcuts.<别名> "template init"`。文件里已经写错的值会在下次启动时被跳过（`Invalid shortcut ignored`），其他别名仍然有效。别名绝不链式指向其他别名，参数原样透传。
+- 保留命令名（`sandbox`、`template`、`config`、`mcp`）不可覆盖。
+- `config.toml` 损坏时会输出警告并禁用该会话中的所有 shortcuts——内置命令组（`sandbox`、`config`、`mcp`、`template`）不受影响，CLI 仍可正常使用。
+
+完整边界描述与默认别名全表见 [CLI 设计文档](../design/cli-design.md)。
 
 ### 一键部署自定义模板
 
@@ -279,7 +332,7 @@ ebx template deploy ./my-template \
   --acr-namespace my-ns --acr-repo my-template
 ```
 
-`template deploy` 会自动完成：本地 Docker 构建 → ACR 推送 → 调用 CreateTemplate API。详见 [模板编写指南](authoring-templates.md)。
+`template deploy` 会自动完成：本地 Docker 构建 → ACR 推送 → 调用 CreateTemplate API。终端上，每一步都是会走动的 `message... 12s` 标题，下方以灰色显示最近四行日志。见 [命令执行时看到什么](#命令执行时看到什么)，模板文件见 [模板编写指南](authoring-templates.md)。
 
 ---
 
@@ -288,7 +341,7 @@ ebx template deploy ./my-template \
 ```bash
 # 查看配置
 ebx config list
-ebx config get api_key
+ebx config get sandbox_api_key
 
 # 设置配置
 ebx config set region cn-beijing
@@ -298,7 +351,7 @@ ebx config set http_timeout 60
 ebx config set region ""
 ```
 
-可用配置键：`api_key`、`api_url`、`region`、`http_timeout`、`max_retries`、`domain`、`llm_api_key`、`llm_model`、`llm_base_url`、`qwen_code_api_key`、`qwen_code_base_url`、`qwen_code_model`、`github_token`、`access_key_id`、`access_key_secret`。
+可用配置键：`sandbox_api_key`、`api_url`、`region`、`http_timeout`、`max_retries`、`domain`、`llm_api_key`、`llm_model`、`llm_base_url`、`github_token`、`access_key_id`、`access_key_secret`、`acr_namespace`。`api_key` 仍可作为 `sandbox_api_key` 的别名。
 
 > **提示：** 在使用 `ebx template search` / `ebx install` 时遇到 GitHub 匿名限流？在交互式终端执行 `ebx config set github_token`（星号掩码输入，存入 `~/.ebx/.env`），或在 CI 中以 Secret 注入 `GITHUB_TOKEN`。`--token` 优先级说明见[认证详解](authentication.md)与 CLI 参考。
 >
@@ -320,8 +373,10 @@ ebx mcp install --target claude
 # 查看 MCP 状态
 ebx mcp status
 
-# 手动启动（通常由 IDE 自动调用）
+# 手动启动：配置写到 stderr，停在 stdin 上等 JSON-RPC
 ebx mcp start --template code-interpreter-v1
+# 另一个终端：ebx mcp stop
+# 后台 HTTP：ebx mcp start --http --background
 ```
 
 ### 远程 MCP Server 部署产物
@@ -336,9 +391,25 @@ ebx mcp deploy --generate-token --api-key $E2B_API_KEY \
 
 HTTP 运行时需安装 `easy-sandbox[mcp]`。随后使用阿里云 FC 官方控制台或 SDK 打包产物、创建函数与 HTTP Trigger。`config.yaml` 是与平台 API 无关的检查清单，不是 FC API 请求体；请通过官方界面转换其中的设置。将输出的 IDE 模板中的 URL 与 token 占位符替换为部署后的实际值。
 
-客户端结束会话时应调用 `DELETE /mcp`。`GET /mcp` 当前返回 501，SSE 服务端通知将在 Phase 2 实现。`config.yaml` 可能包含明文凭证，请勿将部署产物或填入凭证后的 IDE 配置提交到版本库。
+客户端结束会话时应调用 `DELETE /mcp`。`GET /mcp` 返回 405，SSE 服务端通知尚未实现。`ebx mcp deploy` 在没有非空 Bearer token 时会拒绝生成产物。`config.yaml` 可能包含明文凭证，请勿将部署产物或填入凭证后的 IDE 配置提交到版本库。
 
 ---
+
+## 命令执行时看到什么
+
+可能停住的步骤在 **stderr** 上画一块：
+
+```text
+Building Docker image locally: my-template:latest... 12s
+#5 [1/2] FROM ubuntu:22.04
+#5 DONE 0.1s
+```
+
+标题上的耗时大约每秒走一次，工具暂时没有输出时也一样。灰色行是最近四行（`EBX_ACTIVITY_LINES`，1 到 10）。创建沙箱、上传、下载、拉取模板或模板索引、用镜像注册模板、安装 coding-agent CLI、`ebx kill --all`，以及部署的每个阶段（构建、推送、等到 READY），都用这一块。
+
+灰色行只放安全文本：相对路径、安装阶段（镜像源、校验和、解压）、docker 或轮询输出，以及销毁时的 `i/N <id>`。文件内容、工具入参、ACR token 和 `--build-arg` 的值不会出现。
+
+`--json`、`--quiet`、`--ci`、`TERM=dumb` 和非 TTY 不画这个标题。这些模式下，部署仍是每个阶段一行 progress。`--verbose` 改为打印完整的部署日志；其余命令在终端上仍保留标题。结果留在 stdout。
 
 ## 全局选项
 

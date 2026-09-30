@@ -98,6 +98,7 @@ class CommandsModule:
         cwd: str = "",
         user: str = "",
         background: bool = False,
+        shell: bool = False,
     ) -> ProcessResult | StreamReader[ProcessChunk]:
         """Run a command and wait for completion.
 
@@ -109,6 +110,10 @@ class CommandsModule:
             user: OS user to run the command as.
             background: If True, delegate to start() and return a
                 StreamReader handle immediately without blocking.
+            shell: When True, always run ``cmd`` via ``sh -c`` so variable
+                expansion, ``cd``, and other shell syntax work. The MCP
+                ``run_command`` tool sets this. The default keeps the existing
+                split-or-wrap behavior for SDK and CLI callers.
 
         Returns:
             ProcessResult with stdout, stderr, exit_code when
@@ -126,7 +131,10 @@ class CommandsModule:
                 user=user,
             )
 
-        command, args = self._parse_cmd(cmd)
+        if shell:
+            command, args = "sh", ["-c", cmd]
+        else:
+            command, args = self._parse_cmd(cmd)
 
         # start_and_wait logic (previously in ProcessProtocol, now in API layer)
         start_time = time.monotonic()

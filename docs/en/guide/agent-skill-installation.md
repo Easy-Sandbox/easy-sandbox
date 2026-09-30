@@ -14,7 +14,7 @@ The skill and the `ebx` / SDK installation are deliberately decoupled:
 
 1. **Install the skill** into your tool (this guide). No Python required.
 2. **Install the package** when the agent (or you) is ready to actually run sandboxes: `pip install "easy-sandbox[cli]"` — see [section 7](#7-after-the-skill-install-easy-sandbox-configure-credentials-choose-an-interface).
-3. **Configure credentials** (`ebx config set api_key …`, or AK/SK).
+3. **Configure credentials** (`ebx config set sandbox_api_key …`, or AK/SK).
 4. **Pick an interface** — MCP for chat agents, CLI for scripts, SDK for Python code (see `SKILL.md` → "Choosing an interface").
 
 The agent reads the skill's instructions and drives steps 2–4 itself; nothing in step 1 depends on them.
@@ -222,7 +222,7 @@ pip install "easy-sandbox[cli] @ git+https://github.com/Easy-Sandbox/easy-sandbo
 ebx --version
 
 # 3. Configure credentials (stored in ~/.ebx/.env, masked on display)
-ebx config set api_key <YOUR_API_KEY>
+ebx config set sandbox_api_key <YOUR_API_KEY>
 ebx config set region cn-hangzhou
 
 # 4. Choose an interface
@@ -252,7 +252,7 @@ Uninstall means removing exactly one folder — for example `~/.qoder/skills/eas
 
 1. **A skill is instructions for an agent running with your privileges.** Read `SKILL.md` before installing; prefer the official repository URL. The `skills` CLI itself prints "Review skills before use; they run with full agent permissions."
 2. **Local-path installs copy ignored files** (`.env`, caches). Never install from a local working tree that contains credentials (section 3).
-3. **Credential hygiene:** the skill never asks you to print keys. It instructs agents to use masked commands (`ebx config get api_key`) and to store credentials in `~/.ebx/.env`. Do not commit `~/.ebx/.env`, and rotate any key that has appeared in output or a transcript.
+3. **Credential hygiene:** the skill never asks you to print keys. It instructs agents to use masked commands (`ebx config get sandbox_api_key`) and to store credentials in `~/.ebx/.env`. Do not commit `~/.ebx/.env`, and rotate any key that has appeared in output or a transcript.
 4. **No `curl | sh`:** download single files to disk, pin a tag/commit, verify the frontmatter and hash before use (section 4).
 5. **Third-party code boundary:** marketplace plugins are third-party code with different review levels (Claude: official / community / third-party marketplace tiers; Cursor: every marketplace plugin is manually reviewed and must be open source; `cursor.directory` and registry listings are community). A skill folder may contain `scripts/` that the agent can run — treat those as code you are choosing to execute.
 

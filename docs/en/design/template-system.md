@@ -252,7 +252,7 @@ ebx config set github_token ""         # remove the stored token
 export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
 ```
 
-Resolution order: `--token` > process `GITHUB_TOKEN` > stored `github_token` > no token. The token is never printed, logged, or echoed; `ebx config get github_token` / `ebx config list` show it masked (`ghp***xxx`).
+Resolution order: `--token` > process `GITHUB_TOKEN` > `./.env` > stored `github_token` > no token. The token is never printed, logged, or echoed; `ebx config get github_token` / `ebx config list` show it masked (`ghp***xxx`).
 
 When `ebx template search` / `ebx template install` hit the anonymous limit (E5000), the CLI prints the officially documented fine-grained PAT prefill URL — public repositories need no extra permissions and a 90-day expiry is recommended — and, in an interactive terminal only, offers to store the token with masked input and **retries the failed operation exactly once**. Declining, cancelling, or a retry that fails again surfaces the original error. Non-interactive / CI sessions are pointed at secret injection (`GITHUB_TOKEN`) or an interactive `ebx config set github_token`; the CLI never runs `gh auth token`, never opens a browser, and never records the token anywhere.
 

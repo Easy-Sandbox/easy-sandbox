@@ -29,12 +29,24 @@ _CI_ENV_VARS: tuple[str, ...] = (
     "CODEBUILD_BUILD_ID",
 )
 
-# A developer machine may export GITHUB_TOKEN; the CLI resolves it for
-# template downloads (task 206) and would otherwise leak into tests that
-# expect no token to be configured.  This lives in its own autouse fixture
-# (not in ``_suppress_ci_detection``, which sub-directory conftests override)
-# so it applies to every test directory.
-_CREDENTIAL_ENV_VARS: tuple[str, ...] = ("GITHUB_TOKEN",)
+# A developer machine may export GITHUB_TOKEN, EBX_LLM_API_KEY, or the
+# older EBX_QWEN_CODE_API_KEY; the CLI resolves them and would otherwise
+# leak into tests that expect no credentials to be configured.
+# This lives in its own autouse fixture (not in ``_suppress_ci_detection``,
+# which sub-directory conftests override) so it applies to every test
+# directory.
+_CREDENTIAL_ENV_VARS: tuple[str, ...] = (
+    "GITHUB_TOKEN",
+    "EBX_LLM_API_KEY",
+    "EBX_QWEN_CODE_API_KEY",
+    "EBX_LLM_BASE_URL",
+    "EBX_LLM_MODEL",
+    "BAILIAN_CODING_PLAN_API_KEY",
+    "DASHSCOPE_API_KEY",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "OPENAI_MODEL",
+)
 
 
 @pytest.fixture(autouse=True)
@@ -51,10 +63,19 @@ def _suppress_ci_detection(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_credential_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    """Remove credential env vars (GITHUB_TOKEN) so tests stay deterministic."""
+def _isolate_credential_env(monkeypatch: pytest.MonkeyPatch, tmp_path) -> Iterator[None]:
+    """Remove credential env vars so tests stay deterministic.
+
+    Also point the project ``.env`` reader at a missing file. The SDK and
+    CLI both consult ``./.env`` before ``~/.ebx``, and this repository's
+    ``.env`` must not leak into that layer.
+    """
     for var in _CREDENTIAL_ENV_VARS:
         monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(
+        "easy_sandbox.transport.config._PROJECT_ENV_FILE",
+        tmp_path / "no-project.env",
+    )
     yield
 
 

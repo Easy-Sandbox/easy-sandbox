@@ -87,7 +87,7 @@ graph TB
     config --- cfg_list["list"]
 ```
 
-> `config reset` was removed before the first stable release — clear a stored value with `ebx config set KEY ""` (the empty value clears the key and it falls back to its default or to not set).
+> `config reset` was removed before the first stable release — remove one stored value with `ebx config delete KEY` (or `ebx config set KEY ""`). The key falls back to its default or to not set. There is no command that wipes `~/.ebx`.
 
 ***
 
@@ -132,7 +132,7 @@ ebx mcp deploy --region cn-shanghai
 ebx config set region cn-shanghai
 ```
 
-Resolution priority: command `--region` > `ebx config set region` / `SANDBOX_REGION` env > `cn-hangzhou`.
+Resolution priority: command `--region` > `SANDBOX_REGION` > `ebx config set region` > `cn-hangzhou`.
 
 The CLI automatically detects CI environments (`CI`, `GITHUB_ACTIONS`, `GITLAB_CI`, `JENKINS_URL`, etc.) and enables CI mode automatically. Color output is automatically disabled in non-TTY environments.
 
@@ -140,7 +140,7 @@ The CLI automatically detects CI environments (`CI`, `GITHUB_ACTIONS`, `GITLAB_C
 
 ## 3. Natural Language Creation (AI Template Generation)
 
-> **Describe what you need in natural language, and the CLI calls Qwen Code to generate a Dockerfile plus a slim template.yaml, then builds, deploys, and creates the sandbox.**
+> **Describe what you need in natural language, and the CLI calls Qwen Code to generate a Dockerfile, a commands.py HTTP server entry point, and template.yaml, then builds, deploys, and creates the sandbox.**
 
 `ebx create` has three routes, decided by the invocation:
 
@@ -157,31 +157,37 @@ Neither input is ever silently dropped: when both are given the command refuses 
 
 ```mermaid
 graph TD
-    Input["ebx create 'description'"] --> Find{"Locate Qwen Code<br/>PATH / ~/.ebx/bin"}
+    Input["ebx create 'description'"] --> Scope{"Interactive TTY<br/>and no --yes?"}
+    Scope -- "switch to init" --> Find
+    Scope -- "continue / --yes / non-TTY" --> Find{"Locate Qwen Code<br/>PATH / ~/.ebx/bin"}
     Find -- not installed --> Install{"Interactive TTY and no --yes?"}
     Install -- confirm install --> Download["Download official standalone<br/>SHA256 verify → ~/.ebx/bin"]
     Install -- declined / non-TTY --> E2005["E2005 + Quick Setup"]
-    Find -- installed --> Creds{"Credentials available?<br/>qwen_code_api_key → llm_api_key → env"}
+    Find -- installed --> Creds{"Credentials available?<br/>llm_api_key → env"}
     Creds -- missing --> Prompt["Interactive input & save<br/>non-TTY → E2006 + Quick Setup"]
     Creds -- available --> Research["Research round: agent settles public facts<br/>with its own tools (no schema)"]
     Research --> Assess{"Structured assessment<br/>same session, --json-schema"}
-    Assess -- "complete / skipped / unavailable" --> Generate["Qwen Code headless generation<br/>Dockerfile + template.yaml"]
+    Assess -- "complete / skipped / unavailable" --> Generate["Qwen Code headless generation<br/>Dockerfile + commands.py + template.yaml"]
     Assess -- "incomplete, non-TTY" --> E2008["E2008 + missing details + example"]
     Assess -- "incomplete, TTY" --> Ask["Ask ONE question per round<br/>Question N, no total shown"]
     Ask --> Assess
     Generate -- success --> Verify["Validate Dockerfile (FROM)<br/>+ YAML schema"]
     Generate -- failure / timeout --> E2007["E2007 + keep generated dir"]
-    Verify -- pass --> Confirm{"Confirm build & deploy?"}
+    Verify -- pass --> Gate{"Switched to init?"}
+    Gate -- yes --> Local["Write ./name/ and stop"]
+    Gate -- no --> Confirm{"Confirm build & deploy?"}
     Confirm -- confirmed --> Deploy["Reuse template deploy pipeline<br/>build & push → deploy"]
     Deploy --> Create["Create sandbox"]
     Verify -- fail --> E2007
 ```
 
+**Scope check.** Before any install or generation, an interactive terminal is shown that natural-language create will generate a template, build and push the image, deploy it, and create a sandbox, and is asked whether to switch to template init. Answering yes runs the same local-only generation as `ebx template init "DESCRIPTION"` (`Dockerfile`, `commands.py`, `template.yaml`, and `README.md` under `./<name>/`) and stops — no build, push, deploy, or sandbox. The default is to continue the full create. `--yes` and `--json` skip the question and keep the full pipeline. A non-interactive shell prints the same reminder and continues; the build confirmation below still applies.
+
 1. **Executable discovery**: checks `PATH` first, then `~/.ebx/bin` (recognizing `.cmd`/`.exe` suffixes on Windows).
 2. **Install guidance**: when missing, interactive terminals are asked whether to install the official standalone build (SHA256-verified, atomically installed into `~/.ebx/bin`, executable bit set on Unix); non-TTY or a declined prompt raises `E2005` with the Quick Setup — no hang, no silent fallback.
-3. **Credential resolution**: priority is the stored `qwen_code_api_key` → existing `llm_api_key` (officially compatible same-family credential) → exported `OPENAI_API_KEY`/`DASHSCOPE_API_KEY`/`BAILIAN_CODING_PLAN_API_KEY` (inherited by the child process, not injected) → `~/.qwen/settings.json`. Interactive terminals may prompt for and securely store a key; non-TTY raises `E2006`.
-4. **Pre-generation clarification (research-first, two phases on one native session)**: before generating, the coding agent first runs a plain research round (`--session-id`, **no** `--json-schema`) in which it settles every publicly verifiable fact with its own tools (web fetch / shell) — tool stack, official install method, common runtimes and dependencies — recording safe defaults for anything unreachable. The same session then continues (`--resume`) with one structured `--json-schema` assessment round; verified against qwen-code 0.15.11, `--json-schema` ends the session on the first valid `structured_output` call, so the schema is deliberately absent from the research round to keep the tool loop free. Only user preferences, private constraints, and business decisions the agent cannot infer may count as missing. Below the 80% threshold, interactive terminals are asked exactly ONE question per round, numbered `Question 1`, `Question 2`, … with **no total shown** (the internal 5-round cap is mentioned only when reached); each answer resumes the same native session and triggers a fresh assessment against the full description + Q/A history, already-asked topics are embedded in every follow-up prompt (an exactly-repeated question breaks the loop defensively), and delegation answers ("you decide" / "use the default") instruct the agent to settle the choice itself with safe defaults. Non-TTY / CI sessions without `--yes` fail fast with `E2008`, listing the missing template facets and a ready-to-use example description. `--yes` skips research and assessment entirely; a failed research round only warns (never a gate), and an unavailable assessment degrades to direct generation with a warning. Phase status (assessing / re-assessing / generating) renders as a spinner on **stderr** (TTY) or one machine-readable progress line (non-TTY); stdout stays clean and the model's research output is never echoed. Generation then resumes the clarification session, so the model keeps the description, the research summary, and every Q/A pair in its own memory.
-5. **Generation & validation**: runs Qwen Code in headless mode inside a fresh `~/.ebx/generated/<slug>-<timestamp>/` workspace (template name `ebx-nl-<slug>-<token>`) via `qwen "<prompt>" --output-format json --yolo` (the prompt is positional — the legacy `-p` flag is deprecated per the 0.15.11 `--help`; list-form arguments, bounded cwd and timeout — 600s by default, overridable with `EBX_QWEN_CODEGEN_TIMEOUT`), expecting a Dockerfile and a slim template.yaml; both are then validated — the Dockerfile must contain `FROM`, and template.yaml must pass the `parse_template_data` YAML schema check. Failure or timeout raises `E2007` and keeps the generated directory for inspection.
+3. **Credential resolution**: a process environment variable wins over `./.env`, which wins over `~/.ebx` for a key it sets. API key order is `EBX_LLM_API_KEY`, then `BAILIAN_CODING_PLAN_API_KEY`, `DASHSCOPE_API_KEY`, `OPENAI_API_KEY`, then a legacy `EBX_QWEN_CODE_API_KEY`, then the same names in `./.env`, then the value stored by `ebx config set llm_api_key`. `llm_base_url` uses `EBX_LLM_BASE_URL` then `OPENAI_BASE_URL` then the stored value (a legacy `qwen_code_base_url` only when `llm_base_url` is unset) then the DashScope default. `llm_model` uses `EBX_LLM_MODEL` then `OPENAI_MODEL` then the stored value then `qwen3-coder-plus`. `~/.qwen/settings.json` is used only when none of those keys exist. Interactive terminals may prompt for and securely store a key; non-TTY raises `E2006`.
+4. **Pre-generation clarification (research-first, two phases on one native session)**: before generating, the coding agent first runs a plain research round (`--session-id`, **no** `--json-schema`) in which it settles every publicly verifiable fact with its own tools (web fetch / shell) — tool stack, official install method, common runtimes and dependencies — recording safe defaults for anything unreachable. The same session then continues (`--resume`) with one structured `--json-schema` assessment round; verified against qwen-code 0.15.11, `--json-schema` ends the session on the first valid `structured_output` call, so the schema is deliberately absent from the research round to keep the tool loop free. Only user preferences, private constraints, and business decisions the agent cannot infer may count as missing. Below the 80% threshold, interactive terminals are asked exactly ONE question per round, numbered `Question 1`, `Question 2`, … with **no total shown** (the internal 5-round cap is mentioned only when reached); each answer resumes the same native session and triggers a fresh assessment against the full description + Q/A history, already-asked topics are embedded in every follow-up prompt (an exactly-repeated question breaks the loop defensively), and delegation answers ("you decide" / "use the default") instruct the agent to settle the choice itself with safe defaults. Non-TTY / CI sessions without `--yes` fail fast with `E2008`, listing the missing template facets and a ready-to-use example description. `--yes` skips research and assessment entirely; a failed research round only warns with a reason-specific hint (never a gate; the research is bounded to 20 turns / 240 s, `EBX_QWEN_RESEARCH_TIMEOUT` overrides, and its prompt caps slow web fetches at three) and the assessment then starts a **fresh** session — qwen rejects re-pinning a `--session-id` the failed round may already have created, which used to surface as a bogus “assessment unavailable”; an unavailable assessment degrades to direct generation with a warning. Phase status (researching / assessing / re-assessing / generating) renders on **stderr** as a spinner (TTY) or one machine-readable progress line (non-TTY), and — while the agent works — a header `Assessing description... 12s` with the last four activity lines in grey underneath (a Rich status normally, a self-erasing `\r` line under `--verbose` / `--no-color`, absent for `--json` / `--quiet` / CI / `TERM=dumb`). The headless run streams `--output-format stream-json --include-partial-messages` to feed that line, but shows only the assistant's text tail and tool *names*, never tool input or thinking; the whole agent process tree is killed on timeout or Ctrl-C. stdout stays clean and the model's research output is never echoed. Generation then resumes the clarification session, so the model keeps the description, the research summary, and every Q/A pair in its own memory.
+5. **Generation & validation**: runs Qwen Code in headless mode inside a fresh `<slug>-<timestamp>-<token>/` workspace under `--dir` (default `~/.ebx/generated/`; an interactive terminal is asked where to save it, Enter accepts the default; template name `ebx-nl-<slug>-<token>`) via `qwen "<prompt>" --output-format json --yolo` (the prompt is positional — the legacy `-p` flag is deprecated per the 0.15.11 `--help`; list-form arguments, bounded cwd and timeout — 600s by default, overridable with `EBX_QWEN_CODEGEN_TIMEOUT`), expecting a *usable* template — a Dockerfile, a `commands.py` that starts the container-side `easy_sandbox.server` `SandboxServer` on port 9000 (a deployed sandbox is reached over HTTP(S), so a Dockerfile alone cannot be used), a template.yaml, and a README. The prompt carries the server SDK reference (`agent/template_guide.py`: Dockerfile rules, `CapabilityGroup`, `CommandRegistry`, `RouteTable.route`, `template.yaml` fields). The output is then validated — the Dockerfile must contain `FROM` and reference `commands.py`, `commands.py` must be valid Python that imports `easy_sandbox.server` and calls `serve()`/`start()`, and template.yaml must pass the `parse_template_data` YAML schema check. Failure or timeout raises `E2007` and keeps the generated directory for inspection.
 6. **Build & create**: after confirmation, reuses the `ebx template deploy` build/deploy pipeline (`--acr-namespace` selects the push namespace) and then calls the existing `Sandbox.create`. No step ever silently falls back to `base`; failures report the error code, the Quick Setup, and next-step commands.
 
 ### Examples
@@ -211,7 +217,7 @@ graph TD
 
 - **Automatic install**: official standalone assets are downloaded into `~/.ebx/bin`; download sources are verified — the Aliyun mirror is preferred with the GitHub release asset as fallback, and `SHA256SUMS` must validate (a mismatch fails immediately, no fallback).
 - **Manual install**: the Quick Setup and `ebx create --help` print the official installer commands (`install-qwen-standalone.sh` / `.ps1`).
-- **Credential storage**: `ebx config set qwen_code_api_key <KEY>` writes to `~/.ebx/.env`; alternatively `ebx config init` configures the platform API key, region, and Qwen Code credentials in one guided pass (printing equivalent non-interactive commands on non-TTY).
+- **Credential storage**: `ebx config set llm_api_key <KEY>` writes to `~/.ebx/.env`; alternatively `ebx config init` configures the sandbox API key, region, and LLM API key in one guided pass (printing equivalent non-interactive commands on non-TTY).
 
 ### Available Templates
 
@@ -392,39 +398,31 @@ See ADR `2026-09-03-cli-run-vs-exec.md` for details.
 
 ### ebx deploy
 
-`ebx deploy` supports two modes: **NL mode** (default, uses qwen-code agent to automatically analyze, install dependencies, build, and start the service) and **traditional mode** (manual build + run).
+`ebx deploy` is the **publish step** of the template lifecycle and a fixed pipeline: `docker build` → push to ACR → `CreateTemplate` → poll until ready. It is exactly `ebx template deploy` with `PATH` defaulting to `.`, reuses that command's option set verbatim (so the two cannot drift and `-v/--verbose` works), and needs no LLM. On an interactive terminal each long step is a `message... 12s` header with the latest four lines of docker or poll output in grey underneath (the same block as template generation; `EBX_ACTIVITY_LINES` changes the count). The header keeps moving once a second while the tool is silent. `--verbose` prints the full log instead. `--json`, `--quiet`, CI, and non-TTY stay one progress line.
 
-```bash
-ebx deploy [PATH] [INSTRUCTION] [options]
+The same header is the progress display for every other step that can sit still: creating a sandbox, uploading or downloading files, fetching a template or the template index, registering a template from an image, installing the coding-agent CLI, and `ebx kill --all`. Where a step has a safe log — relative paths, install milestones (mirror, checksum, extract), docker lines, or a poll status — the last four lines sit under the header (`EBX_ACTIVITY_LINES`). File bytes, tool input, ACR tokens, and `--build-arg` values are never part of that log; the info line that records the docker command redacts build-arg values. `--verbose` still prints the full deploy log and does not draw the deploy block. Other commands keep the moving header on a terminal, including under `--verbose` and `--no-color`. `--json`, `--quiet`, CI, `TERM=dumb`, and a non-TTY stay silent for these headers.
 
-Arguments:
-  PATH                            Project directory (default: .)
-  INSTRUCTION                     Natural language deployment instruction (optional)
-
-Options:
-  --instruction, -i <text>        NL deployment instruction (alternative to positional arg)
-  --max-wall-time <duration>      qwen-code max execution time (e.g., '10m', '600s')
-  --max-session-turns <n>         qwen-code session turn limit (default: 100)
-  --alias, -a <name>              Template alias (traditional mode)
-  --watch                         Watch file changes for auto-redeploy (traditional mode)
-  --traditional                   Use traditional build+run mode instead of AI deployment
-
-Examples:
-  # NL mode (default)
-  ebx deploy ./my-project "This is a FastAPI project that needs Redis"
-  ebx deploy ./my-project -i "Deploy to port 8080"
-
-  # Traditional mode
-  ebx deploy ./my-project --traditional
+```text
+ebx template init ["DESCRIPTION" | --adopt DIR]  →  ebx deploy [PATH]  →  ebx create --template ID
+  author (scaffold, a sentence, or an existing project)   publish (fixed)        launch
+ebx create "DESCRIPTION"  =  all three, with a confirmation before anything is pushed
 ```
 
-NL mode workflow:
-1. Create a `qwen-code` template sandbox
-2. Upload project files to `/workspace`
-3. qwen-code agent automatically analyzes project type, installs dependencies, builds, and starts the service
-4. Parse deployment results (status, URL, ports, logs)
+```bash
+ebx deploy [PATH] [options]
 
-Traditional mode supports automatic project type detection (Python / Node.js / Go / Java / Docker) and provides `ebx deploy build` and `ebx deploy run` subcommands for fine-grained control.
+Arguments:
+  PATH                            Template directory (default: .)
+
+Options:
+  (all options of `ebx template deploy`, e.g. --acr-namespace, --alias, --yes, -v)
+```
+
+Design notes:
+
+- **The description belongs to authoring, not publishing.** What a template *is* — name, description, ports, capabilities, resources, env, custom commands, and the `commands.py` server that makes a deployed sandbox usable — is written into `template.yaml` / `Dockerfile` / `commands.py` by `ebx template init` (a scaffold, a description, or `--adopt` on an existing project), where it can be reviewed and versioned. `ebx deploy` only *reads* `template.yaml` (`name`, `resources.cpu`, `resources.memory`, `generation`). A second place to describe the project at deploy time would be a second source of truth that never lands in `template.yaml`. `--adopt` is specified in ADR `2026-09-30-template-init-adopt-existing-project.md`.
+- Consequently `deploy` has **no INSTRUCTION argument and no AI flag** (an earlier `--agent` design was dropped for exactly this reason; see ADR `2026-09-30-deploy-fixed-pipeline-agent-flag.md`).
+- The in-sandbox agent deployment (`Sandbox.deploy`, which needs an LLM key and starts a `qwen-code` cloud sandbox) is kept as an SDK API only.
 
 ### ebx connect
 
@@ -751,25 +749,109 @@ ebx template init [DIRECTORY] [options]
 Options:
   -t, --template <case>     Built-in scaffold case (python, node, minimal)
   --from <ref>              Fetch template source from a registry ref (owner/repo or local path)
-  --name <name>             Template name (default: case name or fetched template name)
+  --name <name>             Template name (default: case name, fetched name, or generated name)
   --list                    List available scaffold cases
   --force                   Overwrite existing files
+  --adopt                   Adapt an existing project in DIRECTORY (default .)
+  --hint <text>             With --adopt: ports, services, anything the code does not say
+  --dry-run                 With --adopt: list what would be sent; send and write nothing
+  -y, --yes                 Skip confirmation (clarification, and both --adopt prompts)
 
 Examples:
   ebx template init --list
   ebx template init -t python            # Creates ./python/
   ebx template init -t python ./my-app   # Explicit directory
   ebx template init --from owner/repo
+  ebx template init "a python data science env"   # AI files only, no build
+  ebx template init -y "a node.js api server"     # non-interactive AI files
+  ebx template init --adopt ./app --hint "listens on 8080"
+  ebx template init --adopt ./app --dry-run
 ```
 
-Generates an editable local template project (`template.yaml` + `Dockerfile` + `commands.py`) without building or deploying anything — continue with `ebx template deploy <dir>` when ready. `ebx init` is a top-level shortcut delegating to the exact same command object; guided credentials setup is `ebx config init`.
+Generates an editable local template project without building, pushing, deploying, or creating a sandbox — continue with `ebx template deploy <dir>` when ready. A path token (`my-app`, `./my app`) selects the directory. Whitespace or CJK text is a natural-language description: Qwen Code writes `Dockerfile`, `commands.py` (the SandboxServer entry point), `template.yaml` and `README.md` into `./<name>/` and stops. An interactive terminal is asked for that directory first (`Directory for the template project`); Enter keeps `./<name>/` (or `./<--name>/`), and any other answer is the project directory itself. `--yes`, `--json`, and a non-interactive shell skip the question. A file path, or a directory that already contains template files, is rejected before generation (`--force` overwrites). That is the same stop-line offered by the interactive switch on `ebx create "DESCRIPTION"`. `--adopt` is the third authoring path: DIRECTORY is an existing project, the agent runs in a temp copy (secrets excluded), and only `Dockerfile`, `commands.py`, `template.yaml` and a generated `.dockerignore` are written back. `--adopt` is mutually exclusive with `-t`, `--from` and `--list`. A local `--from` directory with no `template.yaml` is rejected and the message points at `--adopt`. `ebx init` is a top-level shortcut delegating to the exact same command object; guided credentials setup is `ebx config init`.
 
 ##### Top-level shortcuts vs user custom commands
 
-- **Built-in top-level shortcuts** (`create`, `list`, `init`, `install`, `deploy`, `run`, …) are registered in the `LazyGroup(lazy_subcommands=...)` map in `src/easy_sandbox/cli/main.py`. This map is a **project-maintainer registration point** for the built-in top-level entry points — it is not a user-facing extension mechanism.
-- **User-defined commands** are declared in the template's `template.yaml` (`custom_commands`) or registered on a SandboxServer (`@registry.command`), and invoked through `ebx run COMMAND` / `Sandbox.custom(name)`.
-- The `config.toml [shortcuts]` section sketched in the original CLI design draft (`2026-09-23-cli-final-design.md` §2.2) was **never implemented**: there is no user-side declarative alias configuration. Any doc or config snippet suggesting `[shortcuts]` in `~/.ebx/config.toml` describes an unimplemented historical draft, not a current capability.
-- Unknown top-level commands get a targeted hint: a close spelling match (difflib, cutoff 0.6) yields `Did you mean '…'?`; with no plausible candidate the error points to `custom_commands` + `ebx run`. Exit code 2 and stderr-only output are preserved; only the root group is affected.
+- **Built-in top-level shortcuts** (`create`, `list`, `init`, `install`, `deploy`, `run`, …) are registered in the `LazyGroup(lazy_subcommands=...)` map in `src/easy_sandbox/cli/main.py`. This map is the **project-maintainer registration point** for the built-in top-level entry points; these shortcuts ship as the **system defaults** of the user-configurable `[shortcuts]` section (see below) — they are not hard-coded beyond reach: users can freely modify, remove, or extend them without touching the source.
+- **CLI aliases** (the `[shortcuts]` config layer) route a local `ebx <alias> [args…]` invocation to an existing command path — no sandbox, no credentials, no template involved.
+- **User-defined commands** are declared in the template's `template.yaml` (`custom_commands`) or registered on a SandboxServer (`@registry.command`), and invoked through `ebx run COMMAND` / `Sandbox.custom(name)` — these execute **inside a sandbox** and are a different layer from CLI aliases.
+- The `config.toml [shortcuts]` section sketched in the original CLI design draft (`2026-09-23-cli-final-design.md` §2.2) **is implemented** (ADR `2026-09-30-configurable-cli-shortcuts.md`, which supersedes the earlier rejection in `2026-09-29-init-restore-and-create-explicit-error.md`): aliases are a pure CLI-routing concern and do not compete with in-sandbox named commands.
+- Unknown top-level commands get a targeted hint: a close spelling match (difflib, cutoff 0.6) yields `Did you mean '…'?`; with no plausible candidate the error shows `ebx config set shortcuts.NAME "template init"` (the target has no `ebx` prefix) and points to `custom_commands` + `ebx run`. Exit code 2 and stderr-only output are preserved; only the root group is affected.
+
+##### Configurable shortcuts (`[shortcuts]`)
+
+Top-level shortcuts are **user-configurable**, not fixed. The `~/.ebx/config.toml` `[shortcuts]` section maps an alias name to a target command path; every listed default shortcut (create, list, info, …) is a factory preset you can change, remove, or extend.
+
+Configuration format (aliases resolve to one existing command path — space-separated subcommand path):
+
+```toml
+# ~/.ebx/config.toml
+
+[shortcuts]
+# Factory defaults — every built-in top-level shortcut (enabled by default)
+create   = "sandbox create"
+list     = "sandbox list"
+info     = "sandbox info"
+kill     = "sandbox kill"
+exec     = "sandbox exec"
+connect  = "sandbox connect"
+run      = "sandbox run"
+upload   = "sandbox upload"
+download = "sandbox download"
+deploy   = "deploy"
+install  = "template install"
+init     = "template init"
+
+# User-defined aliases — any existing command path works
+ps      = "sandbox process list"
+sysinfo = "sandbox system info"
+files   = "sandbox files list"
+```
+
+Default alias list (enabled out of the box — no config file required):
+
+| Default alias | Target |
+|---------------|--------|
+| `create` | `sandbox create` |
+| `list` | `sandbox list` |
+| `info` | `sandbox info` |
+| `kill` | `sandbox kill` |
+| `exec` | `sandbox exec` |
+| `connect` | `sandbox connect` |
+| `run` | `sandbox run` |
+| `upload` | `sandbox upload` |
+| `download` | `sandbox download` |
+| `deploy` | `deploy` |
+| `install` | `template install` |
+| `init` | `template init` |
+
+Managing aliases — or edit the `[shortcuts]` section of `~/.ebx/config.toml` directly:
+
+```bash
+# Add / modify an alias (command path, no "ebx" prefix)
+ebx config set shortcuts.ps "sandbox process list"
+# Rejected, nothing saved: ebx config set shortcuts.init2 "ebx template init"
+ebx config set shortcuts.init2 "template init"
+
+# Delete an alias (empty value removes it)
+ebx config set shortcuts.ps ""
+
+# View all aliases
+ebx config get shortcuts
+
+# Reset shortcuts to the factory defaults / generate a complete template
+ebx config init --reset-shortcuts
+ebx config init                 # writes a full [shortcuts] template, ready to edit
+```
+
+Design constraints:
+
+- **Single-layer resolution** — an alias resolves to exactly one existing command path; aliases never chain to other aliases, and everything after the alias name is passed through unchanged (no argument rewriting or injection).
+- **No `ebx` prefix** — the stored value is the command path (`"template init"`), not the invocation (`"ebx template init"`). `config set` rejects the prefix (exit 2, nothing saved) and prints the command to retry. A bad value already in the file is ignored at startup with the same explanation; the other aliases keep working. See ADR `2026-09-30-shortcut-target-hint.md`.
+- **Reserved commands cannot be overridden** — the command group names (`sandbox`, `template`, `config`, `mcp`) and other reserved top-level names cannot be shadowed, redirected, or deleted by a `[shortcuts]` entry; a conflicting entry is reported and ignored.
+- **Corrupt-config fallback** — if `~/.ebx/config.toml` cannot be parsed (TOML syntax error, wrong value types), the CLI warns on stderr and disables all shortcuts for that session; the built-in command groups (`sandbox` / `config` / `mcp` / `template`) keep working, so a broken shortcuts config never bricks the CLI.
+
+See ADR `2026-09-30-configurable-cli-shortcuts.md` for the full decision record.
 
 #### template deploy
 
@@ -866,7 +948,7 @@ Examples:
   ebx template install ./my-template           # Local directory
 ```
 
-Token resolution order: `--token` > process `GITHUB_TOKEN` > stored `github_token` (`ebx config set github_token`, masked input, stored in `~/.ebx/.env`) > no token. On an anonymous rate limit the full `owner/repo//subdir@ref` reference is preserved in the error, and an interactive terminal is offered the masked token setup with one automatic retry.
+Token resolution order: `--token` > process `GITHUB_TOKEN` > `./.env` > stored `github_token` (`ebx config set github_token`, masked input, stored in `~/.ebx/.env`) > no token. On an anonymous rate limit the full `owner/repo//subdir@ref` reference is preserved in the error, and an interactive terminal is offered the masked token setup with one automatic retry.
 
 Install templates from GitHub or local directories. The template directory must contain a `template.yaml` file.
 
@@ -963,8 +1045,8 @@ ebx mcp deploy [options]
 
 Options:
   --name <name>             FC function name (default: easy-sandbox-mcp)
-  --region <region>         FC region; falls back to ebx config set region /
-                            SANDBOX_REGION env, else cn-hangzhou
+  --region <region>         FC region; command --region > SANDBOX_REGION >
+                            ebx config set region > cn-hangzhou
   --template <name>         Default sandbox template (default: base)
   --memory <mb>             FC function memory (default: 512)
   --timeout <seconds>       FC function timeout (default: 600)
@@ -993,35 +1075,31 @@ The configuration file is located at `~/.ebx/config.toml`, with API Keys stored 
 
 | Config Key      | Description                           | Default                   |
 | --------------- | ------------------------------------- | ------------------------- |
-| `api_key`       | E2B API Key                           | (not set)                 |
+| `sandbox_api_key` | Sandbox service API key (stored as `E2B_API_KEY`) | (not set)          |
 | `api_url`       | Platform API URL                      | (auto)                    |
 | `region`        | Default region                        | `cn-hangzhou`             |
 | `http_timeout`  | HTTP request timeout (seconds)        | (auto)                    |
 | `max_retries`   | Max retry count                       | (auto)                    |
 | `domain`        | Envd Domain                           | (auto)                    |
-| `llm_api_key`   | LLM API Key (for deploy; also a compatible fallback for Qwen Code credentials) | (not set) |
-| `llm_model`     | LLM model name                        | (not set)                |
-| `llm_base_url`  | LLM API Base URL (OpenAI compatible)  | (not set)                |
-| `qwen_code_api_key` | Qwen Code API Key (AI template generation, stored in `.env`) | (not set) |
-| `qwen_code_base_url` | Qwen Code OpenAI-compatible Base URL | DashScope compatible endpoint |
-| `qwen_code_model` | Qwen Code model name                  | `qwen3-coder-plus`       |
+| `llm_api_key`   | LLM API key for NL inference and the coding agent | (not set) |
+| `llm_model`     | LLM model name                        | `qwen3-coder-plus`       |
+| `llm_base_url`  | LLM API base URL (OpenAI compatible)  | DashScope compatible endpoint |
 
-Sensitive config items (`api_key`, `llm_api_key`, `qwen_code_api_key`) are automatically masked in `config list` output.
+Sensitive config items (`sandbox_api_key`, `llm_api_key`) are automatically masked in `config list` output.
+
+The `[shortcuts]` section in the same file configures top-level command aliases (see [§4 Configurable shortcuts](#configurable-shortcuts-shortcuts)); it is managed with `ebx config set shortcuts.<name> "<target>"` / `ebx config get shortcuts` / `ebx config init --reset-shortcuts`.
 
 ### Command Examples
 
 ```bash
-# Set API Key
-ebx config set api_key e2b_xxx
+# Set the sandbox API key
+ebx config set sandbox_api_key e2b_xxx
 
-# Configure Qwen Code credentials (dedicated key for AI template generation)
-ebx config set qwen_code_api_key sk-xxx
-
-# Or run the guided wizard (platform API key, region, Qwen Code)
-ebx config init
-
-# llm_api_key works as a compatible fallback for Qwen Code credentials
+# LLM API key for NL inference and the coding agent
 ebx config set llm_api_key sk-xxx
+
+# Or run the guided wizard (sandbox API key, region, LLM API key)
+ebx config init
 
 # View configuration
 ebx config list
@@ -1031,7 +1109,7 @@ ebx config get region
 ebx config set region ""
 ```
 
-LLM configuration also supports environment variable overrides: `EBX_LLM_API_KEY`, `EBX_LLM_MODEL`, `EBX_LLM_BASE_URL`.
+A process environment variable overrides `./.env`, which overrides the stored LLM settings: `EBX_LLM_API_KEY` (then `BAILIAN_CODING_PLAN_API_KEY`, `DASHSCOPE_API_KEY`, `OPENAI_API_KEY`), `EBX_LLM_BASE_URL` / `OPENAI_BASE_URL`, and `EBX_LLM_MODEL` / `OPENAI_MODEL`. A blank value does not count. When those are unset, the value in `~/.ebx` is used.
 
 ***
 

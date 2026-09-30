@@ -1,5 +1,6 @@
 [exit_code:1]
 [stderr]
+Natural-language create generates a template, then builds and pushes the image, deploys it, and creates a sandbox. Template only: ebx template init "运行 python"
 Warning: Qwen Code CLI was not found on PATH or in ~/.ebx/bin.
 
 Quick Setup - AI template generation (Qwen Code):

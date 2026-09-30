@@ -374,3 +374,133 @@ class TestProtocolVersionNegotiation:
     def test_empty_supported_versions_rejected(self):
         with pytest.raises(ValueError, match="at least one version"):
             SandboxMCPServer(supported_protocol_versions=())
+
+
+# ---------------------------------------------------------------------------
+# Default-sandbox contract the agent workflow depends on
+# ---------------------------------------------------------------------------
+
+
+def _fake_sandbox(sandbox_id: str, template: str = "base") -> AsyncMock:
+    sandbox = AsyncMock()
+    sandbox.id = sandbox_id
+    sandbox.template = template
+    sandbox.status.value = "running"
+    sandbox.url = f"https://{sandbox_id}.example"
+    return sandbox
+
+
+class TestDefaultSandboxContract:
+    """create_sandbox becomes the default; kill of nothing is an error."""
+
+    async def test_explicit_create_is_reused_without_id(self):
+        manager = SandboxManager(template="python-hello")
+        created: list[AsyncMock] = []
+
+        async def _create(**kwargs: object) -> AsyncMock:
+            sandbox = _fake_sandbox(f"sb-{len(created) + 1}", str(kwargs.get("template")))
+            created.append(sandbox)
+            return sandbox
+
+        with patch("easy_sandbox.api.sandbox.Sandbox.create", new=_create):
+            from easy_sandbox.agent.tools import dispatch_tool
+
+            created_result = await dispatch_tool("create_sandbox", {}, manager)
+            written = await dispatch_tool(
+                "write_file",
+                {"path": "/tmp/app.py", "content": "print(1)\n"},
+                manager,
+            )
+            killed = await dispatch_tool("kill_sandbox", {}, manager)
+
+        assert created_result["sandbox_id"] == "sb-1"
+        assert len(created) == 1
+        assert created[0].template == "python-hello"
+        created[0].files.write.assert_awaited_once()
+        assert written["success"] is True
+        assert killed == {"success": True, "sandbox_id": "sb-1"}
+        created[0].kill.assert_awaited_once()
+
+    async def test_kill_without_sandbox_is_an_error(self):
+        manager = SandboxManager()
+        from easy_sandbox.agent.tools import dispatch_tool
+
+        result = await dispatch_tool("kill_sandbox", {}, manager)
+        assert result["success"] is False
+        assert "error" in result
+
+    async def test_concurrent_lazy_create_is_single(self):
+        import asyncio
+
+        manager = SandboxManager(template="python-hello")
+        started = 0
+        release = asyncio.Event()
+
+        async def _create(**kwargs: object) -> AsyncMock:
+            nonlocal started
+            started += 1
+            await release.wait()
+            return _fake_sandbox("sb-shared", str(kwargs.get("template")))
+
+        with patch("easy_sandbox.api.sandbox.Sandbox.create", new=_create):
+            first = asyncio.create_task(manager.get_sandbox(None))
+            second = asyncio.create_task(manager.get_sandbox(None))
+            for _ in range(50):
+                if started:
+                    break
+                await asyncio.sleep(0.01)
+            assert started == 1
+            release.set()
+            left, right = await asyncio.gather(first, second)
+
+        assert left.id == right.id == "sb-shared"
+        assert started == 1
+
+    async def test_nonzero_exit_is_tool_error(self):
+        server = SandboxMCPServer()
+        mock_sb = AsyncMock()
+        mock_sb.id = "sbx-t"
+        from easy_sandbox.models.process import CodeResult
+
+        mock_sb.run_code = AsyncMock(
+            return_value=CodeResult(text="", stdout="", stderr="nope\n", exit_code=1)
+        )
+        server._manager.get_sandbox = AsyncMock(return_value=mock_sb)
+        resp = await server.handle_request(
+            {
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {"name": "run_code", "arguments": {"code": "raise SystemExit(1)"}},
+            }
+        )
+        assert resp is not None
+        assert resp["result"]["isError"] is True
+
+    async def test_null_params_do_not_crash(self):
+        server = SandboxMCPServer()
+        resp = await server.handle_request(
+            {"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": None}
+        )
+        assert resp is not None
+        assert "error" not in resp
+        assert resp["result"]["isError"] is True
+
+    async def test_tool_error_drops_httpx_doc_link(self):
+        from easy_sandbox.agent.tools import dispatch_tool
+
+        class _BoomError(Exception):
+            pass
+
+        manager = SandboxManager()
+
+        async def _fail(_sandbox_id: str | None = None) -> None:
+            raise _BoomError(
+                "Server error '500 Internal' for url 'http://127.0.0.1/sandboxes'\n"
+                "For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500"
+            )
+
+        manager.get_sandbox = _fail  # type: ignore[method-assign]
+        result = await dispatch_tool("run_code", {"code": "print(1)"}, manager)
+        assert "mozilla" not in result["error"].lower()
+        assert "500" in result["error"]

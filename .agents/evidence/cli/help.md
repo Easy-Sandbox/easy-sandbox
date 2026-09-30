@@ -45,7 +45,7 @@ Commands:
   config    Manage persistent credentials and CLI defaults.
   connect   Open an interactive command REPL for a sandbox.
   create    Create a new sandbox.
-  deploy    Deploy a local project to a sandbox.
+  deploy    Publish a template project: build, push to ACR, register the...
   download  Download a file from the sandbox to local.
   exec      Execute one command in a sandbox and return its exit code.
   info      Show status, template, region, timeout, and URL for a sandbox.
@@ -76,7 +76,10 @@ Usage: cli create [OPTIONS] [DESCRIPTION]
     ebx create "DESCRIPTION"    →  Qwen Code generates a template, builds
                                   and deploys it, then launches a sandbox;
                                   the agent researches public facts first
-                                  and asks only for details it cannot infer
+                                  and asks only for details it cannot infer.
+                                  An interactive terminal is first asked
+                                  whether to switch to template init
+                                  (local files only)
 
   DESCRIPTION and --template are mutually exclusive: passing both is rejected
   instead of silently ignoring one of them.
@@ -87,7 +90,8 @@ Usage: cli create [OPTIONS] [DESCRIPTION]
     ebx create -e API_KEY=xxx -e DEBUG=1    # inject env vars
     ebx create --upload ./app --timeout 600 # upload dir, 10-min lifetime
     ebx create "a python data science env"  # AI-generate, build, deploy, create
-    ebx create -y "a node.js api server"    # non-interactive AI generation
+    ebx create -y "a node.js api server"    # non-interactive full pipeline
+    ebx template init "a python data science env"  # template files only
 
   Notes:
     AI generation needs the Qwen Code CLI and a DashScope/ModelStudio key
@@ -95,12 +99,17 @@ Usage: cli create [OPTIONS] [DESCRIPTION]
     itself (tool stack, official install method, common dependencies) and
     only asks for private preferences or business decisions it cannot
     infer — one question at a time in interactive sessions. Non-interactive
-    shells must pass --yes to generate without asking.
+    shells must pass --yes to generate without asking. Interactive
+    sessions are asked up front whether to switch to template init,
+    which writes Dockerfile, commands.py, and template.yaml and stops
+    before build, push, deploy, and sandbox create. --yes skips that
+    question and runs the full pipeline.
 
   Related commands:
     ebx list                 List existing sandboxes
     ebx info SANDBOX_ID      Inspect a created sandbox
     ebx template init DIR    Scaffold a new template project (local)
+    ebx template init "DESC" AI-scaffold a template only (no build)
     ebx template search KEY  Find reusable templates
     ebx config init          Configure platform and Qwen Code credentials
 
@@ -119,12 +128,18 @@ Options:
                            KEY=VALUE (repeatable)
   -m, --metadata TEXT      Metadata key-value pair, format KEY=VALUE
                            (repeatable)
-  -y, --yes                Skip interactive prompts (Qwen Code install,
-                           credentials, description clarification, build/deploy
-                           confirmation). Required for AI generation in non-
-                           interactive shells.
+  -y, --yes                Skip interactive prompts (the template-only switch,
+                           Qwen Code install, credentials, description
+                           clarification, build/deploy confirmation) and run the
+                           full create pipeline. Required for AI generation in
+                           non-interactive shells.
   --acr-namespace TEXT     ACR namespace for building the AI-generated template
                            (env: ACR_NAMESPACE, or set in .env file)
+  --dir DIRECTORY          Parent directory for the AI-generated template files
+                           (Dockerfile, commands.py, template.yaml); a new
+                           <name>-<timestamp>-<id> subfolder is created inside
+                           it. Default: ~/.ebx/generated (an interactive
+                           terminal is asked when omitted).
   -v, --verbose            Verbose output (DEBUG level)
   -h, --help               Show this message and exit.
 Exit code: 0
@@ -434,22 +449,23 @@ Usage: cli config [OPTIONS] COMMAND [ARGS]...
     ebx config get region
     ebx config set http_timeout 120
     ebx config set github_token     Prompt for the token (masked input)
-    ebx config set region ""       Clear one stored value
+    ebx config delete region   Remove one stored value
 
   Related commands:
-    ebx config init           Guided setup (platform, region, Qwen Code)
+    ebx config init           Guided setup (credentials, region, ACR, LLM)
     ebx config get            Read one effective value
     ebx config set            Store or update one value
-    ebx config set KEY ""     Clear the stored value for KEY
+    ebx config delete KEY     Remove one stored value
 
 Options:
   -h, --help  Show this message and exit.
 
 Commands:
-  get   Get a configuration value by KEY.
-  init  Guided setup: platform credentials, region, and Qwen Code (AI).
-  list  List all effective configuration values and their sources.
-  set   Set a configuration value: KEY [VALUE].
+  delete  Remove one stored configuration value.
+  get     Get a configuration value by KEY.
+  init    Guided setup: credentials, region, ACR namespace, and the LLM API...
+  list    List all effective configuration values and their sources.
+  set     Set a configuration value: KEY [VALUE].
 Exit code: 0
 ```
 
@@ -466,32 +482,40 @@ Usage: cli config get [OPTIONS] KEY
   these print ``(not set)``. Sensitive keys are masked.
 
   Available keys:
-    api_key            E2B API Key (stored in ~/.ebx/.env, shown masked)
+    sandbox_api_key    Sandbox service API key (E2B-compatible; env vars
+                       E2B_API_KEY > SANDBOX_API_KEY; stored in ~/.ebx/.env,
+                       shown masked). ``api_key`` is accepted as an alias.
     access_key_id      Alibaba Cloud AccessKey ID for AK/SK auth
                        (template deploy, ACR push; stored in ~/.ebx/.env)
     access_key_secret  Alibaba Cloud AccessKey Secret for AK/SK auth
                        (template deploy, ACR push; stored in ~/.ebx/.env,
                        shown masked)
+    acr_namespace      ACR namespace for template build, push, and install
+                       (stored in ~/.ebx/.env as ACR_NAMESPACE)
     api_url            Platform API URL
     domain             Envd data-plane domain
     region             Default region (e.g. cn-hangzhou)
     http_timeout       HTTP request timeout in seconds
     http2              Enable HTTP/2 (true/false)
     max_retries        Maximum retry attempts
-    llm_api_key        LLM API Key for NL inference (shown masked)
-    llm_model          LLM model name (e.g. qwen-plus)
-    llm_base_url       LLM API base URL (OpenAI-compatible)
-    qwen_code_api_key  Qwen Code API key for AI template generation
-                       (stored in ~/.ebx/.env, shown masked)
-    qwen_code_base_url Qwen Code OpenAI-compatible base URL
-    qwen_code_model    Qwen Code model name (e.g. qwen3-coder-plus)
+    llm_api_key        LLM API key for NL inference and the coding agent
+                       (stored in ~/.ebx/.env as EBX_LLM_API_KEY, shown
+                       masked; a legacy config.toml value is still readable)
+    llm_model          LLM model name (default: qwen3-coder-plus)
+    llm_base_url       LLM API base URL, OpenAI-compatible
+                       (default: DashScope compatible-mode)
     github_token       GitHub token for template downloads (stored in
                        ~/.ebx/.env, shown masked)
+    shortcuts          All top-level shortcuts configured in
+                       ~/.ebx/config.toml
+    shortcuts.<name>   Target command of one configured shortcut
 
   Examples:
-    ebx config get api_key
+    ebx config get sandbox_api_key
     ebx config get region
     ebx config list          # show all values at once
+    ebx config get shortcuts           # all configured aliases
+    ebx config get shortcuts.list      # target of one alias
 
   Related commands:
     ebx config list          Show every effective value and its source
@@ -511,61 +535,78 @@ Usage: cli config set [OPTIONS] KEY [VALUE]
 
   Set a configuration value: KEY [VALUE].
 
-  Settings are stored in ~/.ebx/config.toml, except credentials (api_key,
-  access_key_id, access_key_secret, qwen_code_api_key, github_token) which are
-  written to ~/.ebx/.env using their environment-variable names.
+  Settings are stored in ~/.ebx/config.toml, except credentials
+  (sandbox_api_key, access_key_id, access_key_secret, acr_namespace,
+  llm_api_key, github_token) which are written to ~/.ebx/.env using their
+  environment-variable names. Setting llm_api_key also removes any legacy
+  config.toml copy of it (the secret migrates to the 0600-protected ~/.ebx/.env
+  storage).
 
   Passing an empty VALUE clears the stored value for KEY instead: the key falls
   back to its built-in default or becomes not set. An empty string is never
   stored as a credential or override. Environment variables that are still
   exported keep overriding the key at runtime; their values are never printed.
+  Clearing llm_api_key removes both the ~/.ebx/.env entry and any legacy
+  config.toml copy.
 
   In an interactive terminal VALUE may be omitted: sensitive keys (github_token,
-  api_key, access_key_secret, qwen_code_api_key) are then read through the
+  sandbox_api_key, access_key_secret, llm_api_key) are then read through the
   masked (asterisk) input and the typed value is never echoed; other keys use a
   visible prompt. Pressing Enter at the prompt cancels without changing
   anything. In CI / non-interactive sessions VALUE is required.
 
   Available keys (expected value):
-    api_key            E2B API Key (string)
+    sandbox_api_key    Sandbox service API key, E2B-compatible (string;
+                       env vars E2B_API_KEY > SANDBOX_API_KEY).
+                       ``api_key`` is accepted as an alias.
     access_key_id      Alibaba Cloud AccessKey ID for AK/SK auth, used by
                        template deploy and ACR push (string)
     access_key_secret  Alibaba Cloud AccessKey Secret for AK/SK auth, used by
                        template deploy and ACR push (string)
+    acr_namespace      ACR namespace for template build, push, and install
+                       (string; stored in ~/.ebx/.env as ACR_NAMESPACE)
     api_url            Platform API URL (e.g. https://api.cn-hangzhou.e2b.fc.aliyuncs.com)
     domain             Envd data-plane domain (e.g. cn-hangzhou.e2b.fc.aliyuncs.com)
     region             Default region (e.g. cn-hangzhou, cn-shanghai)
     http_timeout       HTTP request timeout in seconds (number, e.g. 120)
     http2              Enable HTTP/2 (true/false)
     max_retries        Maximum retry attempts (integer, e.g. 3)
-    llm_api_key        LLM API Key for NL inference (string)
-    llm_model          LLM model name (e.g. qwen-plus)
-    llm_base_url       LLM API base URL, OpenAI-compatible (string)
-    qwen_code_api_key  Qwen Code API key for AI template generation,
-                       e.g. a DashScope/ModelStudio key (string;
-                       stored in ~/.ebx/.env)
-    qwen_code_base_url Qwen Code OpenAI-compatible base URL (string)
-    qwen_code_model    Qwen Code model name (e.g. qwen3-coder-plus)
+    llm_api_key        LLM API key for NL inference and the coding agent,
+                       e.g. a DashScope/ModelStudio key (string; stored in
+                       ~/.ebx/.env as EBX_LLM_API_KEY)
+    llm_model          LLM model name (default: qwen3-coder-plus)
+    llm_base_url       LLM API base URL, OpenAI-compatible (string;
+                       default: DashScope compatible-mode)
     github_token       GitHub token for template downloads, used by
                        'ebx template install' / 'ebx template search'
                        (string; stored in ~/.ebx/.env)
+    shortcuts.<name>   Top-level shortcut. The value is the command path
+                       without the "ebx" prefix, for example
+                       "template init" (not "ebx template init"):
+                       'ebx config set shortcuts.ps "sandbox process list"';
+                       an empty VALUE removes the shortcut
 
   Examples:
-    ebx config set api_key YOUR_API_KEY
+    ebx config set sandbox_api_key YOUR_API_KEY
     ebx config set access_key_id YOUR_ACCESS_KEY_ID
     ebx config set access_key_secret YOUR_ACCESS_KEY_SECRET
+    ebx config set acr_namespace YOUR_ACR_NAMESPACE
     ebx config set region cn-hangzhou
     ebx config set http_timeout 120
     ebx config set http2 false
+    ebx config set llm_api_key YOUR_DASHSCOPE_OR_LLM_KEY
     ebx config set region ""          # clear the stored region
-    ebx config set api_key ""         # remove the stored API key
+    ebx config set sandbox_api_key ""  # remove the stored sandbox API key
     ebx config set github_token      # masked prompt (VALUE omitted)
     ebx config set github_token YOUR_GITHUB_TOKEN
     ebx config set github_token ""    # remove the stored token
+    ebx config set shortcuts.ps "sandbox process list"
+    ebx config set shortcuts.ps ""    # remove the 'ps' shortcut
 
   Related commands:
     ebx config get KEY       Verify the effective value
     ebx config list          Review effective values and sources
+    ebx config delete KEY    Remove one stored value
 
 Options:
   -h, --help  Show this message and exit.
@@ -580,9 +621,17 @@ Usage: cli config list [OPTIONS]
 
   List all effective configuration values and their sources.
 
-  Sources: ``(env)`` a process environment variable, ``(user)`` a value stored
-  with ``ebx config set``, ``(default)`` a built-in default, and ``(not set)``
-  when no value exists anywhere. Sensitive values are always masked.
+  Values are grouped by function — Sandbox authentication, Alibaba Cloud
+  credentials, connection, LLM, integrations, and shortcuts — in a stable order.
+  Group titles are display-only: ``config get`` and ``config set`` keep taking
+  the bare key names, and ``--json`` output stays a flat ``{key: value}`` map.
+
+  Sources: ``(env)`` a process environment variable, ``(user)`` a value in
+  ``./.env`` or stored with ``ebx config set``, ``(default)`` a built-in
+  default, and ``(not set)`` when no value exists anywhere. A set environment
+  variable wins over either file. ``./.env`` wins over ``~/.ebx`` for a key it
+  sets; a key it omits still comes from ``~/.ebx``. Sensitive values are always
+  masked.
 
   Examples:
     ebx config list
@@ -592,7 +641,7 @@ Usage: cli config list [OPTIONS]
   Related commands:
     ebx config get KEY        Inspect one effective value
     ebx config set KEY VALUE
-    ebx config set KEY ""     Clear one stored value
+    ebx config delete KEY     Remove one stored value
 
 Options:
   -h, --help  Show this message and exit.
@@ -605,21 +654,28 @@ Exit code: 0
 $ ebx config init --help
 Usage: cli config init [OPTIONS]
 
-  Guided setup: platform credentials, region, and Qwen Code (AI).
+  Guided setup: credentials, region, ACR namespace, and the LLM API key.
 
-  In a terminal this prompts for the platform API key, the default region, and
-  the Qwen Code API key used for AI template generation (``ebx create
-  "<description>"``). Secrets are typed with asterisk feedback (never echoed)
-  when the terminal supports it, and stored in ~/.ebx/.env; the region goes to
-  ~/.ebx/config.toml.
+  In a terminal this prompts for the platform API key, the default region, the
+  LLM API key used for AI template generation and NL inference (``ebx create
+  "<description>"``; consumed by Qwen Code), the ACR namespace, and the Alibaba
+  Cloud AccessKey pair. The last three are what ``ebx install`` and ``ebx
+  template deploy`` need in order to build and push an image. Press Enter to
+  skip a prompt. Secrets are typed with asterisk feedback (never echoed) when
+  the terminal supports it, and stored in ~/.ebx/.env; the region goes to
+  ~/.ebx/config.toml. The namespace is stored as ``ACR_NAMESPACE``.
 
   In non-TTY environments (CI, piped input) the wizard never blocks: it prints
   the equivalent non-interactive ``ebx config set ...`` commands and exits
   successfully. ``--yes`` behaves the same way.
 
+  ``--reset-shortcuts`` restores the default ``[shortcuts]`` section of
+  ~/.ebx/config.toml (and nothing else), then exits.
+
   Examples:
     ebx config init
     ebx config init --yes     # print non-interactive commands
+    ebx config init --reset-shortcuts    # restore default shortcuts only
 
   Related commands:
     ebx config list           Review effective values and sources
@@ -627,9 +683,10 @@ Usage: cli config init [OPTIONS]
     ebx config set KEY ""     Clear one stored value
 
 Options:
-  -y, --yes   Non-interactive: print the equivalent commands instead of
-              prompting
-  -h, --help  Show this message and exit.
+  -y, --yes          Non-interactive: print the equivalent commands instead of
+                     prompting
+  --reset-shortcuts  Reset [shortcuts] section to defaults
+  -h, --help         Show this message and exit.
 Exit code: 0
 ```
 
@@ -832,10 +889,22 @@ Usage: cli template init [OPTIONS] [DIRECTORY]
   Scaffold a new sandbox template project.
 
   Creates a ready-to-build template directory with template.yaml, Dockerfile,
-  and (depending on the case) a commands.py file.
+  and (depending on the case) a commands.py file. Nothing is built, pushed,
+  deployed, or turned into a sandbox.
 
   When DIRECTORY is omitted a new ./<name> subdirectory is created (derived from
   --name, the scaffold case, or the fetched template).
+
+  A DIRECTORY that contains whitespace or CJK text is a natural-language
+  description: Qwen Code generates Dockerfile, commands.py (the HTTP server) and
+  template.yaml into ./<name>/ and stops. An interactive terminal is asked for
+  that directory first (Enter keeps ./<name>/). A path token (my-app, ./my app)
+  stays a directory.
+
+  --adopt adapts a project that already has source code and no template files.
+  The agent sees a copy, and only Dockerfile, commands.py, template.yaml and a
+  generated .dockerignore are written back, after you confirm. Nothing is built
+  or deployed.
 
   Examples:
     ebx template init --list                     # List built-in cases
@@ -843,11 +912,16 @@ Usage: cli template init [OPTIONS] [DIRECTORY]
     ebx template init -t python --name myapp     # Creates ./myapp/
     ebx template init -t python ./my-template    # Explicit directory
     ebx template init --from owner/repo          # Creates ./<template-name>/
+    ebx template init "a python data science env"  # AI files only, no build
+    ebx template init -y "a node.js api server"    # non-interactive AI files
+    ebx template init --adopt . --hint "port 8080" # adapt this project
+    ebx template init --adopt ./app --dry-run      # show what would be sent
 
   Related commands:
     ebx template deploy DIRECTORY
     ebx template install TEMPLATE_REF
     ebx create --template TEMPLATE
+    ebx create "DESCRIPTION"   # generate, build, deploy, and create
 
 Options:
   -t, --template TEXT  Built-in scaffold case (python, node, minimal)
@@ -857,6 +931,20 @@ Options:
                        name)
   --list               List available scaffold cases
   --force              Overwrite existing files
+  --adopt              Adapt an existing source project: the coding agent adds
+                       the template files (Dockerfile, commands.py,
+                       template.yaml). DIRECTORY is the project (default: .).
+  --hint TEXT          With --adopt: what the code cannot tell the agent (ports,
+                       services).
+  --dry-run            With --adopt: list what would be sent to the model.
+                       Nothing is sent or written.
+  -v, --verbose        Verbose output (DEBUG level)
+  -y, --yes            Skip confirmation prompts: the template directory,
+                       description clarification, and (with --adopt) the send
+                       and write prompts. Required for non-interactive AI
+                       generation. Does not build or deploy. Replacing an
+                       existing Dockerfile still needs --force when there is no
+                       interactive preview.
   -h, --help           Show this message and exit.
 Exit code: 0
 ```
@@ -911,9 +999,9 @@ Usage: cli template install [OPTIONS] TEMPLATE_REF
   ref is honoured.
 
   A GitHub token (private repos / higher rate limits) is taken from --token,
-  then the GITHUB_TOKEN environment variable, then the stored github_token;
-  prefer 'ebx config set github_token' - --token may leak into shell history and
-  process listings.
+  then the GITHUB_TOKEN environment variable, then ./.env, then the stored
+  github_token; prefer 'ebx config set github_token' - --token may leak into
+  shell history and process listings.
 
   Examples:
     ebx template install python-hello --download-only   # install by index name
@@ -967,13 +1055,15 @@ Usage: cli mcp [OPTIONS] COMMAND [ARGS]...
 
   Examples:
     ebx mcp install --target cursor
-    ebx mcp start --template base
+    ebx mcp start
+    ebx mcp start --http --background
+    ebx mcp stop
     ebx mcp deploy --generate-token --output-dir ./mcp-artifact
 
   Related commands:
-    ebx config set api_key VALUE  Configure sandbox authentication
+    ebx config set sandbox_api_key VALUE  Configure sandbox authentication
     ebx mcp status                Inspect local MCP configuration
-    ebx mcp deploy                Generate an FC deployment artifact
+    ebx mcp stop                  Stop the local MCP server
 
 Options:
   -h, --help  Show this message and exit.
@@ -981,8 +1071,9 @@ Options:
 Commands:
   deploy   Generate an Alibaba Cloud FC deployment artifact.
   install  Install MCP Server configuration to a target IDE.
-  start    Start MCP Server in STDIO mode.
+  start    Start the MCP server and print its configuration to stderr.
   status   Show MCP tools, authentication state, and IDE installation status.
+  stop     Stop the local MCP server started by 'ebx mcp start'.
 Exit code: 0
 ```
 
@@ -1005,18 +1096,20 @@ Usage: cli mcp deploy [OPTIONS]
   region comes from ``ebx config set region`` / the ``SANDBOX_REGION``
   environment variable and defaults to ``cn-hangzhou``.
 
-  POST and DELETE /mcp are implemented. GET /mcp currently returns 501; SSE
-  server notifications are planned for Phase 2.
+  A non-empty Bearer token is required (--generate-token or --auth-token-file).
+  POST and DELETE /mcp are implemented. GET /mcp returns 405 until SSE server
+  notifications exist. The function environment sets SANDBOX_REGION to the
+  selected region.
 
   Examples:
     ebx mcp deploy --generate-token --api-key $E2B_API_KEY
     ebx mcp deploy --auth-token-file ./token.txt --region cn-shanghai
-    ebx mcp deploy --output-dir ./deploy-artifact
+    ebx mcp deploy --generate-token --output-dir ./deploy-artifact
 
   Related commands:
     ebx mcp start                 Run the local STDIO server
     ebx mcp status                Inspect MCP authentication state
-    ebx config set api_key VALUE  Configure sandbox authentication
+    ebx config set sandbox_api_key VALUE  Configure sandbox authentication
 
 Options:
   --name TEXT                     FC function name for the artifact.
@@ -1026,8 +1119,7 @@ Options:
   --template TEXT                 Default sandbox template for MCP sessions.
   --memory INTEGER                FC function memory (MB).
   --timeout INTEGER               FC function timeout (s).
-  --auth-token-file PATH          Path to a Bearer token file; an empty token
-                                  fails closed.
+  --auth-token-file PATH          Path to a non-empty Bearer token file.
   --generate-token                Auto-generate a random Bearer token.
   --enable-session-affinity / --no-session-affinity
                                   Enable Mcp-Session-Id affinity (requires FC
@@ -1060,7 +1152,7 @@ Usage: cli mcp install [OPTIONS]
   Related commands:
     ebx mcp status  Verify installed IDE configurations
     ebx mcp start   Run the configured STDIO server
-    ebx config get api_key
+    ebx config get sandbox_api_key
 
 Options:
   --target [cursor|claude|vscode]
@@ -1075,28 +1167,65 @@ Exit code: 0
 $ ebx mcp start --help
 Usage: cli mcp start [OPTIONS]
 
-  Start MCP Server in STDIO mode.
+  Start the MCP server and print its configuration to stderr.
 
-  This is typically called by the IDE, not manually. The server reads JSON-RPC
-  messages from stdin and writes responses to stdout.
+  The default transport is STDIO: an IDE writes JSON-RPC to stdin and reads
+  responses from stdout. Run it in a terminal to see the configuration and stop
+  it with Ctrl-C or 'ebx mcp stop'.
+
+  --http listens for Streamable HTTP. --background detaches that HTTP server;
+  STDIO cannot keep a client attached after detach, so --background starts HTTP.
 
   Examples:
     ebx mcp start
-    ebx mcp start --template base
-    ebx mcp start --template python-hello         --api-url https://api.cn-hangzhou.e2b.fc.aliyuncs.com
+    ebx mcp start --template python-hello
+    ebx mcp start --http --port 9000
+    ebx mcp start --http --background
+    ebx mcp stop
 
   Related commands:
     ebx mcp install --target cursor  Register the STDIO command in an IDE
+    ebx mcp stop                     Stop the local MCP server
     ebx mcp status                   Check authentication and IDE setup
-    ebx config set api_key VALUE     Persist the API key
 
 Options:
-  --template TEXT  Default sandbox template ID or alias (default: code-
-                   interpreter-v1).
-  --api-key TEXT   API key override.
-  --api-url TEXT   API URL override.
-  --domain TEXT    Domain override.
-  -h, --help       Show this message and exit.
+  --template TEXT    Default sandbox template ID or alias (default: code-
+                     interpreter-v1).
+  --api-key TEXT     API key override.
+  --api-url TEXT     API URL override.
+  --domain TEXT      Domain override.
+  --http             Serve Streamable HTTP instead of STDIO.
+  --host TEXT        HTTP bind address.  [default: 127.0.0.1]
+  --port INTEGER     HTTP bind port.  [default: 9000]
+  --auth-token TEXT  Bearer token for the HTTP server. Required when --host is
+                     not loopback.
+  --background       Detach an HTTP server. Stop it later with 'ebx mcp stop'.
+  -h, --help         Show this message and exit.
+Exit code: 0
+```
+
+### mcp-stop --help
+
+```
+$ ebx mcp stop --help
+Usage: cli mcp stop [OPTIONS]
+
+  Stop the local MCP server started by 'ebx mcp start'.
+
+  Sends SIGTERM to the recorded pid (STDIO foreground or HTTP background) and
+  waits for it to exit. Sandboxes owned by that server are destroyed during its
+  shutdown.
+
+  Examples:
+    ebx mcp stop
+
+  Related commands:
+    ebx mcp start            Start STDIO in the foreground
+    ebx mcp start --http --background
+    ebx mcp status           Inspect configuration and whether a server is running
+
+Options:
+  -h, --help  Show this message and exit.
 Exit code: 0
 ```
 
@@ -1115,10 +1244,95 @@ Usage: cli mcp status [OPTIONS]
   Related commands:
     ebx mcp install --target cursor
     ebx mcp start
-    ebx config get api_key
+    ebx config get sandbox_api_key
 
 Options:
   -h, --help  Show this message and exit.
+Exit code: 0
+```
+
+### deploy --help
+
+```
+$ ebx deploy --help
+Usage: cli deploy [OPTIONS] [PATH]
+
+  Publish a template project: build, push to ACR, register the template.
+
+  Runs the fixed pipeline: docker build, push the image to ACR, register the
+  template, and wait until it is ready. No LLM is involved. PATH is the template
+  directory (default: .). It must contain a Dockerfile; template.yaml supplies
+  the template name and resources.
+
+  To author the files first, use 'ebx template init': --adopt for an existing
+  project, a natural-language description to let the AI write the files, or -t
+  for a scaffold.
+
+  Accepts every option of 'ebx template deploy' (--acr-namespace, --alias,
+  --yes, -v/--verbose, ...).
+
+  Examples:
+    ebx deploy --acr-namespace my-ns           # publish ./ as a template
+    ebx deploy ./my-template --yes             # non-interactive
+    ebx deploy ./my-template -v                # with debug logs
+
+  Typical flow:
+    ebx template init --adopt .                      # 1a. author from a project
+    ebx template init "a python data science env"   # 1b. author from a description
+    ebx deploy ./<name> --acr-namespace my-ns       # 2. publish
+    ebx create --template <TEMPLATE_ID>             # 3. launch a sandbox
+
+  Related commands:
+    ebx template init          Author Dockerfile / template.yaml (AI optional)
+    ebx template deploy DIR    The same pipeline with a required DIRECTORY
+    ebx create "DESCRIPTION"   Author + publish + launch in one go
+
+Options:
+  --acr-registry TEXT             ACR registry host
+  --acr-namespace TEXT            ACR namespace (env: ACR_NAMESPACE, or set in
+                                  .env file)
+  --acr-repo TEXT                 ACR repository name (defaults to template.yaml
+                                  name or dir name)
+  --acr-username TEXT             ACR login username (defaults to AccessKey from
+                                  .env)
+  --acr-password TEXT             ACR login password (defaults to AccessSecret
+                                  from .env)
+  --acree-instance-id TEXT        ACR EE instance ID (cri-...)
+  --vpc-id TEXT                   VPC ID for ACR EE
+  --vswitch-ids TEXT              Comma-separated VSwitch IDs
+  --security-group-id TEXT        Security group ID
+  -a, --alias TEXT                Template alias
+  -t, --tag TEXT                  Docker image tag
+  --platform TEXT                 Target platform
+  --cpu INTEGER                   CPU cores (default: from template.yaml
+                                  resources.cpu, fallback 2)
+  --memory INTEGER                Memory in MB (default: from template.yaml
+                                  resources.memory, fallback 2048)
+  --start-cmd TEXT                Container start command
+  --ready-cmd TEXT                Container readiness check command
+  --timeout INTEGER               Build timeout in seconds
+  -f, --dockerfile PATH           Custom Dockerfile path
+  --disk-size INTEGER             Disk size in MB (official API only)
+  --internet-access / --no-internet-access
+                                  Internet access (default: platform decides;
+                                  official API only)
+  --official-api / --legacy-api   Use official CreateTemplate API (default) or
+                                  legacy v3/v2
+  --team-id TEXT                  Team ID for official API (or env TEAM_ID /
+                                  E2B_TEAM_ID)
+  --envd-inject / --no-envd-inject
+                                  Enable envd injection (default False)
+  --generation INTEGER            Sandbox generation (default: template.yaml
+                                  'generation', otherwise 1). 1=first-gen
+                                  (rund), 2=second-gen MicroVM.
+  --target-image TEXT             Destination image ref for envd copy (auto-
+                                  derived with random suffix if omitted)
+  -y, --yes                       Skip confirmation prompt
+  -v, --verbose                   Verbose output (DEBUG level)
+  -r, --region TEXT               Region override for this command (default:
+                                  'ebx config set region' value, else cn-
+                                  hangzhou)
+  -h, --help                      Show this message and exit.
 Exit code: 0
 ```
 
@@ -1131,10 +1345,22 @@ Usage: cli init [OPTIONS] [DIRECTORY]
   Scaffold a new sandbox template project.
 
   Creates a ready-to-build template directory with template.yaml, Dockerfile,
-  and (depending on the case) a commands.py file.
+  and (depending on the case) a commands.py file. Nothing is built, pushed,
+  deployed, or turned into a sandbox.
 
   When DIRECTORY is omitted a new ./<name> subdirectory is created (derived from
   --name, the scaffold case, or the fetched template).
+
+  A DIRECTORY that contains whitespace or CJK text is a natural-language
+  description: Qwen Code generates Dockerfile, commands.py (the HTTP server) and
+  template.yaml into ./<name>/ and stops. An interactive terminal is asked for
+  that directory first (Enter keeps ./<name>/). A path token (my-app, ./my app)
+  stays a directory.
+
+  --adopt adapts a project that already has source code and no template files.
+  The agent sees a copy, and only Dockerfile, commands.py, template.yaml and a
+  generated .dockerignore are written back, after you confirm. Nothing is built
+  or deployed.
 
   Examples:
     ebx template init --list                     # List built-in cases
@@ -1142,11 +1368,16 @@ Usage: cli init [OPTIONS] [DIRECTORY]
     ebx template init -t python --name myapp     # Creates ./myapp/
     ebx template init -t python ./my-template    # Explicit directory
     ebx template init --from owner/repo          # Creates ./<template-name>/
+    ebx template init "a python data science env"  # AI files only, no build
+    ebx template init -y "a node.js api server"    # non-interactive AI files
+    ebx template init --adopt . --hint "port 8080" # adapt this project
+    ebx template init --adopt ./app --dry-run      # show what would be sent
 
   Related commands:
     ebx template deploy DIRECTORY
     ebx template install TEMPLATE_REF
     ebx create --template TEMPLATE
+    ebx create "DESCRIPTION"   # generate, build, deploy, and create
 
 Options:
   -t, --template TEXT  Built-in scaffold case (python, node, minimal)
@@ -1156,6 +1387,20 @@ Options:
                        name)
   --list               List available scaffold cases
   --force              Overwrite existing files
+  --adopt              Adapt an existing source project: the coding agent adds
+                       the template files (Dockerfile, commands.py,
+                       template.yaml). DIRECTORY is the project (default: .).
+  --hint TEXT          With --adopt: what the code cannot tell the agent (ports,
+                       services).
+  --dry-run            With --adopt: list what would be sent to the model.
+                       Nothing is sent or written.
+  -v, --verbose        Verbose output (DEBUG level)
+  -y, --yes            Skip confirmation prompts: the template directory,
+                       description clarification, and (with --adopt) the send
+                       and write prompts. Required for non-interactive AI
+                       generation. Does not build or deploy. Replacing an
+                       existing Dockerfile still needs --force when there is no
+                       interactive preview.
   -h, --help           Show this message and exit.
 Exit code: 0
 ```

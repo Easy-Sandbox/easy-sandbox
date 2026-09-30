@@ -2,6 +2,14 @@
 
 本文档介绍如何创建自定义 Easy Sandbox 模板，包括目录结构、字段参考、能力声明、自定义命令和发布流程。
 
+三种起步方式都只写本地文件，之后用 `ebx deploy` 发布：
+
+| 起点 | 命令 |
+|------|------|
+| 内置脚手架 | `ebx template init -t python ./my-template` |
+| 一句话（Qwen Code 新建目录） | `ebx template init "一个 Python 数据分析环境"` |
+| 已有源码的项目 | `ebx template init --adopt ./app` — 见 [适配已有项目](#适配已有项目) |
+
 ---
 
 ## 模板目录结构
@@ -187,6 +195,72 @@ ENV PYTHONUNBUFFERED=1
 ```
 
 模板目录中的 `Dockerfile` 是构建镜像的唯一来源。`template.yaml` 只定义运行时配置（能力、命令、环境变量、资源），不包含构建指令。
+
+---
+
+## 适配已有项目
+
+`ebx template init --adopt` 用于**已经有应用代码、还没有沙箱模板文件**的目录。Qwen Code 读取该项目的一份副本，ebx 再把模板文件写回同一目录。这一步不构建、不推送、不启动沙箱；写完后用 `ebx deploy` 发布。
+
+```bash
+ebx template init --adopt . --hint "API 监听 8080"
+ebx template init --adopt ./app --dry-run          # 只列出文件，不发送
+ebx template init --adopt ./app --name my-api -y   # 非交互
+ebx deploy ./app --acr-namespace my-ns
+```
+
+`--hint` 用来补充代码里看不出来的信息（监听端口、旁路服务、私有约束）。`--name` 指定模板名，必须匹配 `^[a-z0-9][a-z0-9-]*$`。省略时，ebx 用目录名做成 ASCII slug。无法做成 slug 的目录名（例如纯中文）需要显式 `--name`。
+
+### 写回的文件
+
+确认预览之后（或加上 `-y`），只会写入这些文件：
+
+| 文件 | 何时写入 |
+|------|----------|
+| `Dockerfile` | 总是 |
+| `commands.py` | `SandboxServer` HTTP 入口，端口 9000 |
+| `template.yaml` | 名称、资源、端口、能力 |
+| `.dockerignore` | 仅当项目里还没有这份文件 |
+
+应用源码保持原样。Agent 在这份名单之外创建或修改的文件会被报告并丢弃。被替换的文件保留为 `*.ebx-bak`；已有备份不会被覆盖（下一份是 `.ebx-bak.1`）。
+
+### 发给模型的内容
+
+ebx 把候选文件复制到临时目录（系统临时目录下的 `ebx-adopt-…`，不会放在 `~/.ebx`），并在发送前征求确认。Agent 只在这份副本里运行。
+
+不会进入副本的内容：`.git`、`node_modules`、虚拟环境等大目录；`.env` 以及其他按文件名识别的密钥（私钥、`credentials*`、`kubeconfig` 等）；内容看起来像密钥的文件；符号链接；二进制文件；大于 1 MiB 的文件。超过 2 000 个文件或 20 MiB 时命令会停下，并提示把 `--adopt` 指到子目录。
+
+`--dry-run` 打印这份文件列表然后删除副本。它不调用模型，也不写项目。非交互环境（CI、管道输入、`--json`）必须带 `-y`，否则命令会在复制之前停下。
+
+Agent 进程不会继承云或镜像仓库凭证（`ALICLOUD_*`、`E2B_*`、`ACR_*`、`AWS_*`、`GITHUB_TOKEN`）。它会拿到 `ebx config` 里的 Qwen Code Key。
+
+这会把项目源码发给模型。`ebx template init "描述"` 只发送你输入的那句话。
+
+### 写入前的检查
+
+出现以下情况时，ebx 拒绝结果、项目保持不变，并打印暂存目录路径：
+
+- Dockerfile 没有 `FROM`，或 `commands.py` 没有启动 `easy_sandbox.server`
+- `template.yaml` 的 `ports` 或 `EXPOSE` 里没有端口 9000
+- `COPY` / `ADD` 指向缺失或被忽略的文件（`COPY *.whl` 是 `ebx deploy` 构建时注入的 wheel，允许不存在）
+- 应用 `.dockerignore` 和 `Dockerfile.dockerignore` 之后，仍有按文件名识别的密钥会进入 Docker 构建上下文
+- 忽略文件排除了 `*.whl`，导致 SDK wheel 无法注入
+
+已有的 `.dockerignore` 如果没有排除 `.env`（包括用 `!` 重新包含的情况），会在调用模型之前失败，并给出要补上的行。已有的 `.dockerignore` 不会被改写。
+
+### 目录里已经有这些文件
+
+| 项目里已有 | 结果 |
+|------------|------|
+| `template.yaml` | 拒绝：这个目录已经是模板。执行 `ebx deploy`，或加 `--force` 重新生成（原文件保留为 `template.yaml.ebx-bak`） |
+| 没有 `import easy_sandbox.server` 的 `commands.py` | 需要 `--force` |
+| `Dockerfile`，或已是 Easy Sandbox 入口的 `commands.py` | 交互式预览可以替换。`-y`、`--json` 和 CI 没有预览，需要 `--force` |
+
+`ebx template init --from <本地目录>` 要求该目录里已有 `template.yaml`。没有的源码树会被拒绝，错误信息指向 `--adopt`，避免把 `.env` 和 `.git` 整份当作模板源码复制走。
+
+生成失败时项目不变，错误信息里带有暂存目录。看完之后删掉那个 `ebx-adopt-…` 目录即可。
+
+`--adopt` 不能与 `-t`、`--from`、`--list` 一起用。`--hint` 和 `--dry-run` 必须配合 `--adopt`。
 
 ---
 

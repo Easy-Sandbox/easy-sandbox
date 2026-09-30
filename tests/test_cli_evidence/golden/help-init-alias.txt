@@ -3,10 +3,22 @@ Usage: cli init [OPTIONS] [DIRECTORY]
   Scaffold a new sandbox template project.
 
   Creates a ready-to-build template directory with template.yaml, Dockerfile,
-  and (depending on the case) a commands.py file.
+  and (depending on the case) a commands.py file. Nothing is built, pushed,
+  deployed, or turned into a sandbox.
 
   When DIRECTORY is omitted a new ./<name> subdirectory is created (derived from
   --name, the scaffold case, or the fetched template).
+
+  A DIRECTORY that contains whitespace or CJK text is a natural-language
+  description: Qwen Code generates Dockerfile, commands.py (the HTTP server) and
+  template.yaml into ./<name>/ and stops. An interactive terminal is asked for
+  that directory first (Enter keeps ./<name>/). A path token (my-app, ./my app)
+  stays a directory.
+
+  --adopt adapts a project that already has source code and no template files.
+  The agent sees a copy, and only Dockerfile, commands.py, template.yaml and a
+  generated .dockerignore are written back, after you confirm. Nothing is built
+  or deployed.
 
   Examples:
     ebx template init --list                     # List built-in cases
@@ -14,11 +26,16 @@ Usage: cli init [OPTIONS] [DIRECTORY]
     ebx template init -t python --name myapp     # Creates ./myapp/
     ebx template init -t python ./my-template    # Explicit directory
     ebx template init --from owner/repo          # Creates ./<template-name>/
+    ebx template init "a python data science env"  # AI files only, no build
+    ebx template init -y "a node.js api server"    # non-interactive AI files
+    ebx template init --adopt . --hint "port 8080" # adapt this project
+    ebx template init --adopt ./app --dry-run      # show what would be sent
 
   Related commands:
     ebx template deploy DIRECTORY
     ebx template install TEMPLATE_REF
     ebx create --template TEMPLATE
+    ebx create "DESCRIPTION"   # generate, build, deploy, and create
 
 Options:
   -t, --template TEXT  Built-in scaffold case (python, node, minimal)
@@ -28,5 +45,19 @@ Options:
                        name)
   --list               List available scaffold cases
   --force              Overwrite existing files
+  --adopt              Adapt an existing source project: the coding agent adds
+                       the template files (Dockerfile, commands.py,
+                       template.yaml). DIRECTORY is the project (default: .).
+  --hint TEXT          With --adopt: what the code cannot tell the agent (ports,
+                       services).
+  --dry-run            With --adopt: list what would be sent to the model.
+                       Nothing is sent or written.
+  -v, --verbose        Verbose output (DEBUG level)
+  -y, --yes            Skip confirmation prompts: the template directory,
+                       description clarification, and (with --adopt) the send
+                       and write prompts. Required for non-interactive AI
+                       generation. Does not build or deploy. Replacing an
+                       existing Dockerfile still needs --force when there is no
+                       interactive preview.
   -h, --help           Show this message and exit.
 [exit_code:0]

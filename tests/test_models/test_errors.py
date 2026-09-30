@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from easy_sandbox.models.errors import (
+    AICodegenError,
     AuthenticationError,
     CodeExecutionError,
     CommandTimeoutError,
@@ -20,6 +21,8 @@ from easy_sandbox.models.errors import (
     PermissionDeniedError,
     ProcessError,
     QuotaExceededError,
+    QwenCodeStartupError,
+    QwenCodeTimeoutError,
     RegionUnavailableError,
     SandboxCreationError,
     SandboxError,
@@ -236,6 +239,28 @@ class TestNetworkErrors:
         assert err.code == "E5000"
 
 
+# ---- AI Generation Subtypes ----
+
+
+class TestAICodegenSubtypeErrors:
+    """The classified Qwen Code failures share E2007 by design.
+
+    Like :class:`GitHubRateLimitError` above, these subtypes keep the
+    user-visible code of their parent so the CLI output never changes;
+    only the research round reads the type to derive a stable reason.
+    """
+
+    def test_timeout_error_shares_e2007(self):
+        err = QwenCodeTimeoutError("did not finish within 240s")
+        assert isinstance(err, AICodegenError)
+        assert err.code == "E2007"
+
+    def test_startup_error_shares_e2007(self):
+        err = QwenCodeStartupError("Failed to start Qwen Code: boom")
+        assert isinstance(err, AICodegenError)
+        assert err.code == "E2007"
+
+
 # ---- Unique Codes ----
 
 
@@ -288,6 +313,8 @@ class TestErrorsAll:
             "QwenCodeNotInstalledError",
             "QwenCodeCredentialError",
             "AICodegenError",
+            "QwenCodeTimeoutError",
+            "QwenCodeStartupError",
             "DescriptionClarificationError",
             "ExecutionError",
             "CommandTimeoutError",

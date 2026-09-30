@@ -2,7 +2,7 @@
 
 Implements the MCP Streamable HTTP transport (2025-06-18 specification):
 - ``POST /mcp``  — JSON-RPC request/response
-- ``GET  /mcp``  — SSE upgrade for server-initiated notifications (optional, Phase 2)
+- ``GET  /mcp``  — returns 405 until SSE server notifications exist
 - ``DELETE /mcp`` — Session termination & sandbox cleanup
 
 Reuses the 7 P0 tools defined in :mod:`easy_sandbox.agent.tools` via
@@ -35,6 +35,7 @@ import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -230,6 +231,35 @@ class SessionStore:
 # ---------------------------------------------------------------------------
 
 
+class MCPAuthConfigError(RuntimeError):
+    """The remote MCP server was started without a usable Bearer token."""
+
+
+def require_auth_token(value: str | None) -> str:
+    """Return a non-empty Bearer token or refuse to start.
+
+    A missing token used to mean "authentication disabled". That is acceptable
+    on a loopback STDIO or HTTP process the operator started themselves. A
+    function deployed for remote clients must not boot in that mode.
+
+    Args:
+        value: ``EBX_MCP_AUTH_TOKEN`` or an equivalent setting.
+
+    Returns:
+        The stripped token.
+
+    Raises:
+        MCPAuthConfigError: When the token is missing or only whitespace.
+    """
+    token = (value or "").strip()
+    if not token:
+        raise MCPAuthConfigError(
+            "EBX_MCP_AUTH_TOKEN is empty. Refusing to start a remote MCP "
+            "server with client authentication disabled."
+        )
+    return token
+
+
 def _validate_bearer_token(request: Any, expected_token: str | None) -> bool:
     """Check ``Authorization: Bearer <token>`` header.
 
@@ -257,6 +287,27 @@ def _validate_bearer_token(request: Any, expected_token: str | None) -> bool:
     )
 
 
+def _origin_allowed(request: Any, allowed_origins: frozenset[str]) -> bool:
+    """Allow missing Origin, localhost, and an explicit allow-list.
+
+    Browsers always send Origin. A remote MCP endpoint with authentication
+    disabled must still reject a page on another host (DNS rebinding).
+    Non-browser clients omit Origin and are allowed.
+    """
+    origin = request.headers.get("origin")
+    if not origin:
+        return True
+    if origin in allowed_origins:
+        return True
+    host = (urlparse(origin).hostname or "").lower()
+    return host in {"localhost", "127.0.0.1", "::1"}
+
+
+def _reject_origin() -> JSONResponse:
+    """403 used when the Origin header is present and not allowed."""
+    return JSONResponse({"error": "Origin is not allowed"}, status_code=403)
+
+
 # ---------------------------------------------------------------------------
 # ASGI application factory
 # ---------------------------------------------------------------------------
@@ -270,6 +321,7 @@ def create_mcp_app(
     template: str = "base",
     session_ttl_seconds: float = DEFAULT_SESSION_TTL_SECONDS,
     max_sessions: int = DEFAULT_MAX_SESSIONS,
+    allowed_origins: frozenset[str] | set[str] | None = None,
 ) -> Starlette:
     """Create the MCP Streamable HTTP Starlette application.
 
@@ -282,6 +334,8 @@ def create_mcp_app(
         template: Default sandbox template.
         session_ttl_seconds: Idle time before a session is cleaned up.
         max_sessions: Maximum concurrent sessions in this process.
+        allowed_origins: Extra ``Origin`` values to accept. Localhost is
+            always accepted. A missing Origin is accepted.
 
     Returns:
         A Starlette ASGI application.
@@ -291,6 +345,8 @@ def create_mcp_app(
     """
     if _STARLETTE_IMPORT_ERROR is not None:
         raise RuntimeError(_STARLETTE_IMPORT_ERROR)
+
+    origins = frozenset(allowed_origins or ())
 
     store = SessionStore(
         api_key=api_key,
@@ -304,6 +360,8 @@ def create_mcp_app(
     # ---- POST /mcp ----
     async def handle_post(request: Request) -> Response:
         """Handle JSON-RPC requests from MCP clients."""
+        if not _origin_allowed(request, origins):
+            return _reject_origin()
         # Auth check
         if not _validate_bearer_token(request, auth_token):
             return JSONResponse(
@@ -373,27 +431,31 @@ def create_mcp_app(
 
         return resp
 
-    # ---- GET /mcp (SSE — Phase 2 placeholder) ----
+    # ---- GET /mcp (SSE not implemented; 405 per the Streamable HTTP spec) ----
     async def handle_get(request: Request) -> Response:
-        """SSE endpoint for server-initiated notifications (Phase 2).
+        """Reject SSE until server-initiated notifications exist.
 
-        Currently returns 501 Not Implemented.
+        The Streamable HTTP spec says a server that does not offer an SSE
+        stream responds with 405 Method Not Allowed, not 501.
         """
-        # Auth check
+        if not _origin_allowed(request, origins):
+            return _reject_origin()
         if not _validate_bearer_token(request, auth_token):
             return JSONResponse(
                 _jsonrpc_error(None, -32001, "Unauthorized"),
                 status_code=401,
             )
         return JSONResponse(
-            {"error": "SSE notifications not yet implemented (Phase 2)"},
-            status_code=501,
+            {"error": "SSE server notifications are not implemented. Use POST /mcp."},
+            status_code=405,
+            headers={"Allow": "POST, DELETE"},
         )
 
     # ---- DELETE /mcp ----
     async def handle_delete(request: Request) -> Response:
         """Terminate an MCP session and clean up sandboxes."""
-        # Auth check
+        if not _origin_allowed(request, origins):
+            return _reject_origin()
         if not _validate_bearer_token(request, auth_token):
             return JSONResponse(
                 _jsonrpc_error(None, -32001, "Unauthorized"),
@@ -458,12 +520,15 @@ def _create_default_app() -> Starlette:
     - ``E2B_DOMAIN`` — Domain override
     - ``SANDBOX_TEMPLATE`` / ``EBX_TEMPLATE`` — Default template
     """
+    raw_origins = os.environ.get("EBX_MCP_ALLOWED_ORIGINS", "")
+    allowed_origins = frozenset(part.strip() for part in raw_origins.split(",") if part.strip())
     return create_mcp_app(
         auth_token=os.environ.get("EBX_MCP_AUTH_TOKEN"),
         api_key=os.environ.get("E2B_API_KEY") or os.environ.get("SANDBOX_API_KEY"),
         api_url=os.environ.get("E2B_API_URL") or os.environ.get("SANDBOX_API_BASE_URL"),
         domain=os.environ.get("E2B_DOMAIN"),
         template=os.environ.get("SANDBOX_TEMPLATE") or os.environ.get("EBX_TEMPLATE", "base"),
+        allowed_origins=allowed_origins,
     )
 
 

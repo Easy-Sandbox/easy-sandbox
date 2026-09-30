@@ -1,2 +1,4 @@
-qwen3-coder-plus
-[exit_code:0]
+[exit_code:2]
+[stderr]
+Config key 'qwen_code_model' was removed.
+  Suggestion: Use 'llm_model'. NL inference and the coding agent share one LLM profile: llm_api_key, llm_base_url, llm_model.

@@ -124,13 +124,33 @@ class TestParseWallTime:
 class TestResolveLlmEnv:
     """Test LLM credential resolution."""
 
+    @pytest.fixture(autouse=True)
+    def _empty_ebx_dir(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        """Keep resolution off the developer's real ~/.ebx."""
+        monkeypatch.setattr("easy_sandbox.api.deploy._EBX_DIR", tmp_path)
+
     def test_explicit_key(self) -> None:
         env = resolve_llm_env(llm_api_key="sk-test-123")
         assert env["DASHSCOPE_API_KEY"] == "sk-test-123"
         assert "OPENAI_BASE_URL" in env
         assert "OPENAI_MODEL" in env
 
+    def test_env_var_ebx_llm_outranks_vendor_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """EBX_LLM_API_KEY (the ebx-persisted unified key) wins over vendor vars."""
+        monkeypatch.setenv("EBX_LLM_API_KEY", "ebx-llm-key")
+        monkeypatch.setenv("BAILIAN_CODING_PLAN_API_KEY", "bailian-key")
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "dash-key")
+        monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
+        env = resolve_llm_env()
+        assert env["DASHSCOPE_API_KEY"] == "ebx-llm-key"
+
+    def test_explicit_key_beats_ebx_llm_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("EBX_LLM_API_KEY", "ebx-llm-key")
+        env = resolve_llm_env(llm_api_key="sk-placeholder")
+        assert env["DASHSCOPE_API_KEY"] == "sk-placeholder"
+
     def test_env_var_bailian(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("EBX_LLM_API_KEY", raising=False)
         monkeypatch.setenv("BAILIAN_CODING_PLAN_API_KEY", "bailian-key")
         monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -138,6 +158,7 @@ class TestResolveLlmEnv:
         assert env["DASHSCOPE_API_KEY"] == "bailian-key"
 
     def test_env_var_dashscope(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("EBX_LLM_API_KEY", raising=False)
         monkeypatch.delenv("BAILIAN_CODING_PLAN_API_KEY", raising=False)
         monkeypatch.setenv("DASHSCOPE_API_KEY", "dash-key")
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -145,6 +166,7 @@ class TestResolveLlmEnv:
         assert env["DASHSCOPE_API_KEY"] == "dash-key"
 
     def test_env_var_openai(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("EBX_LLM_API_KEY", raising=False)
         monkeypatch.delenv("BAILIAN_CODING_PLAN_API_KEY", raising=False)
         monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
         monkeypatch.setenv("OPENAI_API_KEY", "openai-key")
@@ -152,6 +174,7 @@ class TestResolveLlmEnv:
         assert env["DASHSCOPE_API_KEY"] == "openai-key"
 
     def test_no_key_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("EBX_LLM_API_KEY", raising=False)
         monkeypatch.delenv("BAILIAN_CODING_PLAN_API_KEY", raising=False)
         monkeypatch.delenv("DASHSCOPE_API_KEY", raising=False)
         monkeypatch.delenv("OPENAI_API_KEY", raising=False)
@@ -166,6 +189,37 @@ class TestResolveLlmEnv:
         )
         assert env["OPENAI_BASE_URL"] == "http://localhost:11434/v1"
         assert env["OPENAI_MODEL"] == "llama3"
+
+    def test_env_beats_stored_key(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        (tmp_path / ".env").write_text("EBX_LLM_API_KEY=sk-stored-file\n")
+        monkeypatch.setenv("DASHSCOPE_API_KEY", "sk-from-env")
+        env = resolve_llm_env()
+        assert env["DASHSCOPE_API_KEY"] == "sk-from-env"
+
+    def test_stored_key_when_env_unset(self, tmp_path: Path) -> None:
+        (tmp_path / ".env").write_text("EBX_LLM_API_KEY=sk-stored-file\n")
+        env = resolve_llm_env()
+        assert env["DASHSCOPE_API_KEY"] == "sk-stored-file"
+
+    def test_env_base_url_beats_stored(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        (tmp_path / "config.toml").write_text(
+            '[transport]\nllm_base_url = "https://stored.example/v1"\nllm_model = "stored-model"\n'
+        )
+        monkeypatch.setenv("OPENAI_BASE_URL", "https://env.example/v1")
+        monkeypatch.setenv("OPENAI_MODEL", "env-model")
+        env = resolve_llm_env(llm_api_key="key")
+        assert env["OPENAI_BASE_URL"] == "https://env.example/v1"
+        assert env["OPENAI_MODEL"] == "env-model"
+
+    def test_stored_base_url_when_env_unset(self, tmp_path: Path) -> None:
+        (tmp_path / "config.toml").write_text(
+            '[transport]\nllm_base_url = "https://stored.example/v1"\nllm_model = "stored-model"\n'
+        )
+        env = resolve_llm_env(llm_api_key="key")
+        assert env["OPENAI_BASE_URL"] == "https://stored.example/v1"
+        assert env["OPENAI_MODEL"] == "stored-model"
 
 
 # ---------------------------------------------------------------------------

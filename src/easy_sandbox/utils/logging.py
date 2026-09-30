@@ -30,6 +30,10 @@ def _configure_once() -> None:
     package_logger.setLevel(level)
     if not package_logger.handlers and not logging.getLogger().handlers:
         package_logger.addHandler(handler)
+    elif logging.getLogger().handlers:
+        # A host (the CLI bridge) already filters records. A WARNING level
+        # on this logger would drop INFO before that host ever sees it.
+        package_logger.setLevel(logging.NOTSET)
     _CONFIGURED = True
 
 

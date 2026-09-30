@@ -1,20 +1,27 @@
 Usage: cli config init [OPTIONS]
 
-  Guided setup: platform credentials, region, and Qwen Code (AI).
+  Guided setup: credentials, region, ACR namespace, and the LLM API key.
 
-  In a terminal this prompts for the platform API key, the default region, and
-  the Qwen Code API key used for AI template generation (``ebx create
-  "<description>"``). Secrets are typed with asterisk feedback (never echoed)
-  when the terminal supports it, and stored in ~/.ebx/.env; the region goes to
-  ~/.ebx/config.toml.
+  In a terminal this prompts for the platform API key, the default region, the
+  LLM API key used for AI template generation and NL inference (``ebx create
+  "<description>"``; consumed by Qwen Code), the ACR namespace, and the Alibaba
+  Cloud AccessKey pair. The last three are what ``ebx install`` and ``ebx
+  template deploy`` need in order to build and push an image. Press Enter to
+  skip a prompt. Secrets are typed with asterisk feedback (never echoed) when
+  the terminal supports it, and stored in ~/.ebx/.env; the region goes to
+  ~/.ebx/config.toml. The namespace is stored as ``ACR_NAMESPACE``.
 
   In non-TTY environments (CI, piped input) the wizard never blocks: it prints
   the equivalent non-interactive ``ebx config set ...`` commands and exits
   successfully. ``--yes`` behaves the same way.
 
+  ``--reset-shortcuts`` restores the default ``[shortcuts]`` section of
+  ~/.ebx/config.toml (and nothing else), then exits.
+
   Examples:
     ebx config init
     ebx config init --yes     # print non-interactive commands
+    ebx config init --reset-shortcuts    # restore default shortcuts only
 
   Related commands:
     ebx config list           Review effective values and sources
@@ -22,7 +29,8 @@ Usage: cli config init [OPTIONS]
     ebx config set KEY ""     Clear one stored value
 
 Options:
-  -y, --yes   Non-interactive: print the equivalent commands instead of
-              prompting
-  -h, --help  Show this message and exit.
+  -y, --yes          Non-interactive: print the equivalent commands instead of
+                     prompting
+  --reset-shortcuts  Reset [shortcuts] section to defaults
+  -h, --help         Show this message and exit.
 [exit_code:0]

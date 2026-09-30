@@ -14,7 +14,7 @@ Skill 与 `ebx` / SDK 的安装刻意解耦：
 
 1. **先安装 Skill**（本指南），无需 Python 环境。
 2. 当 Agent（或你）准备真正运行沙箱时，**再安装软件包**：`pip install "easy-sandbox[cli]"`——见第 7 节。
-3. **配置凭证**（`ebx config set api_key …`，或 AK/SK）。
+3. **配置凭证**（`ebx config set sandbox_api_key …`，或 AK/SK）。
 4. **选择接口**——对话类 Agent 用 MCP，脚本用 CLI，Python 代码用 SDK（见 `SKILL.md` 的 "Choosing an interface"）。
 
 Agent 读取 Skill 指令后会自行完成第 2–4 步；第 1 步不依赖它们中的任何一步。
@@ -221,7 +221,7 @@ pip install "easy-sandbox[cli] @ git+https://github.com/Easy-Sandbox/easy-sandbo
 ebx --version
 
 # 3. 配置凭证（存储于 ~/.ebx/.env，展示时自动打码）
-ebx config set api_key <YOUR_API_KEY>
+ebx config set sandbox_api_key <YOUR_API_KEY>
 ebx config set region cn-hangzhou
 
 # 4. 选择接口
@@ -251,7 +251,7 @@ ebx exec <sandbox-id> "echo hi"   # 脚本用 CLI
 
 1. **Skill 是给以你的权限运行的 Agent 的指令。** 安装前先阅读 `SKILL.md`；优先从官方仓库安装。`skills` CLI 自身也会提示 "Review skills before use; they run with full agent permissions."
 2. **本地路径安装会复制被忽略的文件**（`.env`、缓存）。绝不要在含凭证的本地工作区执行本地路径安装（见第 3 节）。
-3. **凭证卫生：**该 Skill 从不要求你打印密钥；它指导 Agent 使用打码命令（`ebx config get api_key`），并把凭证保存在 `~/.ebx/.env`。不要提交 `~/.ebx/.env`；任何已经出现在输出或会话记录中的密钥都必须立即轮换。
+3. **凭证卫生：**该 Skill 从不要求你打印密钥；它指导 Agent 使用打码命令（`ebx config get sandbox_api_key`），并把凭证保存在 `~/.ebx/.env`。不要提交 `~/.ebx/.env`；任何已经出现在输出或会话记录中的密钥都必须立即轮换。
 4. **不要 `curl | sh`：**单文件下载到磁盘，固定 tag/commit，使用前核验 frontmatter 与哈希（见第 4 节）。
 5. **第三方代码边界：**市场插件是审查等级各异的第三方代码（Claude：官方 / 社区 / 第三方市场分级；Cursor：市场插件均经人工审核且必须开源；`cursor.directory` 与注册表列表属社区来源）。技能目录里可能包含 Agent 可执行的 `scripts/`——请把它们当作你选择执行的代码对待。
 

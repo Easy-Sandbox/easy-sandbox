@@ -4,7 +4,7 @@ These demos showcase **E2B-compatible** (imperative) and **Modal-style** (declar
 
 ## Prerequisites
 
-- Python 3.10+
+- Python 3.9+
 - `pip install easy-sandbox` (or dev install from repo root: `pip install -e ".[dev]"`)
 - Environment variables:
 
