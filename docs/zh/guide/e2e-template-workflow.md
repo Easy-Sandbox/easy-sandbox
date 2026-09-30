@@ -16,7 +16,7 @@ graph LR
 ## 前置条件
 
 - Docker Desktop 已启动（用于本地构建镜像）
-- Python 3.9+
+- Python 3.10+
 - 安装 SDK（**务必带 `[cli]` 扩展**）：
 
 ```bash

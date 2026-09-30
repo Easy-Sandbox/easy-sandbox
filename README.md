@@ -5,7 +5,7 @@
 <!-- badges -->
 [![CI](https://github.com/Easy-Sandbox/easy-sandbox/actions/workflows/ci.yml/badge.svg)](https://github.com/Easy-Sandbox/easy-sandbox/actions/workflows/ci.yml)
 [![PyPI version](https://img.shields.io/pypi/v/easy-sandbox)](https://pypi.org/project/easy-sandbox/)
-[![Python 3.9+](https://img.shields.io/pypi/pyversions/easy-sandbox)](https://pypi.org/project/easy-sandbox/)
+[![Python 3.10+](https://img.shields.io/pypi/pyversions/easy-sandbox)](https://pypi.org/project/easy-sandbox/)
 [![License](https://img.shields.io/github/license/Easy-Sandbox/easy-sandbox)](LICENSE)
 
 > Cloud sandboxes for AI agents — create, execute, and manage isolated environments in seconds.

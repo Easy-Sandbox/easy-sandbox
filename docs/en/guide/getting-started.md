@@ -6,7 +6,7 @@ This tutorial walks you through the complete sandbox lifecycle, from installatio
 
 ## Prerequisites
 
-- Python 3.9 or later
+- Python 3.10 or later
 - A valid API Key (obtained from the Easy Sandbox platform)
 - Network access to the Alibaba Cloud Hangzhou region (default `cn-hangzhou`)
 

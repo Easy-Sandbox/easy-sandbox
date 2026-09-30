@@ -16,7 +16,7 @@ graph LR
 ## Prerequisites
 
 - Docker Desktop running (for local image builds)
-- Python 3.9+
+- Python 3.10+
 - Install the SDK **with the `[cli]` extra**:
 
 ```bash

@@ -160,7 +160,9 @@ class TestCredentialPriorityEndToEnd:
         assert resolve_github_token() == _ENV_GITHUB
 
         # A one-off argument still beats the environment.
-        assert resolve_llm_env(llm_api_key="sk-placeholder")["DASHSCOPE_API_KEY"] == "sk-placeholder"
+        assert (
+            resolve_llm_env(llm_api_key="sk-placeholder")["DASHSCOPE_API_KEY"] == "sk-placeholder"
+        )
         assert resolve_github_token("ghp-explicit") == "ghp-explicit"
 
     def test_system_config_when_env_and_project_file_omit_the_key(

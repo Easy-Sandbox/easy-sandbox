@@ -6,7 +6,7 @@
 
 ## 前置条件
 
-- Python 3.9 或更高版本
+- Python 3.10 或更高版本
 - 一个有效的 API Key（从 Easy Sandbox 平台获取）
 - 网络可访问阿里云杭州区域（默认 `cn-hangzhou`）
 

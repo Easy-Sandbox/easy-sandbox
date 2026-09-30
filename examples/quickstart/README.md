@@ -4,7 +4,7 @@ Quickstart demos showing core **Easy Sandbox** SDK capabilities — sandbox life
 
 ## Prerequisites
 
-- Python 3.9+
+- Python 3.10+
 - `pip install easy-sandbox` (or dev install from repo root: `pip install -e ".[dev]"`)
 - Environment variables:
 

@@ -42,7 +42,7 @@ unless crossing contexts (e.g. an SDK script inspecting a sandbox created via MC
 
 ## Installation
 
-Python 3.9+ is required.
+Python 3.10+ is required.
 
 ```bash
 pip install "easy-sandbox[cli]"   # ebx CLI + MCP STDIO server (most agents want this)

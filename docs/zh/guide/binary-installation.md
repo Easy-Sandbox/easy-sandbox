@@ -115,7 +115,7 @@ ebx --version
 
 | | 独立二进制 | `pip install "easy-sandbox[cli]"` |
 |---|---|---|
-| 是否需要 Python | 否 | 需要（3.9+） |
+| 是否需要 Python | 否 | 需要（3.10+） |
 | 安装方式 | 下载单个文件 | pip 或任意 Python 包管理器 |
 | 启动速度 | 稍慢（单文件需自解压） | 更快 |
 | 更新方式 | 从 Releases 重新下载 | `pip install -U easy-sandbox` |

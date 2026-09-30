@@ -117,7 +117,7 @@ ebx --version
 
 | | Standalone binary | `pip install "easy-sandbox[cli]"` |
 |---|---|---|
-| Python required | No | Yes (3.9+) |
+| Python required | No | Yes (3.10+) |
 | Install method | Download one file | pip / any Python package manager |
 | Startup time | Slightly slower (one-file self-extraction) | Faster |
 | Update | Re-download from Releases | `pip install -U easy-sandbox` |
